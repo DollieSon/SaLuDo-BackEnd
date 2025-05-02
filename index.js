@@ -9,8 +9,7 @@ app.use(cors());
 
 const URI = process.env.MONGO_URI;
 const client = new MongoClient(URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
+  tls: true,
 });
 
 let db; // Store the database connection
