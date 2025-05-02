@@ -1,24 +1,15 @@
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
+const {MongoClient} = require('mongodb');
 const app = express();
 const PORT = process.env.PORT || 3000;
+require('dotenv').config();
 
 app.use(cors());
 
-const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/mydatabase';
-mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+const URI = process.env.MONGO_URI;
 
-const userSchema = new mongoose.Schema({
-  name: String,
-  email: String,
-  age: Number,
-  hobbies: [String]
-})
-
-const User = mongoose.model('User', userSchema);
+const client = new MongoClient(URI);
 
 app.get('/', (req, res) => {
   res.send('Hello from Render!');
@@ -28,13 +19,23 @@ app.get('/api/data', (req, res) => {
   res.json({ message: 'Here is your data.' });
 });
 
-app.get('/api/users', (req, res) => {
+app.get('/api/users', async (req, res) => {
+  console.log('Fetching users...');
   try{
-   const users =  User.find({});
-   res.json(users);
+    const db = client.db('SaLuDoTesting');
+    console.log('Connected to database:', db.databaseName);
+    const collections = await db.collections();
+    for (const collection of collections) {
+      console.log('Collection name:', collection.collectionName);
+    }
+    const collection = db.collection('SaLuDoDataBase');
+    console.log('Connected to collection:', collection.collectionName);
+    const found = await collection.find().toArray(); // Fetch users from the database
+    console.log('Found users:', found);
+    res.json(found); // Send the users as a JSON response
   }catch(err){
-    console.error('Error fetching users:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.log(err);
+    res.json({error: err.message});
   }
 });
 
