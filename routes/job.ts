@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import { connectDB } from '../mongo_db';
 
 const router = Router();
 const upload = multer();
@@ -31,9 +32,12 @@ router.delete('/:id', (req: Request, res: Response) => {
 */
 
 // POST /jobs - Create a new job
-router.post('/', upload.none(), (req: Request, res: Response) => {
+router.post('/', upload.none(),async (req: Request, res: Response) => {
     console.log('Received job data:', req.body);
     // TODO - Handle job creation logic here, e.g., save to database
+    const db = await connectDB();
+    const newJob = req.body;
+    const result = await db.collection('JobDetails').insertOne(newJob);
     res.send('Create a new job');
 });
 
