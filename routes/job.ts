@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
 
 const router = Router();
+const upload = multer();
+
 /*
 // GET /jobs - List all jobs
 router.get('/', (req: Request, res: Response) => {
@@ -28,8 +31,9 @@ router.delete('/:id', (req: Request, res: Response) => {
 */
 
 // POST /jobs - Create a new job
-router.post('/', (req: Request, res: Response) => {
+router.post('/', upload.none(), (req: Request, res: Response) => {
     console.log('Received job data:', req.body);
+    // TODO - Handle job creation logic here, e.g., save to database
     res.send('Create a new job');
 });
 

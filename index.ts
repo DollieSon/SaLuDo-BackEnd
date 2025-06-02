@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import usersRouter from './routes/users';
-// import jobRouter from './routes/job';
+import jobRouter from './routes/job';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -22,7 +22,7 @@ app.get('/api/data', (req: Request, res: Response) => {
 });
 
 app.use('/api/users', usersRouter);
-// app.use('/api/job', jobRouter);
+app.use('/api/job', jobRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
