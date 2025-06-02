@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import usersRouter from './routes/users';
+import jobRouter from './routes/job';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -16,10 +17,12 @@ app.get('/', (req: Request, res: Response) => {
 });
 
 app.get('/api/data', (req: Request, res: Response) => {
+  console.log('something heheh');
   res.json({ message: 'Here is your data.' });
 });
 
 app.use('/api/users', usersRouter);
+app.use('/api/job', jobRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
