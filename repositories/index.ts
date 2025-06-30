@@ -1,0 +1,3 @@
+// Repository exports for easy importing
+export { BaseRepository } from './BaseRepository';
+export { PersonalInfoRepository, ResumeRepository, InterviewRepository } from './CandidateRepository';
