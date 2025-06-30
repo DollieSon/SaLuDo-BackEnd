@@ -30,7 +30,8 @@ app.get('/api/data', (req: Request, res: Response) => {
 app.use('/api/users', usersRouter);
 app.use('/api/job', jobRouter);
 app.use('/api/candidates', candidatesRouter);
-app.use('/api/candidates', skillsRouter);
+app.use('/api/candidates', skillsRouter);  // Candidate-specific skill routes
+app.use('/api/skills', skillsRouter);       // Global skill routes (search, master data)
 app.use('/api/candidates', experienceRouter);
 app.use('/api/candidates', educationRouter);
 app.use('/api/candidates', certificationsRouter);

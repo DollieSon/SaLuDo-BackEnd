@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaLuDo API Tester</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(45deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            min-height: 600px;
+        }
+
+        .sidebar {
+            background: #f8f9fa;
+            padding: 30px;
+            border-right: 1px solid #e9ecef;
+        }
+
+        .content-area {
+            padding: 30px;
+        }
+
+        .section {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .section-header {
+            background: #343a40;
+            color: white;
+            padding: 15px 20px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .section-header:hover {
+            background: #495057;
+        }
+
+        .section-content {
+            padding: 20px;
+            display: none;
+        }
+
+        .section.active .section-content {
+            display: block;
+        }
+
+        .toggle-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .section.active .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #343a40;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e9ecef;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #4facfe;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(45deg, #6c757d 0%, #495057 100%);
+        }
+
+        .btn-danger {
+            background: linear-gradient(45deg, #dc3545 0%, #c82333 100%);
+        }
+
+        .btn-success {
+            background: linear-gradient(45deg, #28a745 0%, #20c997 100%);
+        }
+
+        .response-area {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 20px;
+            min-height: 200px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-y: auto;
+            max-height: 400px;
+        }
+
+        .response-success {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+
+        .response-error {
+            border-color: #dc3545;
+            background: #f8d7da;
+        }
+
+        .candidate-list {
+            margin-top: 20px;
+        }
+
+        .candidate-item {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .candidate-item:hover {
+            background: #e9ecef;
+        }
+
+        .candidate-item.selected {
+            background: #d4edda;
+            border-color: #28a745;
+        }
+
+        .candidate-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-badges {
+            margin-top: 10px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 5px;
+        }
+
+        .badge-applied { background: #cce5ff; color: #0066cc; }
+        .badge-screening { background: #fff2cc; color: #cc9900; }
+        .badge-interviewed { background: #d4edda; color: #155724; }
+        .badge-offered { background: #d1ecf1; color: #0c5460; }
+        .badge-hired { background: #d4edda; color: #155724; }
+        .badge-rejected { background: #f8d7da; color: #721c24; }
+
+        .loading {
+            display: none;
+            color: #4facfe;
+            font-style: italic;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar {
+                border-right: none;
+                border-bottom: 1px solid #e9ecef;
+            }
+        }
+
+        .quick-actions {
+            background: #e9ecef;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .quick-actions h3 {
+            margin-bottom: 15px;
+            color: #343a40;
+        }
+
+        .endpoint-url {
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-bottom: 10px;
+            border-left: 4px solid #4facfe;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 SaLuDo API Tester</h1>
+            <p>Test your modular REST API endpoints with this interactive interface</p>
+        </div>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <div class="quick-actions">
+                    <h3>🎯 Quick Actions</h3>
+                    <button class="btn" onclick="loadCandidates()">📋 Load All Candidates</button>
+                    <button class="btn btn-secondary" onclick="clearResponses()">🧹 Clear Responses</button>
+                    <button class="btn btn-success" onclick="createSampleCandidate()">👤 Create Sample Candidate</button>
+                </div>
+
+                <div class="candidate-list">
+                    <h3>📁 Candidates</h3>
+                    <div id="candidatesList">
+                        <p style="color: #6c757d; font-style: italic;">Click "Load All Candidates" to see candidates</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-area">
+                <!-- Core Candidates Section -->
+                <div class="section active">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <span>👥 Core Candidates</span>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint-url">GET /api/candidates</div>
+                        <button class="btn" onclick="loadCandidates()">Get All Candidates</button>
+                        
+                        <div class="endpoint-url">POST /api/candidates</div>
+                        <div class="form-group">
+                            <label for="candidateName">Name *</label>
+                            <input type="text" id="candidateName" placeholder="John Doe">
+                        </div>
+                        <div class="form-group">
+                            <label for="candidateEmail">Email *</label>
+                            <input type="email" id="candidateEmail" placeholder="john@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="candidateBirthdate">Birthdate *</label>
+                            <input type="date" id="candidateBirthdate">
+                        </div>
+                        <div class="form-group">
+                            <label for="candidateRole">Role Applied *</label>
+                            <input type="text" id="candidateRole" placeholder="Software Engineer">
+                        </div>
+                        <div class="form-group">
+                            <label for="candidateResume">Resume File * (PDF, DOC, DOCX - Max 10MB)</label>
+                            <input type="file" id="candidateResume" accept=".pdf,.doc,.docx" required>
+                        </div>
+                        <button class="btn" onclick="createCandidate()">Create Candidate</button>
+
+                        <div class="endpoint-url">Resume Management</div>
+                        <div class="form-group">
+                            <label for="resumeCandidateId">Candidate ID</label>
+                            <input type="text" id="resumeCandidateId" placeholder="Select a candidate first">
+                        </div>
+                        <button class="btn" onclick="downloadResume()">Download Resume</button>
+                        <button class="btn" onclick="getResumeMetadata()">Get Resume Metadata</button>
+                        
+                        <div class="form-group">
+                            <label for="newResumeFile">New Resume File (PDF, DOC, DOCX - Max 10MB)</label>
+                            <input type="file" id="newResumeFile" accept=".pdf,.doc,.docx">
+                        </div>
+                        <button class="btn" onclick="updateResume()">Update Resume</button>
+                        <button class="btn" onclick="deleteResume()">Delete Resume</button>
+                        <button class="btn" onclick="parseResume()">Parse Resume (Coming Soon)</button>
+
+                        <div class="endpoint-url">GET /api/candidates/:id/full</div>
+                        <div class="form-group">
+                            <label for="candidateIdFull">Candidate ID</label>
+                            <input type="text" id="candidateIdFull" placeholder="Click on a candidate or enter ID">
+                        </div>
+                        <button class="btn" onclick="getFullProfile()">Get Full Profile</button>
+                    </div>
+                </div>
+
+                <!-- Skills Section -->
+                <div class="section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <span>⚡ Skills Management</span>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint-url">GET /api/candidates/:candidateId/skills</div>
+                        <div class="form-group">
+                            <label for="skillsCandidateId">Candidate ID</label>
+                            <input type="text" id="skillsCandidateId" placeholder="Select a candidate first">
+                        </div>
+                        <div class="form-group">
+                            <label for="includeUnaccepted">Include Unaccepted Skills</label>
+                            <select id="includeUnaccepted">
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                            </select>
+                        </div>
+                        <button class="btn" onclick="getSkills()">Get Skills</button>
+
+                        <div class="endpoint-url">POST /api/candidates/:candidateId/skills</div>
+                        <div class="form-group">
+                            <label for="skillName">Skill Name *</label>
+                            <input type="text" id="skillName" placeholder="JavaScript">
+                        </div>
+                        <div class="form-group">
+                            <label for="skillScore">Score (1-10) *</label>
+                            <input type="number" id="skillScore" min="1" max="10" placeholder="8">
+                        </div>
+                        <div class="form-group">
+                            <label for="skillEvidence">Evidence</label>
+                            <textarea id="skillEvidence" rows="2" placeholder="Built multiple React applications"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="skillAddedBy">Added By</label>
+                            <select id="skillAddedBy">
+                                <option value="HUMAN">HUMAN</option>
+                                <option value="AI">AI</option>
+                            </select>
+                        </div>
+                        <button class="btn" onclick="addSkill()">Add Skill</button>
+
+                        <div class="endpoint-url">POST /api/candidates/:candidateId/skills/bulk</div>
+                        <div class="form-group">
+                            <label for="bulkSkills">Bulk Skills (JSON Array)</label>
+                            <textarea id="bulkSkills" rows="6" placeholder='[
+  {"skillName": "JavaScript", "score": 8, "evidence": "React projects", "addedBy": "HUMAN"},
+  {"skillName": "TypeScript", "score": 7, "evidence": "Backend development", "addedBy": "HUMAN"}
+]'></textarea>
+                        </div>
+                        <button class="btn" onclick="addBulkSkills()">Add Bulk Skills</button>
+
+                        <div class="endpoint-url">GET /api/skills/search/:skillName</div>
+                        <div class="form-group">
+                            <label for="searchSkillName">Search Skill Name</label>
+                            <input type="text" id="searchSkillName" placeholder="javascript">
+                        </div>
+                        <button class="btn" onclick="searchSkills()">Search Skills</button>
+
+                        <div class="endpoint-url">GET /api/skills/candidates/:skillName</div>
+                        <div class="form-group">
+                            <label for="candidatesSkillName">Skill Name</label>
+                            <input type="text" id="candidatesSkillName" placeholder="javascript">
+                        </div>
+                        <button class="btn" onclick="getCandidatesWithSkill()">Get Candidates with Skill</button>
+                    </div>
+                </div>
+
+                <!-- Experience Section -->
+                <div class="section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <span>💼 Experience Management</span>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint-url">GET /api/candidates/:candidateId/experience</div>
+                        <div class="form-group">
+                            <label for="expCandidateId">Candidate ID</label>
+                            <input type="text" id="expCandidateId" placeholder="Select a candidate first">
+                        </div>
+                        <button class="btn" onclick="getExperience()">Get Experience</button>
+
+                        <div class="endpoint-url">POST /api/candidates/:candidateId/experience</div>
+                        <div class="form-group">
+                            <label for="expCompany">Company *</label>
+                            <input type="text" id="expCompany" placeholder="Tech Corp">
+                        </div>
+                        <div class="form-group">
+                            <label for="expPosition">Position *</label>
+                            <input type="text" id="expPosition" placeholder="Software Engineer">
+                        </div>
+                        <div class="form-group">
+                            <label for="expStartDate">Start Date *</label>
+                            <input type="date" id="expStartDate">
+                        </div>
+                        <div class="form-group">
+                            <label for="expEndDate">End Date</label>
+                            <input type="date" id="expEndDate">
+                        </div>
+                        <div class="form-group">
+                            <label for="expDescription">Description</label>
+                            <textarea id="expDescription" rows="3" placeholder="Developed web applications..."></textarea>
+                        </div>
+                        <button class="btn" onclick="addExperience()">Add Experience</button>
+                    </div>
+                </div>
+
+                <!-- Education Section -->
+                <div class="section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <span>🎓 Education Management</span>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint-url">GET /api/candidates/:candidateId/education</div>
+                        <div class="form-group">
+                            <label for="eduCandidateId">Candidate ID</label>
+                            <input type="text" id="eduCandidateId" placeholder="Select a candidate first">
+                        </div>
+                        <button class="btn" onclick="getEducation()">Get Education</button>
+
+                        <div class="endpoint-url">POST /api/candidates/:candidateId/education</div>
+                        <div class="form-group">
+                            <label for="eduInstitution">Institution *</label>
+                            <input type="text" id="eduInstitution" placeholder="University of Technology">
+                        </div>
+                        <div class="form-group">
+                            <label for="eduDegree">Degree</label>
+                            <input type="text" id="eduDegree" placeholder="Bachelor of Computer Science">
+                        </div>
+                        <div class="form-group">
+                            <label for="eduStartDate">Start Date *</label>
+                            <input type="date" id="eduStartDate">
+                        </div>
+                        <div class="form-group">
+                            <label for="eduEndDate">End Date</label>
+                            <input type="date" id="eduEndDate">
+                        </div>
+                        <div class="form-group">
+                            <label for="eduDescription">Description</label>
+                            <textarea id="eduDescription" rows="2" placeholder="Computer Science with focus on..."></textarea>
+                        </div>
+                        <button class="btn" onclick="addEducation()">Add Education</button>
+                    </div>
+                </div>
+
+                <!-- Certifications Section -->
+                <div class="section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <span>🏆 Certifications</span>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint-url">GET /api/candidates/:candidateId/certifications</div>
+                        <div class="form-group">
+                            <label for="certCandidateId">Candidate ID</label>
+                            <input type="text" id="certCandidateId" placeholder="Select a candidate first">
+                        </div>
+                        <button class="btn" onclick="getCertifications()">Get Certifications</button>
+
+                        <div class="endpoint-url">POST /api/candidates/:candidateId/certifications</div>
+                        <div class="form-group">
+                            <label for="certName">Certification Name *</label>
+                            <input type="text" id="certName" placeholder="AWS Solutions Architect">
+                        </div>
+                        <div class="form-group">
+                            <label for="certIssuedBy">Issued By *</label>
+                            <input type="text" id="certIssuedBy" placeholder="Amazon Web Services">
+                        </div>
+                        <div class="form-group">
+                            <label for="certDateIssued">Date Issued</label>
+                            <input type="date" id="certDateIssued">
+                        </div>
+                        <div class="form-group">
+                            <label for="certExpiryDate">Expiry Date</label>
+                            <input type="date" id="certExpiryDate">
+                        </div>
+                        <div class="form-group">
+                            <label for="certCredentialId">Credential ID</label>
+                            <input type="text" id="certCredentialId" placeholder="AWS-SA-123456">
+                        </div>
+                        <button class="btn" onclick="addCertification()">Add Certification</button>
+                    </div>
+                </div>
+
+                <!-- Strengths & Weaknesses Section -->
+                <div class="section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <span>💪 Strengths & Weaknesses</span>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint-url">GET /api/candidates/:candidateId/strengths-weaknesses</div>
+                        <div class="form-group">
+                            <label for="swCandidateId">Candidate ID</label>
+                            <input type="text" id="swCandidateId" placeholder="Select a candidate first">
+                        </div>
+                        <button class="btn" onclick="getStrengthsWeaknesses()">Get Strengths & Weaknesses</button>
+
+                        <div class="endpoint-url">POST /api/candidates/:candidateId/strengths-weaknesses</div>
+                        <div class="form-group">
+                            <label for="swType">Type *</label>
+                            <select id="swType">
+                                <option value="">Select type...</option>
+                                <option value="strength">Strength</option>
+                                <option value="weakness">Weakness</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="swDescription">Description *</label>
+                            <textarea id="swDescription" rows="2" placeholder="Excellent problem-solving skills..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="swCategory">Category</label>
+                            <input type="text" id="swCategory" placeholder="Technical">
+                        </div>
+                        <button class="btn" onclick="addStrengthWeakness()">Add Strength/Weakness</button>
+                    </div>
+                </div>
+
+                <!-- Response Area -->
+                <div class="section active">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <span>📊 API Response</span>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="loading" id="loading">⏳ Loading...</div>
+                        <div class="response-area" id="responseArea">
+                            <p style="color: #6c757d; font-style: italic;">API responses will appear here...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000/api';
+        let selectedCandidateId = null;
+
+        // Toggle section visibility
+        function toggleSection(header) {
+            const section = header.parentElement;
+            section.classList.toggle('active');
+        }
+
+        // Set loading state
+        function setLoading(isLoading) {
+            const loading = document.getElementById('loading');
+            loading.style.display = isLoading ? 'block' : 'none';
+        }
+
+        // Display API response
+        function displayResponse(response, isError = false) {
+            const responseArea = document.getElementById('responseArea');
+            responseArea.className = `response-area ${isError ? 'response-error' : 'response-success'}`;
+            responseArea.innerHTML = `<pre>${JSON.stringify(response, null, 2)}</pre>`;
+            setLoading(false);
+        }
+
+        // Clear responses
+        function clearResponses() {
+            const responseArea = document.getElementById('responseArea');
+            responseArea.className = 'response-area';
+            responseArea.innerHTML = '<p style="color: #6c757d; font-style: italic;">API responses will appear here...</p>';
+        }
+
+        // Make API request
+        async function makeRequest(method, endpoint, data = null) {
+            setLoading(true);
+            try {
+                const options = {
+                    method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                };
+                
+                if (data) {
+                    options.body = JSON.stringify(data);
+                }
+
+                const response = await fetch(`${API_BASE}${endpoint}`, options);
+                const result = await response.json();
+                
+                displayResponse(result, !response.ok);
+                return result;
+            } catch (error) {
+                displayResponse({ error: error.message }, true);
+                return null;
+            }
+        }
+
+        // File upload request function
+        async function makeFileRequest(method, endpoint, formData) {
+            setLoading(true);
+            try {
+                const options = {
+                    method,
+                    body: formData
+                };
+
+                const response = await fetch(`${API_BASE}${endpoint}`, options);
+                const result = await response.json();
+                
+                displayResponse(result, !response.ok);
+                return result;
+            } catch (error) {
+                displayResponse({ error: error.message }, true);
+                return null;
+            }
+        }
+
+        // Select candidate
+        function selectCandidate(candidateId, candidateName) {
+            selectedCandidateId = candidateId;
+            
+            // Update all candidate ID fields
+            document.getElementById('candidateIdFull').value = candidateId;
+            document.getElementById('skillsCandidateId').value = candidateId;
+            document.getElementById('expCandidateId').value = candidateId;
+            document.getElementById('eduCandidateId').value = candidateId;
+            document.getElementById('certCandidateId').value = candidateId;
+            document.getElementById('swCandidateId').value = candidateId;
+            document.getElementById('resumeCandidateId').value = candidateId;
+
+            // Update visual selection
+            document.querySelectorAll('.candidate-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            event.target.closest('.candidate-item').classList.add('selected');
+        }
+
+        // Load and display candidates
+        async function loadCandidates() {
+            const result = await makeRequest('GET', '/candidates');
+            if (result && result.success && result.data) {
+                const candidatesList = document.getElementById('candidatesList');
+                candidatesList.innerHTML = '';
+                
+                result.data.forEach(candidate => {
+                    const candidateItem = document.createElement('div');
+                    candidateItem.className = 'candidate-item';
+                    candidateItem.onclick = () => selectCandidate(candidate.candidateId, candidate.name);
+                    
+                    candidateItem.innerHTML = `
+                        <div class="candidate-info">
+                            <div>
+                                <strong>${candidate.name}</strong><br>
+                                <small>${candidate.email ? candidate.email.join(', ') : 'No email'}</small><br>
+                                <small>Role: ${candidate.roleApplied}</small>
+                            </div>
+                            <div>
+                                <span class="badge badge-${candidate.status.toLowerCase()}">${candidate.status}</span>
+                            </div>
+                        </div>
+                    `;
+                    
+                    candidatesList.appendChild(candidateItem);
+                });
+            }
+        }
+
+        // Create sample candidate
+        async function createSampleCandidate() {
+            const sampleData = {
+                name: "Alice Johnson",
+                email: "alice.johnson@example.com",
+                birthdate: "1992-05-15",
+                roleApplied: "Full Stack Developer"
+            };
+            
+            const result = await makeRequest('POST', '/candidates', sampleData);
+            if (result && result.success) {
+                loadCandidates(); // Refresh the list
+            }
+        }
+
+        // Core Candidate Functions
+        async function createCandidate() {
+            const resumeFile = document.getElementById('candidateResume').files[0];
+            if (!resumeFile) {
+                alert('Please select a resume file');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('name', document.getElementById('candidateName').value);
+            formData.append('email', document.getElementById('candidateEmail').value);
+            formData.append('birthdate', document.getElementById('candidateBirthdate').value);
+            formData.append('roleApplied', document.getElementById('candidateRole').value);
+            formData.append('resume', resumeFile);
+            
+            const result = await makeFileRequest('POST', '/candidates', formData);
+            if (result && result.success) {
+                loadCandidates(); // Refresh the list
+                // Clear form
+                document.getElementById('candidateName').value = '';
+                document.getElementById('candidateEmail').value = '';
+                document.getElementById('candidateBirthdate').value = '';
+                document.getElementById('candidateRole').value = '';
+                document.getElementById('candidateResume').value = '';
+            }
+        }
+
+        async function getFullProfile() {
+            const candidateId = document.getElementById('candidateIdFull').value;
+            if (!candidateId) {
+                alert('Please select a candidate or enter a candidate ID');
+                return;
+            }
+            await makeRequest('GET', `/candidates/${candidateId}/full`);
+        }
+
+        // Resume Management Functions
+        async function downloadResume() {
+            const candidateId = document.getElementById('resumeCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/candidates/${candidateId}/resume`);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `resume_${candidateId}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    
+                    displayResult({
+                        success: true,
+                        message: 'Resume downloaded successfully'
+                    });
+                } else {
+                    const error = await response.json();
+                    displayResult(error);
+                }
+            } catch (error) {
+                displayResult({
+                    success: false,
+                    message: 'Failed to download resume'
+                });
+            }
+        }
+
+        async function getResumeMetadata() {
+            const candidateId = document.getElementById('resumeCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            await makeRequest('GET', `/candidates/${candidateId}/resume/metadata`);
+        }
+
+        async function updateResume() {
+            const candidateId = document.getElementById('resumeCandidateId').value;
+            const resumeFile = document.getElementById('newResumeFile').files[0];
+            
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            if (!resumeFile) {
+                alert('Please select a resume file');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('resume', resumeFile);
+            
+            const result = await makeFileRequest('PUT', `/candidates/${candidateId}/resume`, formData);
+            if (result && result.success) {
+                document.getElementById('newResumeFile').value = '';
+            }
+        }
+
+        async function deleteResume() {
+            const candidateId = document.getElementById('resumeCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            if (confirm('Are you sure you want to delete this resume?')) {
+                await makeRequest('DELETE', `/candidates/${candidateId}/resume`);
+            }
+        }
+
+        async function parseResume() {
+            const candidateId = document.getElementById('resumeCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            await makeRequest('POST', `/candidates/${candidateId}/resume/parse`);
+        }
+
+        // Skills Functions
+        async function getSkills() {
+            const candidateId = document.getElementById('skillsCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            const includeUnaccepted = document.getElementById('includeUnaccepted').value;
+            const url = `/candidates/${candidateId}/skills?includeUnaccepted=${includeUnaccepted}`;
+            await makeRequest('GET', url);
+        }
+
+        async function addSkill() {
+            const candidateId = document.getElementById('skillsCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            const data = {
+                skillName: document.getElementById('skillName').value,
+                score: parseInt(document.getElementById('skillScore').value),
+                evidence: document.getElementById('skillEvidence').value,
+                addedBy: document.getElementById('skillAddedBy').value
+            };
+            
+            await makeRequest('POST', `/candidates/${candidateId}/skills`, data);
+        }
+
+        async function addBulkSkills() {
+            const candidateId = document.getElementById('skillsCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            try {
+                const skills = JSON.parse(document.getElementById('bulkSkills').value);
+                const data = { skills };
+                await makeRequest('POST', `/candidates/${candidateId}/skills/bulk`, data);
+            } catch (error) {
+                alert('Invalid JSON format in bulk skills');
+            }
+        }
+
+        async function searchSkills() {
+            const skillName = document.getElementById('searchSkillName').value;
+            if (!skillName) {
+                alert('Please enter a skill name to search');
+                return;
+            }
+            await makeRequest('GET', `/skills/search/${encodeURIComponent(skillName)}`);
+        }
+
+        async function getCandidatesWithSkill() {
+            const skillName = document.getElementById('candidatesSkillName').value;
+            if (!skillName) {
+                alert('Please enter a skill name');
+                return;
+            }
+            await makeRequest('GET', `/skills/candidates/${encodeURIComponent(skillName)}`);
+        }
+
+        // Experience Functions
+        async function getExperience() {
+            const candidateId = document.getElementById('expCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            await makeRequest('GET', `/candidates/${candidateId}/experience`);
+        }
+
+        async function addExperience() {
+            const candidateId = document.getElementById('expCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            const data = {
+                company: document.getElementById('expCompany').value,
+                position: document.getElementById('expPosition').value,
+                startDate: document.getElementById('expStartDate').value,
+                endDate: document.getElementById('expEndDate').value,
+                description: document.getElementById('expDescription').value
+            };
+            
+            await makeRequest('POST', `/candidates/${candidateId}/experience`, data);
+        }
+
+        // Education Functions
+        async function getEducation() {
+            const candidateId = document.getElementById('eduCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            await makeRequest('GET', `/candidates/${candidateId}/education`);
+        }
+
+        async function addEducation() {
+            const candidateId = document.getElementById('eduCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            const data = {
+                institution: document.getElementById('eduInstitution').value,
+                degree: document.getElementById('eduDegree').value,
+                startDate: document.getElementById('eduStartDate').value,
+                endDate: document.getElementById('eduEndDate').value,
+                description: document.getElementById('eduDescription').value
+            };
+            
+            await makeRequest('POST', `/candidates/${candidateId}/education`, data);
+        }
+
+        // Certification Functions
+        async function getCertifications() {
+            const candidateId = document.getElementById('certCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            await makeRequest('GET', `/candidates/${candidateId}/certifications`);
+        }
+
+        async function addCertification() {
+            const candidateId = document.getElementById('certCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            const data = {
+                name: document.getElementById('certName').value,
+                issuedBy: document.getElementById('certIssuedBy').value,
+                dateIssued: document.getElementById('certDateIssued').value,
+                expiryDate: document.getElementById('certExpiryDate').value,
+                credentialId: document.getElementById('certCredentialId').value
+            };
+            
+            await makeRequest('POST', `/candidates/${candidateId}/certifications`, data);
+        }
+
+        // Strengths & Weaknesses Functions
+        async function getStrengthsWeaknesses() {
+            const candidateId = document.getElementById('swCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            await makeRequest('GET', `/candidates/${candidateId}/strengths-weaknesses`);
+        }
+
+        async function addStrengthWeakness() {
+            const candidateId = document.getElementById('swCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            const data = {
+                type: document.getElementById('swType').value,
+                description: document.getElementById('swDescription').value,
+                category: document.getElementById('swCategory').value
+            };
+            
+            await makeRequest('POST', `/candidates/${candidateId}/strengths-weaknesses`, data);
+        }
+
+        // Load candidates on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCandidates();
+        });
+    </script>
+</body>
+</html>

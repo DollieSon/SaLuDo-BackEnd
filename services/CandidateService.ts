@@ -1,11 +1,12 @@
 import { connectDB } from '../mongo_db';
 import { PersonalInfoRepository, ResumeRepository, InterviewRepository } from '../repositories/CandidateRepository';
-import { Candidate, CandidateData, CandidateStatus } from '../Models/Candidate';
+import { Candidate, CandidateData, CandidateStatus, ResumeMetadata } from '../Models/Candidate';
 import { Skill, CreateSkillData } from '../Models/Skill';
 import { Experience, CreateExperienceData } from '../Models/Experience';
 import { Education, CreateEducationData } from '../Models/Education';
 import { Certification, CreateCertificationData } from '../Models/Certification';
 import { StrengthWeakness, CreateStrengthWeaknessData } from '../Models/StrengthWeakness';
+import { GridFSBucket, ObjectId } from 'mongodb';
 
 /**
  * Service class that's absolutely serving candidate business logic
@@ -36,19 +37,52 @@ export class CandidateService {
     }
 
     /**
-     * Creates a new candidate
-     * Manifesting a new candidate into existence like we're casting spells
+     * Creates a new candidate with file handling support
      */
     async addCandidate(
         name: string,
         email: string[],
         birthdate: Date,
         roleApplied: string,
-        resume?: string
+        resumeFile?: Express.Multer.File
     ): Promise<Candidate> {
         await this.init();
 
         try {
+            // Handle resume file upload if provided
+            let resumeMetadata: ResumeMetadata | undefined;
+            if (resumeFile) {
+                const db = await connectDB();
+                const bucket = new GridFSBucket(db, { bucketName: 'resumes' });
+                
+                // Upload file to GridFS
+                const uploadStream = bucket.openUploadStream(resumeFile.originalname, {
+                    metadata: {
+                        contentType: resumeFile.mimetype,
+                        uploadedBy: 'candidate',
+                        candidateId: '', // Will be updated after candidate creation
+                    }
+                });
+
+                const fileId = uploadStream.id;
+                uploadStream.end(resumeFile.buffer);
+
+                // Wait for upload to complete
+                await new Promise((resolve, reject) => {
+                    uploadStream.on('finish', resolve);
+                    uploadStream.on('error', reject);
+                });
+
+                resumeMetadata = {
+                    fileId: fileId.toString(),
+                    filename: resumeFile.originalname,
+                    contentType: resumeFile.mimetype,
+                    size: resumeFile.size,
+                    uploadedAt: new Date(),
+                    parseStatus: 'pending'
+                };
+            }
+
             // Create personal info
             const personalInfo = await this.personalInfoRepo.create({
                 name,
@@ -59,10 +93,10 @@ export class CandidateService {
                 isDeleted: false
             });
 
-            // Create empty resume data
+            // Create resume data with metadata
             await this.resumeRepo.create({
                 candidateId: personalInfo.candidateId,
-                resume,
+                resume: resumeMetadata,
                 skills: [],
                 experience: [],
                 education: [],
@@ -71,10 +105,19 @@ export class CandidateService {
                 weaknesses: []
             });
 
+            // Update GridFS metadata with candidateId
+            if (resumeMetadata) {
+                const db = await connectDB();
+                await db.collection('resumes.files').updateOne(
+                    { _id: new ObjectId(resumeMetadata.fileId) },
+                    { $set: { 'metadata.candidateId': personalInfo.candidateId } }
+                );
+            }
+
             // Create empty interview data
             await this.interviewRepo.create({
                 candidateId: personalInfo.candidateId,
-                transcripts: [] // Starting with no tea to spill yet 
+                transcripts: []
             });
 
             // Create and return candidate object
@@ -84,7 +127,7 @@ export class CandidateService {
                 email,
                 birthdate,
                 roleApplied,
-                resume,
+                resumeMetadata,
                 CandidateStatus.APPLIED,
                 personalInfo.dateCreated,
                 personalInfo.dateUpdated
@@ -308,6 +351,163 @@ export class CandidateService {
         } catch (error) {
             console.error('Error downloading transcript:', error);
             throw new Error('Failed to download transcript');
+        }
+    }
+
+    /**
+     * Get resume file stream for download
+     */
+    async getResumeFile(candidateId: string): Promise<{ stream: any; metadata: any } | null> {
+        await this.init();
+
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            if (!resumeData?.resume) {
+                return null;
+            }
+
+            const db = await connectDB();
+            const bucket = new GridFSBucket(db, { bucketName: 'resumes' });
+            
+            const fileId = new ObjectId(resumeData.resume.fileId);
+            const fileInfo = await db.collection('resumes.files').findOne({ _id: fileId });
+            
+            if (!fileInfo) {
+                return null;
+            }
+
+            const downloadStream = bucket.openDownloadStream(fileId);
+            
+            return {
+                stream: downloadStream,
+                metadata: {
+                    filename: resumeData.resume.filename,
+                    contentType: resumeData.resume.contentType,
+                    size: resumeData.resume.size
+                }
+            };
+        } catch (error) {
+            console.error('Error getting resume file:', error);
+            throw new Error('Failed to retrieve resume file');
+        }
+    }
+
+    /**
+     * Update candidate resume file
+     */
+    async updateResumeFile(candidateId: string, resumeFile: Express.Multer.File): Promise<void> {
+        await this.init();
+
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            if (!resumeData) {
+                throw new Error('Candidate not found');
+            }
+
+            const db = await connectDB();
+            const bucket = new GridFSBucket(db, { bucketName: 'resumes' });
+
+            // Delete old file if exists
+            if (resumeData.resume?.fileId) {
+                try {
+                    await bucket.delete(new ObjectId(resumeData.resume.fileId));
+                } catch (error) {
+                    console.log('Old resume file not found, continuing with upload');
+                }
+            }
+
+            // Upload new file
+            const uploadStream = bucket.openUploadStream(resumeFile.originalname, {
+                metadata: {
+                    contentType: resumeFile.mimetype,
+                    uploadedBy: 'candidate',
+                    candidateId: candidateId,
+                }
+            });
+
+            const fileId = uploadStream.id;
+            uploadStream.end(resumeFile.buffer);
+
+            // Wait for upload to complete
+            await new Promise((resolve, reject) => {
+                uploadStream.on('finish', resolve);
+                uploadStream.on('error', reject);
+            });
+
+            // Update resume metadata
+            const newResumeMetadata: ResumeMetadata = {
+                fileId: fileId.toString(),
+                filename: resumeFile.originalname,
+                contentType: resumeFile.mimetype,
+                size: resumeFile.size,
+                uploadedAt: new Date(),
+                parseStatus: 'pending'
+            };
+
+            await this.resumeRepo.update(candidateId, {
+                resume: newResumeMetadata
+            });
+        } catch (error) {
+            console.error('Error updating resume file:', error);
+            throw new Error('Failed to update resume file');
+        }
+    }
+
+    /**
+     * Delete candidate resume file
+     */
+    async deleteResumeFile(candidateId: string): Promise<void> {
+        await this.init();
+
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            if (!resumeData?.resume) {
+                return; // No resume to delete
+            }
+
+            const db = await connectDB();
+            const bucket = new GridFSBucket(db, { bucketName: 'resumes' });
+
+            // Delete file from GridFS
+            await bucket.delete(new ObjectId(resumeData.resume.fileId));
+
+            // Update resume data to remove metadata
+            await this.resumeRepo.update(candidateId, {
+                resume: undefined
+            });
+        } catch (error) {
+            console.error('Error deleting resume file:', error);
+            throw new Error('Failed to delete resume file');
+        }
+    }
+
+    /**
+     * Check if candidate has a resume file
+     */
+    async hasResume(candidateId: string): Promise<boolean> {
+        await this.init();
+
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            return !!resumeData?.resume?.fileId;
+        } catch (error) {
+            console.error('Error checking resume existence:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get resume metadata without file content
+     */
+    async getResumeMetadata(candidateId: string): Promise<ResumeMetadata | null> {
+        await this.init();
+
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            return resumeData?.resume || null;
+        } catch (error) {
+            console.error('Error getting resume metadata:', error);
+            throw new Error('Failed to retrieve resume metadata');
         }
     }
 }

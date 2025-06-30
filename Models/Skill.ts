@@ -1,61 +1,87 @@
+import { ObjectId } from 'mongodb';
+
 /**
- * Skill class that's absolutely SENDING me 
- * This bad boy holds all the tea on candidate skills fr fr no cap
- * Like literally their whole skillset is about to be exposed bestie
+ * Enum for tracking who added a skill
+ */
+export enum AddedBy {
+    AI = 'AI',
+    HUMAN = 'HUMAN'
+}
+
+/**
+ * Skill class for candidate skills with SkillMaster reference
+ * This represents a candidate's proficiency in a specific skill
+ * References the SkillMaster collection for normalized skill data
  */
 export class Skill {
-    public skillId: string;
-    public skillName: string;
-    public evidenceReason: string;
-    public score: number;
-    public addedAt: Date;
-    public addedBy: 'AI' | 'HR';
+    public candidateSkillId: string;     // Unique ID for this candidate-skill relationship
+    public skillId: string;              // Foreign key to SkillMaster collection
+    public evidence: string;             // Evidence of this skill (resume text, certification, etc.)
+    public score: number;                // Proficiency level 1-10
+    public addedAt: Date;                // When this skill was added
+    public addedBy: AddedBy;             // Who added it (AI or Human)
 
     constructor(
+        candidateSkillId: string,
         skillId: string,
-        skillName: string,
-        evidenceReason: string,
+        evidence: string,
         score: number,
-        addedBy: 'AI' | 'HR',
+        addedBy: AddedBy,
         addedAt?: Date
     ) {
+        this.candidateSkillId = candidateSkillId;
         this.skillId = skillId;
-        this.skillName = skillName;
-        this.evidenceReason = evidenceReason;
+        this.evidence = evidence;
         this.score = score;
         this.addedBy = addedBy;
         this.addedAt = addedAt || new Date();
 
-        // Validate score range (can't be cappin' about your skills bestie)
-        if (score < 0 || score > 100) {
-            throw new Error('Score must be between 0 and 100');
+        // Validate score range (1-10)
+        if (score < 1 || score > 10) {
+            throw new Error('Score must be between 1 and 10');
         }
     }
 
     /**
-     * Creates a new Skill instance from a plain object
-     * This function is straight up GOATED, no printer just fax
+     * Create a new Skill instance
      */
-    static fromObject(obj: any): Skill {
+    static create(
+        skillId: string,
+        evidence: string,
+        score: number,
+        addedBy: AddedBy
+    ): Skill {
         return new Skill(
+            new ObjectId().toString(),
+            skillId,
+            evidence,
+            score,
+            addedBy
+        );
+    }
+
+    /**
+     * Creates a Skill instance from a database object
+     */
+    static fromObject(obj: SkillData): Skill {
+        return new Skill(
+            obj.candidateSkillId,
             obj.skillId,
-            obj.skillName,
-            obj.evidenceReason,
+            obj.evidence,
             obj.score,
-            obj.addedBy,
+            obj.addedBy as AddedBy,
             obj.addedAt ? new Date(obj.addedAt) : undefined
         );
     }
 
     /**
-     * Converts the Skill instance to a plain object
-     * Lowkey this is giving JSON energy, periodt
+     * Converts the Skill instance to a database object
      */
     toObject(): SkillData {
         return {
+            candidateSkillId: this.candidateSkillId,
             skillId: this.skillId,
-            skillName: this.skillName,
-            evidenceReason: this.evidenceReason,
+            evidence: this.evidence,
             score: this.score,
             addedAt: this.addedAt,
             addedBy: this.addedBy
@@ -64,56 +90,89 @@ export class Skill {
 
     /**
      * Updates the skill score and evidence
-     * When the candidate's skills get a glow up
      */
-    updateScore(newScore: number, newEvidence: string, updatedBy: 'AI' | 'HR'): void {
-        if (newScore < 0 || newScore > 100) {
-            throw new Error('Score must be between 0 and 100');
+    updateScore(newScore: number, newEvidence: string, updatedBy: AddedBy): void {
+        if (newScore < 1 || newScore > 10) {
+            throw new Error('Score must be between 1 and 10');
         }
         
         this.score = newScore;
-        this.evidenceReason = newEvidence;
+        this.evidence = newEvidence;
         this.addedBy = updatedBy;
         this.addedAt = new Date();
     }
 
     /**
-     * Returns a string representation of the skill
-     * This method is literally giving main character energy
+     * Update evidence for this skill
      */
-    toString(): string {
-        return `${this.skillName}: ${this.score}/100 (Added by ${this.addedBy} on ${this.addedAt.toDateString()})`;
+    updateEvidence(newEvidence: string, updatedBy: AddedBy): void {
+        this.evidence = newEvidence;
+        this.addedBy = updatedBy;
+        this.addedAt = new Date();
     }
 
     /**
      * Checks if the skill score is above a certain threshold
-     * Is this skill slaying or nah? Let's find out bestie
      */
     isAboveThreshold(threshold: number): boolean {
         return this.score >= threshold;
     }
+
+    /**
+     * Get skill level description
+     */
+    getSkillLevel(): string {
+        if (this.score >= 9) return 'Expert';
+        if (this.score >= 7) return 'Advanced';
+        if (this.score >= 4) return 'Intermediate';
+        return 'Beginner';
+    }
+
+    /**
+     * Returns a string representation of the skill
+     */
+    toString(): string {
+        return `Skill ${this.skillId}: ${this.score}/10 (${this.getSkillLevel()}) - Added by ${this.addedBy}`;
+    }
 }
 
 /**
- * Interface for Skill data transfer
- * This interface is the blueprint bestie, no cap
+ * Interface for Skill data structure in database
  */
 export interface SkillData {
-    skillId: string;
-    skillName: string;
-    evidenceReason: string;
-    score: number;
+    candidateSkillId: string;
+    skillId: string;              // Foreign key to skills_master collection
+    evidence: string;
+    score: number;               // 1-10 proficiency level
     addedAt: Date;
-    addedBy: 'AI' | 'HR';
+    addedBy: AddedBy;            // Who added this skill
 }
 
 /**
- * Interface for creating a new skill
- * When you need to birth a new skill into existence
+ * Interface for creating a new skill for a candidate
  */
 export interface CreateSkillData {
+    skillName: string;          // Will be resolved to skillId
+    evidence: string;
+    score: number;             // 1-10
+    addedBy: AddedBy;
+}
+
+/**
+ * Interface for skill with master skill information (for API responses)
+ */
+export interface SkillWithMasterData extends SkillData {
+    skillName: string;          // From skills_master join
+    isAccepted: boolean;        // From skills_master join
+}
+
+/**
+ * Interface for bulk skill addition (for resume parsing)
+ */
+export interface BulkSkillData {
     skillName: string;
-    evidenceReason: string;
+    evidence: string;
     score: number;
-    addedBy: 'AI' | 'HR';
+    addedBy: AddedBy;
+    confidence?: number;        // AI parser confidence (0-1)
 }

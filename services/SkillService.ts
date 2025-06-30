@@ -1,34 +1,36 @@
 import { connectDB } from '../mongo_db';
 import { ResumeRepository } from '../repositories/CandidateRepository';
-import { Skill, CreateSkillData, SkillData } from '../Models/Skill';
+import { SkillMasterRepository } from '../repositories/SkillMasterRepository';
+import { Skill, CreateSkillData, SkillData, AddedBy } from '../Models/Skill';
+import { SkillMaster } from '../Models/SkillMaster';
 import { ObjectId } from 'mongodb';
 
 /**
- * Service class that's absolutely slaying at skill management 
- * This bad boy handles all the skill flex and assessment vibes
- * Like bestie, your skills are about to be managed to perfection fr fr 
+ * Service class for skill management with normalized skills master database
+ * Handles skill creation, management, and normalization through the skills master
  */
 export class SkillService {
     private resumeRepo: ResumeRepository;
+    private skillMasterRepo: SkillMasterRepository;
 
     constructor() {
         this.resumeRepo = null as any;
+        this.skillMasterRepo = null as any;
     }
 
     /**
      * Initialize the service with database connection
-     * Connecting to the database like we're linking up with the skill matrix 
      */
     async init(): Promise<void> {
         const db = await connectDB();
         this.resumeRepo = new ResumeRepository(db);
+        this.skillMasterRepo = new SkillMasterRepository(db);
     }
 
     /**
-     * Adds a skill to a candidate
-     * Manifesting some new skill energy into this candidate's arsenal 
+     * Adds a skill to a candidate using the normalized skills master approach
      */
-    async addSkill(candidateId: string, skillData: CreateSkillData): Promise<void> {
+    async addSkill(candidateId: string, skillData: CreateSkillData): Promise<{ skillId: string; masterSkillId: string }> {
         await this.init();
 
         try {
@@ -37,13 +39,17 @@ export class SkillService {
                 throw new Error('Candidate resume data not found');
             }
 
+            // Get or create skill in master database
+            const masterSkill = await this.skillMasterRepo.getOrCreate(skillData.skillName);
+
+            // Create new skill entry for candidate
             const skillId = new ObjectId().toString();
             const skill = new Skill(
                 skillId,
-                skillData.skillName,
-                skillData.evidenceReason,
-                skillData.score,
-                skillData.addedBy
+                masterSkill.skillId,
+                skillData.evidence || '',
+                skillData.score || 5,
+                skillData.addedBy || AddedBy.HUMAN
             );
 
             const updatedSkills = [...resumeData.skills.map(s => Skill.fromObject(s)), skill];
@@ -51,6 +57,11 @@ export class SkillService {
             await this.resumeRepo.update(candidateId, {
                 skills: updatedSkills.map(s => s.toObject())
             });
+
+            return {
+                skillId: skill.skillId,
+                masterSkillId: masterSkill.skillId
+            };
         } catch (error) {
             console.error('Error adding skill:', error);
             throw new Error('Failed to add skill');
@@ -58,9 +69,61 @@ export class SkillService {
     }
 
     /**
-     * Updates a specific skill
+     * Adds multiple skills to a candidate (bulk operation for resume parsing)
      */
-    async updateSkill(candidateId: string, skillId: string, updatedSkill: Partial<SkillData>): Promise<void> {
+    async addSkillsBulk(candidateId: string, skillsData: CreateSkillData[]): Promise<Array<{ skillId: string; masterSkillId: string }>> {
+        await this.init();
+
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            if (!resumeData) {
+                throw new Error('Candidate resume data not found');
+            }
+
+            const results: Array<{ skillId: string; masterSkillId: string }> = [];
+            const newSkills: Skill[] = [];
+
+            // Process each skill
+            for (const skillData of skillsData) {
+                // Get or create skill in master database
+                const masterSkill = await this.skillMasterRepo.getOrCreate(skillData.skillName);
+
+                // Create new skill entry for candidate
+                const skillId = new ObjectId().toString();
+                const skill = new Skill(
+                    skillId,
+                    masterSkill.skillId,
+                    skillData.evidence || '',
+                    skillData.score || 5,
+                    skillData.addedBy || AddedBy.HUMAN
+                );
+
+                newSkills.push(skill);
+                results.push({
+                    skillId: skill.skillId,
+                    masterSkillId: masterSkill.skillId
+                });
+            }
+
+            // Update candidate with all new skills
+            const existingSkills = resumeData.skills.map(s => Skill.fromObject(s));
+            const updatedSkills = [...existingSkills, ...newSkills];
+            
+            await this.resumeRepo.update(candidateId, {
+                skills: updatedSkills.map(s => s.toObject())
+            });
+
+            return results;
+        } catch (error) {
+            console.error('Error adding skills in bulk:', error);
+            throw new Error('Failed to add skills in bulk');
+        }
+    }
+
+    /**
+     * Updates a specific skill for a candidate
+     */
+    async updateSkill(candidateId: string, candidateSkillId: string, updatedSkill: Partial<SkillData>): Promise<void> {
         await this.init();
 
         try {
@@ -70,17 +133,18 @@ export class SkillService {
             }
 
             const skills = resumeData.skills.map(s => Skill.fromObject(s));
-            const skillIndex = skills.findIndex(s => s.skillId === skillId);
+            const skillIndex = skills.findIndex(s => s.candidateSkillId === candidateSkillId);
             
             if (skillIndex === -1) {
                 throw new Error('Skill not found');
             }
 
             const skill = skills[skillIndex];
-            if (updatedSkill.skillName) skill.skillName = updatedSkill.skillName;
-            if (updatedSkill.evidenceReason) skill.evidenceReason = updatedSkill.evidenceReason;
+            
+            // Update allowed properties
+            if (updatedSkill.evidence !== undefined) skill.evidence = updatedSkill.evidence;
             if (updatedSkill.score !== undefined) skill.score = updatedSkill.score;
-            if (updatedSkill.addedBy) skill.addedBy = updatedSkill.addedBy;
+            if (updatedSkill.addedBy !== undefined) skill.addedBy = updatedSkill.addedBy;
 
             await this.resumeRepo.update(candidateId, {
                 skills: skills.map(s => s.toObject())
@@ -92,9 +156,9 @@ export class SkillService {
     }
 
     /**
-     * Deletes a specific skill
+     * Deletes a specific skill from a candidate
      */
-    async deleteSkill(candidateId: string, skillId: string): Promise<void> {
+    async deleteSkill(candidateId: string, candidateSkillId: string): Promise<void> {
         await this.init();
 
         try {
@@ -104,7 +168,7 @@ export class SkillService {
             }
 
             const skills = resumeData.skills.map(s => Skill.fromObject(s));
-            const filteredSkills = skills.filter(s => s.skillId !== skillId);
+            const filteredSkills = skills.filter(s => s.candidateSkillId !== candidateSkillId);
 
             if (filteredSkills.length === skills.length) {
                 throw new Error('Skill not found');
@@ -120,9 +184,9 @@ export class SkillService {
     }
 
     /**
-     * Gets all skills for a candidate
+     * Gets all skills for a candidate with optional filtering by acceptance status
      */
-    async getSkills(candidateId: string): Promise<Skill[]> {
+    async getSkills(candidateId: string, includeUnaccepted: boolean = true): Promise<Array<Skill & { skillName: string; isAccepted: boolean }>> {
         await this.init();
 
         try {
@@ -131,7 +195,23 @@ export class SkillService {
                 return [];
             }
 
-            return resumeData.skills.map(s => Skill.fromObject(s));
+            const candidateSkills = resumeData.skills.map(s => Skill.fromObject(s));
+            const enrichedSkills: Array<Skill & { skillName: string; isAccepted: boolean }> = [];
+
+            // Enrich with master skill data
+            for (const skill of candidateSkills) {
+                const masterSkill = await this.skillMasterRepo.findById(skill.skillId);
+                if (masterSkill && (includeUnaccepted || masterSkill.isAccepted)) {
+                    // Create enriched skill object
+                    const enrichedSkill = Object.assign(skill, {
+                        skillName: masterSkill.skillName,
+                        isAccepted: masterSkill.isAccepted
+                    });
+                    enrichedSkills.push(enrichedSkill);
+                }
+            }
+
+            return enrichedSkills;
         } catch (error) {
             console.error('Error getting skills:', error);
             throw new Error('Failed to retrieve skills');
@@ -141,12 +221,12 @@ export class SkillService {
     /**
      * Gets skills above a certain score threshold
      */
-    async getSkillsAboveThreshold(candidateId: string, threshold: number): Promise<Skill[]> {
+    async getSkillsAboveThreshold(candidateId: string, threshold: number, includeUnaccepted: boolean = true): Promise<Array<Skill & { skillName: string; isAccepted: boolean }>> {
         await this.init();
 
         try {
-            const skills = await this.getSkills(candidateId);
-            return skills.filter(skill => skill.isAboveThreshold(threshold));
+            const skills = await this.getSkills(candidateId, includeUnaccepted);
+            return skills.filter(skill => skill.score >= threshold);
         } catch (error) {
             console.error('Error getting skills above threshold:', error);
             throw new Error('Failed to retrieve skills above threshold');
@@ -154,23 +234,95 @@ export class SkillService {
     }
 
     /**
-     * Searches skills by name across all candidates
+     * Searches skills by name in the skills master database
      */
-    async searchSkillsByName(skillName: string): Promise<{ candidateId: string; skills: Skill[] }[]> {
+    async searchSkillsByName(skillName: string): Promise<SkillMaster[]> {
         await this.init();
 
         try {
-            const resumeDataList = await this.resumeRepo.findBySkill(skillName);
-            
-            return resumeDataList.map(resumeData => ({
-                candidateId: resumeData.candidateId,
-                skills: resumeData.skills
-                    .map(s => Skill.fromObject(s))
-                    .filter(skill => skill.skillName.toLowerCase().includes(skillName.toLowerCase()))
-            }));
+            return await this.skillMasterRepo.searchByName(skillName);
         } catch (error) {
             console.error('Error searching skills:', error);
             throw new Error('Failed to search skills');
+        }
+    }
+
+    /**
+     * Gets all candidates who have a specific skill
+     */
+    async getCandidatesWithSkill(skillName: string): Promise<Array<{ candidateId: string; skills: Array<Skill & { skillName: string; isAccepted: boolean }> }>> {
+        await this.init();
+
+        try {
+            // First find the skill in master database
+            const masterSkills = await this.skillMasterRepo.searchByName(skillName);
+            if (masterSkills.length === 0) {
+                return [];
+            }
+
+            const skillIds = masterSkills.map((skill: SkillMaster) => skill.skillId);
+            const results: Array<{ candidateId: string; skills: Array<Skill & { skillName: string; isAccepted: boolean }> }> = [];
+
+            // Find all candidates with these skills
+            const allCandidates = await this.resumeRepo.findAll();
+            
+            for (const candidate of allCandidates) {
+                const candidateSkills = candidate.skills
+                    .map(s => Skill.fromObject(s))
+                    .filter(skill => skillIds.includes(skill.skillId));
+
+                if (candidateSkills.length > 0) {
+                    const enrichedSkills: Array<Skill & { skillName: string; isAccepted: boolean }> = [];
+                    for (const skill of candidateSkills) {
+                        const masterSkill = masterSkills.find((ms: SkillMaster) => ms.skillId === skill.skillId);
+                        if (masterSkill) {
+                            const enrichedSkill = Object.assign(skill, {
+                                skillName: masterSkill.skillName,
+                                isAccepted: masterSkill.isAccepted
+                            });
+                            enrichedSkills.push(enrichedSkill);
+                        }
+                    }
+
+                    results.push({
+                        candidateId: candidate.candidateId,
+                        skills: enrichedSkills
+                    });
+                }
+            }
+
+            return results;
+        } catch (error) {
+            console.error('Error getting candidates with skill:', error);
+            throw new Error('Failed to find candidates with skill');
+        }
+    }
+
+    /**
+     * Gets skill master data by ID
+     */
+    async getSkillMaster(skillId: string): Promise<SkillMaster | null> {
+        await this.init();
+
+        try {
+            return await this.skillMasterRepo.findById(skillId);
+        } catch (error) {
+            console.error('Error getting skill master:', error);
+            throw new Error('Failed to retrieve skill master data');
+        }
+    }
+
+    /**
+     * Updates skill master data (name, acceptance status)
+     */
+    async updateSkillMaster(skillId: string, updateData: { skillName?: string; isAccepted?: boolean }): Promise<void> {
+        await this.init();
+
+        try {
+            await this.skillMasterRepo.update(skillId, updateData);
+        } catch (error) {
+            console.error('Error updating skill master:', error);
+            throw new Error('Failed to update skill master data');
         }
     }
 }

@@ -20,7 +20,7 @@ http://localhost:3000/api
 ```
 
 ## Authentication
-Currently, the API does not implement authentication. This should be added for production use.
+Currently, the API does not implement authentication. To Be Added Later HEHEHE
 
 ## Response Format
 All API responses follow this consistent format:
@@ -295,7 +295,7 @@ The API includes comprehensive error handling:
 
 ## Rate Limiting
 
-Currently not implemented. Consider adding rate limiting for production use.
+Currently not implemented. TODO: ADD RATE LIMITING HEHE
 
 ## Examples
 
@@ -348,7 +348,6 @@ curl -X POST http://localhost:3000/api/candidates/CANDIDATE_ID/experience \
 
 1. Authentication & Authorization
 2. Rate limiting
-3. API versioning
 4. Pagination for large datasets
 5. Advanced search and filtering
 6. File storage optimization (GridFS)

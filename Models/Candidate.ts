@@ -5,6 +5,20 @@ import { Certification, CertificationData, CreateCertificationData } from './Cer
 import { StrengthWeakness, StrengthWeaknessData, CreateStrengthWeaknessData } from './StrengthWeakness';
 
 /**
+ * Resume metadata for file handling
+ */
+export interface ResumeMetadata {
+    fileId: string;           // GridFS file ID
+    filename: string;         // Original filename
+    contentType: string;      // MIME type (application/pdf, etc.)
+    size: number;            // File size in bytes
+    uploadedAt: Date;        // Upload timestamp
+    parsedAt?: Date;         // When AI parsing completed
+    parseStatus?: 'pending' | 'completed' | 'failed' | 'not_started';
+    textContent?: string;    // Extracted text content for AI processing
+}
+
+/**
  * Simplified Candidate class that's literally the main character 
  * This bad boy is just a data container now, all the business logic moved to services
  * Like bestie, this is just holding the tea while the services do all the work fr
@@ -22,7 +36,7 @@ export class Candidate {
     public isDeleted: boolean;
 
     // Resume Information (Resume Database)
-    public resume?: string; // File path or base64 string
+    public resumeMetadata?: ResumeMetadata; // File metadata for GridFS storage
     public skills: Skill[];
     public experience: Experience[];
     public education: Education[];
@@ -42,7 +56,7 @@ export class Candidate {
         email: string[],
         birthdate: Date,
         roleApplied: string,
-        resume?: string,
+        resumeMetadata?: ResumeMetadata,
         status: CandidateStatus = CandidateStatus.APPLIED,
         dateCreated?: Date,
         dateUpdated?: Date
@@ -52,7 +66,7 @@ export class Candidate {
         this.email = email;
         this.birthdate = birthdate;
         this.roleApplied = roleApplied;
-        this.resume = resume;
+        this.resumeMetadata = resumeMetadata;
         this.status = status;
         this.isDeleted = false;
         this.dateCreated = dateCreated || new Date();
@@ -85,7 +99,7 @@ export class Candidate {
             dateCreated: this.dateCreated,
             dateUpdated: this.dateUpdated,
             roleApplied: this.roleApplied,
-            resume: this.resume,
+            resume: this.resumeMetadata,
             status: this.status,
             isDeleted: this.isDeleted,
             skills: this.skills.map(s => s.toObject()),
@@ -126,7 +140,7 @@ export class Candidate {
     getResumeData(): ResumeData {
         return {
             candidateId: this.candidateId,
-            resume: this.resume,
+            resume: this.resumeMetadata,
             skills: this.skills.map(s => s.toObject()),
             experience: this.experience.map(e => e.toObject()),
             education: this.education.map(e => e.toObject()),
@@ -190,7 +204,7 @@ export class Candidate {
      * Does this candidate have resume receipts or are they fumbling? 
      */
     hasResume(): boolean {
-        return this.resume !== undefined && this.resume.length > 0;
+        return this.resumeMetadata !== undefined && this.resumeMetadata.fileId !== undefined;
     }
 
     /**
@@ -235,7 +249,7 @@ export interface CandidateData {
     dateCreated: Date;
     dateUpdated: Date;
     roleApplied: string;
-    resume?: string;
+    resume?: ResumeMetadata;
     status: CandidateStatus;
     isDeleted: boolean;
     skills: SkillData[];
@@ -264,7 +278,7 @@ export interface PersonalInfoData {
 
 export interface ResumeData {
     candidateId: string;
-    resume?: string;
+    resume?: ResumeMetadata;
     skills: SkillData[];
     experience: ExperienceData[];
     education: EducationData[];
