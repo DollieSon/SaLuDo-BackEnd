@@ -256,6 +256,140 @@ All API responses follow this consistent format:
 - **Query Parameters**:
   - `type`: Required. Either "strength" or "weakness"
 
+### Transcript Management
+
+#### Upload Transcript File
+```http
+POST /api/candidates/{candidateId}/transcripts
+Content-Type: multipart/form-data
+
+Form Data:
+- transcript: (file) - Audio/text file (MP3, WAV, M4A, OGG, TXT, DOCX)
+- interviewRound: (string, optional) - Interview round ("initial", "technical", "hr", "final", "general")
+- duration: (number, optional) - Audio duration in seconds
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Transcript file uploaded successfully",
+  "data": {
+    "fileId": "67890abcdef123456789",
+    "filename": "interview_round1.mp3",
+    "contentType": "audio/mpeg",
+    "size": 1048576,
+    "uploadedAt": "2025-07-01T10:30:00.000Z",
+    "transcriptionStatus": "not_started",
+    "interviewRound": "technical",
+    "duration": 1800
+  }
+}
+```
+
+#### Get All Transcripts
+```http
+GET /api/candidates/{candidateId}/transcripts
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "fileId": "67890abcdef123456789",
+      "filename": "interview_round1.mp3",
+      "contentType": "audio/mpeg",
+      "size": 1048576,
+      "uploadedAt": "2025-07-01T10:30:00.000Z",
+      "transcriptionStatus": "completed",
+      "textContent": "Interview transcript content...",
+      "interviewRound": "technical",
+      "duration": 1800
+    }
+  ],
+  "count": 1
+}
+```
+
+#### Download Transcript File
+```http
+GET /api/candidates/{candidateId}/transcripts/{transcriptId}
+```
+
+**Response:** Binary file download with appropriate headers
+
+#### Update Transcript File
+```http
+PUT /api/candidates/{candidateId}/transcripts/{transcriptId}
+Content-Type: multipart/form-data
+
+Form Data:
+- transcript: (file) - New audio/text file
+- interviewRound: (string, optional) - Updated interview round
+- duration: (number, optional) - Updated audio duration
+```
+
+#### Delete Transcript File
+```http
+DELETE /api/candidates/{candidateId}/transcripts/{transcriptId}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Transcript file deleted successfully"
+}
+```
+
+#### Get Transcript Metadata
+```http
+GET /api/candidates/{candidateId}/transcripts/{transcriptId}/metadata
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "fileId": "67890abcdef123456789",
+    "filename": "interview_round1.mp3",
+    "contentType": "audio/mpeg",
+    "size": 1048576,
+    "uploadedAt": "2025-07-01T10:30:00.000Z",
+    "transcriptionStatus": "completed",
+    "textContent": "Interview transcript content...",
+    "interviewRound": "technical",
+    "duration": 1800
+  }
+}
+```
+
+#### Request Transcription (Placeholder)
+```http
+POST /api/candidates/{candidateId}/transcripts/{transcriptId}/transcribe
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Transcription request submitted (placeholder)",
+  "data": {
+    "transcriptId": "67890abcdef123456789",
+    "status": "pending",
+    "note": "AI transcription service integration coming soon!"
+  }
+}
+```
+
+**Transcript File Validation:**
+- **Supported formats:** MP3, WAV, M4A, OGG (audio), TXT, DOCX (text)
+- **Maximum file size:** 50MB
+- **Interview rounds:** initial, technical, hr, final, general
+
 ## Status Codes
 
 - **200**: Success

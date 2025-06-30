@@ -4,7 +4,6 @@ import { connectDB } from '../mongo_db';
 import * as mongodb from 'mongodb';
 const router = Router();
 const upload = multer(); // memory storage by default
-
 router.get('/', async (req: Request, res: Response) => {
   try {
     const db = await connectDB();
@@ -15,13 +14,11 @@ router.get('/', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
-
 // Using multer middleware to handle multipart/form-data
 router.post('/', upload.single('resume'), async (req: Request, res: Response) => {
   try {
     // Print body fields
     console.log('Received user data (body):', req.body);
-
     // Print file info if present
     if (req.file) {
       console.log('Received file info:', {
@@ -40,12 +37,10 @@ router.post('/', upload.single('resume'), async (req: Request, res: Response) =>
     } else {
       console.log('No file uploaded.');
     }
-
     // Commented out: do not upload to MongoDB for now
     const db = await connectDB();
     const newUser = req.body;
     const result = await db.collection('SaLuDoDataBase').insertOne(newUser);
-
     res.status(201).json({ message: 'User Created' });
   } catch (err) {
     console.error(err);
@@ -60,7 +55,6 @@ router.get('/:id/resume', async (req: Request, res: Response): Promise<void> => 
     const db = await connectDB();
     const bucket = new mongodb.GridFSBucket(db);
     const userId = req.params.id;
-
     // Find the user to get the resume filename (or use a convention)
     // Here, we assume the filename is stored as userId.pdf or similar
     // Adjust as needed for your app
@@ -70,7 +64,6 @@ router.get('/:id/resume', async (req: Request, res: Response): Promise<void> => 
       res.status(404).json({ error: 'Resume not found' });
       return;
     }
-
     res.set('Content-Type', 'application/pdf');
     const downloadStream = bucket.openDownloadStreamByName(userId);
     downloadStream.pipe(res);
@@ -82,5 +75,4 @@ router.get('/:id/resume', async (req: Request, res: Response): Promise<void> => 
     res.status(500).json({ error: 'Failed to fetch resume' });
   }
 });
-
 export default router;

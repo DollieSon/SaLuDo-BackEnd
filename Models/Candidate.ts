@@ -3,10 +3,8 @@ import { Experience, ExperienceData, CreateExperienceData } from './Experience';
 import { Education, EducationData, CreateEducationData } from './Education';
 import { Certification, CertificationData, CreateCertificationData } from './Certification';
 import { StrengthWeakness, StrengthWeaknessData, CreateStrengthWeaknessData } from './StrengthWeakness';
-
-/**
- * Resume metadata for file handling
- */
+import { Personality } from './Personality';
+import { PersonalityData } from './PersonalityTypes';
 export interface ResumeMetadata {
     fileId: string;           // GridFS file ID
     filename: string;         // Original filename
@@ -17,12 +15,18 @@ export interface ResumeMetadata {
     parseStatus?: 'pending' | 'completed' | 'failed' | 'not_started';
     textContent?: string;    // Extracted text content for AI processing
 }
-
-/**
- * Simplified Candidate class that's literally the main character 
- * This bad boy is just a data container now, all the business logic moved to services
- * Like bestie, this is just holding the tea while the services do all the work fr
- */
+export interface TranscriptMetadata {
+    fileId: string;           // GridFS file ID
+    filename: string;         // Original filename (e.g., "interview_round1.mp3")
+    contentType: string;      // MIME type (audio/mpeg, audio/wav, text/plain, etc.)
+    size: number;            // File size in bytes
+    uploadedAt: Date;        // Upload timestamp
+    transcribedAt?: Date;    // When AI transcription completed
+    transcriptionStatus?: 'pending' | 'completed' | 'failed' | 'not_started';
+    textContent?: string;    // Transcribed text content
+    interviewRound?: string; // Which interview round (e.g., "initial", "technical", "hr")
+    duration?: number;       // Audio duration in seconds (for audio files)
+}
 export class Candidate {
     // Personal Information (PersonalInfo Database)
     public candidateId: string;
@@ -34,7 +38,6 @@ export class Candidate {
     public roleApplied: string; // Job reference
     public status: CandidateStatus;
     public isDeleted: boolean;
-
     // Resume Information (Resume Database)
     public resumeMetadata?: ResumeMetadata; // File metadata for GridFS storage
     public skills: Skill[];
@@ -44,12 +47,10 @@ export class Candidate {
     public strengths: StrengthWeakness[];
     public weaknesses: StrengthWeakness[];
     public resumeAssessment?: string;
-
     // Interview Information (Interview Database)
-    public transcripts: string[]; // File paths or content
-    public personalityScore?: any; // Placeholder for Personality type
+    public transcripts: TranscriptMetadata[]; // File metadata for GridFS storage
+    public personality: Personality; // Comprehensive personality assessment
     public interviewAssessment?: string;
-
     constructor(
         candidateId: string,
         name: string,
@@ -71,7 +72,6 @@ export class Candidate {
         this.isDeleted = false;
         this.dateCreated = dateCreated || new Date();
         this.dateUpdated = dateUpdated || new Date();
-
         // Initialize arrays
         this.skills = [];
         this.experience = [];
@@ -80,16 +80,11 @@ export class Candidate {
         this.strengths = [];
         this.weaknesses = [];
         this.transcripts = [];
+        this.personality = new Personality(); // Create empty personality for new candidate
     }
-
     // =======================
     // UTILITY METHODS
     // =======================
-
-    /**
-     * Converts candidate to plain object for database storage
-     * Flattening this candidate queen for that database lifestyle 
-     */
     toObject(): CandidateData {
         return {
             candidateId: this.candidateId,
@@ -110,15 +105,10 @@ export class Candidate {
             weaknesses: this.weaknesses.map(w => w.toObject()),
             resumeAssessment: this.resumeAssessment,
             transcripts: this.transcripts,
-            personalityScore: this.personalityScore,
+            personality: this.personality.toObject(),
             interviewAssessment: this.interviewAssessment
         };
     }
-
-    /**
-     * Gets personal info for PersonalInfo database
-     * Just the basic personal tea, nothing else bestie 
-     */
     getPersonalInfo(): PersonalInfoData {
         return {
             candidateId: this.candidateId,
@@ -132,11 +122,6 @@ export class Candidate {
             isDeleted: this.isDeleted
         };
     }
-
-    /**
-     * Gets resume data for Resume database
-     * All the career flex and skills energy in one place 
-     */
     getResumeData(): ResumeData {
         return {
             candidateId: this.candidateId,
@@ -151,87 +136,114 @@ export class Candidate {
             dateUpdated: this.dateUpdated
         };
     }
-
-    /**
-     * Gets interview data for Interview database
-     * Where all the interview tea and personality vibes live 
-     */
     getInterviewData(): InterviewData {
         return {
             candidateId: this.candidateId,
             transcripts: this.transcripts,
-            personalityScore: this.personalityScore,
+            personality: this.personality.toObject(),
             interviewAssessment: this.interviewAssessment,
             dateUpdated: this.dateUpdated
         };
     }
-
-    /**
-     * Basic validation - checks if candidate is deleted
-     * Is this candidate still in the game or did they get eliminated? 
-     */
     isActive(): boolean {
         return !this.isDeleted;
     }
-
-    /**
-     * Gets candidate age
-     * How many years has this bestie been alive on this planet? 
-     */
     getAge(): number {
         const today = new Date();
         const birthDate = new Date(this.birthdate);
         let age = today.getFullYear() - birthDate.getFullYear();
         const monthDiff = today.getMonth() - birthDate.getMonth();
-        
         if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
             age--;
         }
-        
         return age;
     }
-
-    /**
-     * Gets a summary of the candidate
-     * This method is giving elevator pitch energy fr fr 
-     */
     getSummary(): string {
         return `${this.name} - ${this.roleApplied} (${this.status})`;
     }
-
-    /**
-     * Checks if candidate has resume
-     * Does this candidate have resume receipts or are they fumbling? 
-     */
     hasResume(): boolean {
         return this.resumeMetadata !== undefined && this.resumeMetadata.fileId !== undefined;
     }
-
-    /**
-     * Gets total number of skills, experience, education, and certifications
-     * How complete is this candidate's whole vibe check? Let's see the stats bestie 
-     */
+    hasTranscripts(): boolean {
+        return this.transcripts.length > 0;
+    }
+    getTranscriptCount(): number {
+        return this.transcripts.length;
+    }
+    getTranscriptsByRound(round?: string): TranscriptMetadata[] {
+        if (!round) return this.transcripts;
+        return this.transcripts.filter(t => t.interviewRound === round);
+    }
+    getInterviewRounds(): string[] {
+        const rounds = this.transcripts
+            .filter(t => t.interviewRound)
+            .map(t => t.interviewRound!);
+        return [...new Set(rounds)]; // Remove duplicates
+    }
+    getTranscribedFiles(): TranscriptMetadata[] {
+        return this.transcripts.filter(t => 
+            t.transcriptionStatus === 'completed' && t.textContent
+        );
+    }
     getProfileCompleteness(): {
         skills: number;
         experience: number;
         education: number;
         certifications: number;
+        personalityTraits: number;
+        personalityCompletion: number;
         total: number;
     } {
+        const completedTraits = this.getCompletedPersonalityTraitsCount();
         return {
             skills: this.skills.length,
             experience: this.experience.length,
             education: this.education.length,
             certifications: this.certification.length,
-            total: this.skills.length + this.experience.length + this.education.length + this.certification.length
+            personalityTraits: completedTraits,
+            personalityCompletion: this.personality.getCompletionPercentage(),
+            total: this.skills.length + this.experience.length + this.education.length + this.certification.length + completedTraits
         };
     }
+    getPersonalityScore(): number {
+        return this.personality.getOverallPersonalityScore();
+    }
+    getPersonalityCompletionPercentage(): number {
+        return this.personality.getCompletionPercentage();
+    }
+    getPersonalityStrengths(count: number = 5): any[] {
+        return this.personality.getTopStrengths(count);
+    }
+    getPersonalityImprovementAreas(count: number = 3): any[] {
+        return this.personality.getAreasForImprovement(count);
+    }
+    hasPersonalityAssessment(): boolean {
+        return this.getCompletedPersonalityTraitsCount() > 0;
+    }
+    getPersonalitySummary(): string {
+        const score = this.getPersonalityScore();
+        const completion = this.getPersonalityCompletionPercentage();
+        const traits = this.getCompletedPersonalityTraitsCount();
+        if (traits === 0) {
+            return 'Personality assessment not started';
+        }
+        return `Personality Score: ${score}/10 (${completion}% complete, ${traits} traits assessed)`;
+    }
+    private getCompletedPersonalityTraitsCount(): number {
+        const allTraits = [
+            ...Object.values(this.personality.cognitiveAndProblemSolving),
+            ...Object.values(this.personality.communicationAndTeamwork),
+            ...Object.values(this.personality.workEthicAndReliability),
+            ...Object.values(this.personality.growthAndLeadership),
+            ...Object.values(this.personality.cultureAndPersonalityFit),
+            ...Object.values(this.personality.bonusTraits)
+        ];
+        return allTraits.filter(trait => trait.score > 0).length;
+    }
 }
-
 // =======================
 // ENUMS AND INTERFACES
 // =======================
-
 export enum CandidateStatus {
     APPLIED = 'Applied',
     REFERENCE_CHECK = 'Reference Check',
@@ -240,7 +252,6 @@ export enum CandidateStatus {
     REJECTED = 'Rejected',
     WITHDRAWN = 'Withdrawn'
 }
-
 export interface CandidateData {
     candidateId: string;
     name: string;
@@ -259,11 +270,10 @@ export interface CandidateData {
     strengths: StrengthWeaknessData[];
     weaknesses: StrengthWeaknessData[];
     resumeAssessment?: string;
-    transcripts: string[];
-    personalityScore?: any;
+    transcripts: TranscriptMetadata[];
+    personality: PersonalityData;
     interviewAssessment?: string;
 }
-
 export interface PersonalInfoData {
     candidateId: string;
     name: string;
@@ -275,7 +285,6 @@ export interface PersonalInfoData {
     status: CandidateStatus;
     isDeleted: boolean;
 }
-
 export interface ResumeData {
     candidateId: string;
     resume?: ResumeMetadata;
@@ -288,11 +297,10 @@ export interface ResumeData {
     resumeAssessment?: string;
     dateUpdated: Date;
 }
-
 export interface InterviewData {
     candidateId: string;
-    transcripts: string[];
-    personalityScore?: any;
+    transcripts: TranscriptMetadata[];
+    personality: PersonalityData;
     interviewAssessment?: string;
     dateUpdated: Date;
 }

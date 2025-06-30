@@ -1,16 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { CandidateService } from '../../services/CandidateService';
-
 const candidateService = new CandidateService();
-
-/**
- * Middleware to verify that a candidate exists
- * Adds the candidate to req.candidate for use in subsequent middleware
- */
 export const candidateExists = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { candidateId } = req.params;
-        
         if (!candidateId) {
             res.status(400).json({
                 success: false,
@@ -18,9 +11,7 @@ export const candidateExists = async (req: Request, res: Response, next: NextFun
             });
             return;
         }
-
         const candidate = await candidateService.getCandidate(candidateId);
-        
         if (!candidate) {
             res.status(404).json({
                 success: false,
@@ -28,7 +19,6 @@ export const candidateExists = async (req: Request, res: Response, next: NextFun
             });
             return;
         }
-
         // Add candidate to request object for use in subsequent middleware
         (req as any).candidate = candidate;
         next();

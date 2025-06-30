@@ -9,10 +9,8 @@ import { AddedBy } from '../Models/Skill';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { validation } from './middleware/validation';
 import multer from 'multer';
-
 const router = Router();
 const upload = multer();
-
 // Initialize services
 const candidateService = new CandidateService();
 const educationService = new EducationService();
@@ -20,14 +18,9 @@ const experienceService = new ExperienceService();
 const skillService = new SkillService();
 const certificationService = new CertificationService();
 const strengthWeaknessService = new StrengthWeaknessService();
-
 // ====================
 // CORE CANDIDATE ENDPOINTS
 // ====================
-
-/**
- * GET /api/candidates - Get all candidates
- */
 router.get('/', asyncHandler(async (req: Request, res: Response) => {
     const candidates = await candidateService.getAllCandidates();
     res.json({
@@ -36,10 +29,6 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
         count: candidates.length
     });
 }));
-
-/**
- * POST /api/candidates - Create new candidate
- */
 router.post('/', 
     upload.single('resume'),
     validation.requireFields(['name', 'email', 'birthdate', 'roleApplied']),
@@ -47,7 +36,6 @@ router.post('/',
     validation.validateDatesMiddleware(['birthdate']),
     asyncHandler(async (req: Request, res: Response) => {
         const { name, email, birthdate, roleApplied } = req.body;
-        
         // Validate resume file is provided
         if (!req.file) {
             return res.status(400).json({
@@ -55,7 +43,6 @@ router.post('/',
                 message: 'Resume file is required'
             });
         }
-
         // Validate file type
         const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
         if (!allowedTypes.includes(req.file.mimetype)) {
@@ -64,7 +51,6 @@ router.post('/',
                 message: 'Resume must be a PDF or Word document'
             });
         }
-
         // Validate file size (10MB max)
         const maxSize = 10 * 1024 * 1024; // 10MB
         if (req.file.size > maxSize) {
@@ -73,10 +59,8 @@ router.post('/',
                 message: 'Resume file size must not exceed 10MB'
             });
         }
-        
         // Parse email array if it's a string
         const emailArray = Array.isArray(email) ? email : [email];
-
         const candidate = await candidateService.addCandidate(
             name,
             emailArray,
@@ -84,18 +68,14 @@ router.post('/',
             roleApplied,
             req.file
         );
-        
         // @Ranz Implement The AI Resume Parsing Here
         // Do your thing bestfweind 💅💅
-        
         // COMPREHENSIVE EXAMPLES: How to add all candidate data after AI resume parsing
         // This would typically be done after parsing the resume content
         /*
-        
         // ========================================
         // SKILLS EXAMPLES
         // ========================================
-        
         // Example 1: Add a single skill
         await skillService.addSkill(candidate.candidateId, {
             skillName: 'JavaScript',
@@ -103,7 +83,6 @@ router.post('/',
             evidence: 'Extracted from resume: "5 years experience with JavaScript and React"',
             addedBy: AddedBy.AI
         });
-
         // Example 2: Add multiple skills in bulk (recommended for resume parsing)
         const extractedSkills = [
             { skillName: 'JavaScript', score: 8, evidence: 'Mentioned in projects section', addedBy: AddedBy.AI },
@@ -111,13 +90,10 @@ router.post('/',
             { skillName: 'Node.js', score: 6, evidence: 'Backend development experience', addedBy: AddedBy.AI },
             { skillName: 'MongoDB', score: 5, evidence: 'Database experience mentioned', addedBy: AddedBy.AI }
         ];
-        
         await skillService.addSkillsBulk(candidate.candidateId, extractedSkills);
-
         // ========================================
         // EDUCATION EXAMPLES
         // ========================================
-        
         // Example 1: Add education entry
         await educationService.addEducation(candidate.candidateId, {
             institution: 'University of Technology',
@@ -125,7 +101,6 @@ router.post('/',
             endDate: new Date('2022-06-15'),
             description: 'Bachelor of Science in Computer Science - Specialized in software engineering and artificial intelligence'
         });
-
         // Example 2: Add multiple education entries
         const educationEntries = [
             {
@@ -141,22 +116,18 @@ router.post('/',
                 description: 'Full Stack Development Certificate - Intensive 6-month program covering modern web technologies'
             }
         ];
-
         for (const education of educationEntries) {
             await educationService.addEducation(candidate.candidateId, education);
         }
-
         // ========================================
         // EXPERIENCE EXAMPLES
         // ========================================
-        
         // Example 1: Add work experience
         await experienceService.addExperience(candidate.candidateId, {
             title: 'Tech Solutions Inc.',
             role: 'Senior Software Developer',
             description: 'Led development of enterprise web applications using React and Node.js. Managed a team of 5 developers and implemented CI/CD pipelines. Reduced application load time by 40% and improved code coverage to 95%.'
         });
-
         // Example 2: Add multiple experience entries
         const experienceEntries = [
             {
@@ -170,15 +141,12 @@ router.post('/',
                 description: 'Provided web development services to small businesses. Created custom websites and e-commerce solutions. Delivered 15+ successful projects with 98% client satisfaction rate.'
             }
         ];
-
         for (const experience of experienceEntries) {
             await experienceService.addExperience(candidate.candidateId, experience);
         }
-
         // ========================================
         // CERTIFICATIONS EXAMPLES
         // ========================================
-        
         // Example 1: Add certification
         await certificationService.addCertification(candidate.candidateId, {
             name: 'AWS Certified Solutions Architect',
@@ -186,7 +154,6 @@ router.post('/',
             issueDate: new Date('2023-03-15'),
             description: 'Demonstrates expertise in designing distributed systems on AWS'
         });
-
         // Example 2: Add multiple certifications
         const certifications = [
             {
@@ -208,28 +175,23 @@ router.post('/',
                 description: 'Web analytics and data interpretation'
             }
         ];
-
         for (const certification of certifications) {
             await certificationService.addCertification(candidate.candidateId, certification);
         }
-
         // ========================================
         // STRENGTHS & WEAKNESSES EXAMPLES
         // ========================================
-        
         // Example 1: Add individual strengths and weaknesses
         await strengthWeaknessService.addStrength(candidate.candidateId, {
             name: 'Problem Solving',
             description: 'Excellent at breaking down complex problems into manageable components and finding innovative solutions. Consistently resolved critical production issues and improved system performance by 30%.',
             type: 'Strength'
         });
-
         await strengthWeaknessService.addWeakness(candidate.candidateId, {
             name: 'Public Speaking',
             description: 'Still developing confidence in presenting to large audiences. Enrolled in Toastmasters and practicing with team presentations monthly to improve.',
             type: 'Weakness'
         });
-
         // Example 2: Add multiple strengths
         const strengths = [
             {
@@ -248,11 +210,9 @@ router.post('/',
                 type: 'Strength' as const
             }
         ];
-
         for (const strength of strengths) {
             await strengthWeaknessService.addStrength(candidate.candidateId, strength);
         }
-
         // Example 3: Add multiple weaknesses
         const weaknesses = [
             {
@@ -266,13 +226,10 @@ router.post('/',
                 type: 'Weakness' as const
             }
         ];
-
         for (const weakness of weaknesses) {
             await strengthWeaknessService.addWeakness(candidate.candidateId, weakness);
         }
         */
-
-
         res.status(201).json({
             success: true,
             message: 'Candidate created successfully',
@@ -280,80 +237,56 @@ router.post('/',
         });
     })
 );
-
-/**
- * GET /api/candidates/:id - Get candidate by ID
- */
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const candidate = await candidateService.getCandidate(id);
-    
     if (!candidate) {
         return res.status(404).json({
             success: false,
             message: 'Candidate not found'
         });
     }
-
     res.json({
         success: true,
         data: candidate
     });
 }));
-
-/**
- * PUT /api/candidates/:id - Update candidate
- */
 router.put('/:id', 
     validation.validateEmailMiddleware,
     validation.validateDatesMiddleware(['birthdate']),
     asyncHandler(async (req: Request, res: Response) => {
         const { id } = req.params;
         const updateData = req.body;
-        
         await candidateService.updateCandidate(id, updateData);
-        
         res.json({
             success: true,
             message: 'Candidate updated successfully'
         });
     })
 );
-
-/**
- * DELETE /api/candidates/:id - Delete candidate
- */
 router.delete('/:id', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     await candidateService.deleteCandidate(id);
-    
     res.json({
         success: true,
         message: 'Candidate deleted successfully'
     });
 }));
-
-/**
- * GET /api/candidates/:id/full - Get complete candidate profile
- */
 router.get('/:id/full', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const fullProfile = await candidateService.getCandidate(id);
-    
     if (!fullProfile) {
         return res.status(404).json({
             success: false,
             message: 'Candidate not found'
         });
     }
-
     // Get additional data
     const skills = await skillService.getSkills(id);
     const experience = await experienceService.getExperience(id);
     const education = await educationService.getEducation(id);
     const certifications = await certificationService.getCertifications(id);
     const strengthsWeaknesses = await strengthWeaknessService.getAllStrengthsWeaknesses(id);
-
     const completeProfile = {
         ...fullProfile,
         skills,
@@ -362,36 +295,26 @@ router.get('/:id/full', asyncHandler(async (req: Request, res: Response) => {
         certifications,
         strengthsWeaknesses
     };
-
     res.json({
         success: true,
         data: completeProfile
     });
 }));
-
-/**
- * GET /api/candidates/:id/resume - Download candidate resume
- */
 router.get('/:id/resume', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    
     const resumeFile = await candidateService.getResumeFile(id);
-    
     if (!resumeFile) {
         return res.status(404).json({
             success: false,
             message: 'Resume not found'
         });
     }
-
     res.set({
         'Content-Type': resumeFile.metadata.contentType,
         'Content-Disposition': `attachment; filename="${resumeFile.metadata.filename}"`,
         'Content-Length': resumeFile.metadata.size.toString()
     });
-
     resumeFile.stream.pipe(res);
-    
     resumeFile.stream.on('error', () => {
         res.status(500).json({
             success: false,
@@ -399,22 +322,16 @@ router.get('/:id/resume', asyncHandler(async (req: Request, res: Response) => {
         });
     });
 }));
-
-/**
- * PUT /api/candidates/:id/resume - Update candidate resume
- */
 router.put('/:id/resume',
     upload.single('resume'),
     asyncHandler(async (req: Request, res: Response) => {
         const { id } = req.params;
-        
         if (!req.file) {
             return res.status(400).json({
                 success: false,
                 message: 'Resume file is required'
             });
         }
-
         // Validate file type
         const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
         if (!allowedTypes.includes(req.file.mimetype)) {
@@ -423,7 +340,6 @@ router.put('/:id/resume',
                 message: 'Resume must be a PDF or Word document'
             });
         }
-
         // Validate file size (10MB max)
         const maxSize = 10 * 1024 * 1024; // 10MB
         if (req.file.size > maxSize) {
@@ -432,57 +348,37 @@ router.put('/:id/resume',
                 message: 'Resume file size must not exceed 10MB'
             });
         }
-
         await candidateService.updateResumeFile(id, req.file);
-        
         res.json({
             success: true,
             message: 'Resume updated successfully'
         });
     })
 );
-
-/**
- * DELETE /api/candidates/:id/resume - Delete candidate resume
- */
 router.delete('/:id/resume', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    
     await candidateService.deleteResumeFile(id);
-    
     res.json({
         success: true,
         message: 'Resume deleted successfully'
     });
 }));
-
-/**
- * GET /api/candidates/:id/resume/metadata - Get resume metadata
- */
 router.get('/:id/resume/metadata', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    
     const metadata = await candidateService.getResumeMetadata(id);
-    
     if (!metadata) {
         return res.status(404).json({
             success: false,
             message: 'Resume not found'
         });
     }
-
     res.json({
         success: true,
         data: metadata
     });
 }));
-
-/**
- * POST /api/candidates/:id/resume/parse - Trigger resume parsing (placeholder for future AI integration)
- */
 router.post('/:id/resume/parse', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    
     // Check if candidate has resume
     const hasResume = await candidateService.hasResume(id);
     if (!hasResume) {
@@ -491,7 +387,6 @@ router.post('/:id/resume/parse', asyncHandler(async (req: Request, res: Response
             message: 'No resume found to parse'
         });
     }
-
     // TODO: Implement AI resume parsing
     // For now, just update parse status
     const metadata = await candidateService.getResumeMetadata(id);
@@ -499,7 +394,6 @@ router.post('/:id/resume/parse', asyncHandler(async (req: Request, res: Response
         // Update parse status (this would be done by actual parsing service)
         // This is a placeholder for future implementation
     }
-
     res.json({
         success: true,
         message: 'Resume parsing initiated (feature coming soon)',
@@ -509,8 +403,6 @@ router.post('/:id/resume/parse', asyncHandler(async (req: Request, res: Response
         }
     });
 }));
-
 // Error handling middleware
 router.use(errorHandler);
-
 export default router;
