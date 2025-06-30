@@ -4,7 +4,7 @@
  * Run with: node test-personality.js
  */
 
-// Import the compiled JavaScript version (assumes TypeScript is compiled)
+// Import     console.log('   personality.updateTrait("Cognitive & Problem-Solving Traits", "Analytical Thinking", {score: 8.0, evidence: "..."});he compiled JavaScript version (assumes TypeScript is compiled)
 // For testing purposes, we'll simulate the functionality
 
 console.log('🧠 Testing Personality Assessment System 🧠\n');
@@ -106,11 +106,11 @@ const testScenarios = () => {
     // Scenario 2: Partially assessed candidate
     console.log('   📝 Scenario 2: Partially Assessed Candidate');
     const partialAssessment = {
-        'Analytical Thinking': { score: 8, evidence: 'Strong problem-solving in technical interview' },
-        'Clear Communication': { score: 7, evidence: 'Articulated ideas clearly during presentation' },
-        'Initiative': { score: 9, evidence: 'Proposed innovative solutions unprompted' },
-        'Positive Attitude': { score: 8, evidence: 'Maintained enthusiasm throughout process' },
-        'Grit': { score: 7, evidence: 'Persevered through challenging technical questions' }
+        'Analytical Thinking': { score: 8.0, evidence: 'Strong problem-solving in technical interview' },
+        'Clear Communication': { score: 7.0, evidence: 'Articulated ideas clearly during presentation' },
+        'Initiative': { score: 9.0, evidence: 'Proposed innovative solutions unprompted' },
+        'Positive Attitude': { score: 8.0, evidence: 'Maintained enthusiasm throughout process' },
+        'Grit': { score: 7.0, evidence: 'Persevered through challenging technical questions' }
     };
     
     console.log(`   - Assessed traits: ${Object.keys(partialAssessment).length}/28 (${Math.round((5/28)*100)}%)`);
@@ -221,7 +221,7 @@ const testAPIDesign = () => {
     console.log('   Body: {');
     console.log('     "category": "Cognitive & Problem-Solving Traits",');
     console.log('     "subCategory": "Analytical Thinking",');
-    console.log('     "score": 8,');
+    console.log('     "score": 8.0,');
     console.log('     "evidence": "Demonstrated strong analytical skills..."');
     console.log('   }\n');
 };

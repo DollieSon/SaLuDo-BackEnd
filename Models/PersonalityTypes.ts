@@ -1,6 +1,6 @@
 export interface Trait {
     traitName: string;
-    score: number;           // 1-10 scale for trait assessment
+    score: number;           // 0.0-10.0 scale for trait assessment (floating point)
     evidence: string;        // Supporting evidence/notes from interviews
     createdAt: Date;
     updatedAt: Date;

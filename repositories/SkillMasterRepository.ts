@@ -47,8 +47,10 @@ export class SkillMasterRepository {
     }
     async findByName(skillName: string): Promise<SkillMaster | null> {
         try {
+            // Escape special regex characters in the skill name
+            const escapedSkillName = skillName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const result = await this.collection.findOne(
-                { skillName: { $regex: new RegExp(`^${skillName}$`, 'i') } }
+                { skillName: { $regex: new RegExp(`^${escapedSkillName}$`, 'i') } }
             );
             return result ? SkillMaster.fromObject(result) : null;
         } catch (error) {
@@ -67,9 +69,11 @@ export class SkillMasterRepository {
     }
     async searchByName(query: string, limit: number = 10): Promise<SkillMaster[]> {
         try {
+            // Escape special regex characters in the search query
+            const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const results = await this.collection
                 .find({
-                    skillName: { $regex: query, $options: 'i' }
+                    skillName: { $regex: escapedQuery, $options: 'i' }
                 })
                 .sort({ isAccepted: -1, skillName: 1 }) // Accepted first, then alphabetical
                 .limit(limit)

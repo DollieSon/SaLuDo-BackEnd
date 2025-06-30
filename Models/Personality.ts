@@ -146,10 +146,15 @@ export class Personality {
     updateTrait(category: string, subCategory: string, traitData: Partial<CreateTraitData>): boolean {
         const trait = this.getTrait(category, subCategory);
         if (!trait) return false;
-        // Update the trait properties
+        
+        // Validate score range for personality traits (0.0-10.0)
         if (traitData.score !== undefined) {
+            if (traitData.score < 0.0 || traitData.score > 10.0) {
+                throw new Error('Personality trait score must be between 0.0 and 10.0');
+            }
             trait.score = traitData.score;
         }
+        
         if (traitData.evidence !== undefined) trait.evidence = traitData.evidence;
         if (traitData.traitName !== undefined) trait.traitName = traitData.traitName;
         trait.updatedAt = new Date();
@@ -201,7 +206,7 @@ export class Personality {
             .sort((a, b) => a.score - b.score);
         return allTraits.slice(0, count);
     }
-    findTraitsByScore(minScore: number, maxScore: number = 10): Trait[] {
+    findTraitsByScore(minScore: number, maxScore: number = 10.0): Trait[] {
         return this.getAllTraits().filter(trait => 
             trait.score >= minScore && trait.score <= maxScore
         );

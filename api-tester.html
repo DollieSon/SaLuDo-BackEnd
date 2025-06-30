@@ -576,6 +576,99 @@
                     </div>
                 </div>
 
+                <!-- Personality Assessment Section -->
+                <div class="section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <span>🧠 Personality Assessment</span>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint-url">GET /api/candidates/:candidateId/full (includes personality)</div>
+                        <div class="form-group">
+                            <label for="personalityCandidateId">Candidate ID</label>
+                            <input type="text" id="personalityCandidateId" placeholder="Select a candidate first">
+                        </div>
+                        <button class="btn" onclick="getPersonalityAssessment()">Get Personality Assessment</button>
+                        
+                        <div class="endpoint-url">PUT /api/candidates/:candidateId (update personality)</div>
+                        <div class="form-group">
+                            <label for="personalityData">Complete Personality Data (JSON)</label>
+                            <textarea id="personalityData" rows="8" placeholder='{
+  "personality": {
+    "cognitiveAndProblemSolving": {
+      "analyticalThinking": {
+        "traitName": "Analytical Thinking",
+        "score": 8.5,
+        "evidence": "Demonstrated strong analytical skills during technical interview"
+      }
+    },
+    "communicationAndTeamwork": {},
+    "workEthicAndReliability": {},
+    "growthAndLeadership": {},
+    "cultureAndPersonalityFit": {},
+    "bonusTraits": {}
+  }
+}'></textarea>
+                        </div>
+                        <button class="btn" onclick="updatePersonalityAssessment()">Update Full Assessment</button>
+
+                        <div class="endpoint-url">Individual Trait Update</div>
+                        <div class="form-group">
+                            <label for="traitCategory">Category *</label>
+                            <select id="traitCategory" onchange="updateTraitSubCategoryOptions()">
+                                <option value="">Select category...</option>
+                                <option value="cognitiveAndProblemSolving">Cognitive & Problem-Solving</option>
+                                <option value="communicationAndTeamwork">Communication & Teamwork</option>
+                                <option value="workEthicAndReliability">Work Ethic & Reliability</option>
+                                <option value="growthAndLeadership">Growth & Leadership</option>
+                                <option value="cultureAndPersonalityFit">Culture & Personality Fit</option>
+                                <option value="bonusTraits">Bonus Traits</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="traitSubCategory">Trait *</label>
+                            <select id="traitSubCategory">
+                                <option value="">Select trait...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="traitScore">Score (0.0-10.0) *</label>
+                            <input type="number" id="traitScore" min="0" max="10" step="0.1" placeholder="8.5">
+                        </div>
+                        <div class="form-group">
+                            <label for="traitEvidence">Evidence</label>
+                            <textarea id="traitEvidence" rows="3" placeholder="Specific examples and observations that support this score..."></textarea>
+                        </div>
+                        <button class="btn" onclick="updateSingleTrait()">Update Single Trait</button>
+                        <button class="btn btn-secondary" onclick="loadCurrentTraitData()">Load Current Data</button>
+
+                        <div class="endpoint-url">Category-Based Editing</div>
+                        <div class="form-group">
+                            <label for="editCategory">Select Category to Edit</label>
+                            <select id="editCategory" onchange="loadCategoryForEditing()">
+                                <option value="">Select category...</option>
+                                <option value="cognitiveAndProblemSolving">Cognitive & Problem-Solving</option>
+                                <option value="communicationAndTeamwork">Communication & Teamwork</option>
+                                <option value="workEthicAndReliability">Work Ethic & Reliability</option>
+                                <option value="growthAndLeadership">Growth & Leadership</option>
+                                <option value="cultureAndPersonalityFit">Culture & Personality Fit</option>
+                                <option value="bonusTraits">Bonus Traits</option>
+                            </select>
+                        </div>
+                        <div id="categoryTraitsEditor" style="display: none;">
+                            <div id="traitsContainer"></div>
+                            <button class="btn" onclick="updateCategoryTraits()">Update Category Traits</button>
+                        </div>
+
+                        <div class="endpoint-url">Quick Actions</div>
+                        <button class="btn btn-secondary" onclick="fillSamplePersonalityData()">📝 Fill Sample Data</button>
+                        <button class="btn btn-secondary" onclick="validatePersonalityData()">✅ Validate Data</button>
+                        <button class="btn btn-success" onclick="generatePersonalityReport()">📊 Generate Report</button>
+                        <button class="btn btn-secondary" onclick="exportPersonalityData()">📤 Export Data</button>
+                        <button class="btn btn-secondary" onclick="clearPersonalityData()">🧹 Clear Data</button>
+                    </div>
+                </div>
+
                 <!-- Response Area -->
                 <div class="section active">
                     <div class="section-header" onclick="toggleSection(this)">
@@ -682,6 +775,7 @@
             document.getElementById('certCandidateId').value = candidateId;
             document.getElementById('swCandidateId').value = candidateId;
             document.getElementById('resumeCandidateId').value = candidateId;
+            document.getElementById('personalityCandidateId').value = candidateId;
 
             // Update visual selection
             document.querySelectorAll('.candidate-item').forEach(item => {
@@ -780,7 +874,7 @@
             }
 
             try {
-                const response = await fetch(`${API_BASE_URL}/candidates/${candidateId}/resume`);
+                const response = await fetch(`${API_BASE}/candidates/${candidateId}/resume`);
                 if (response.ok) {
                     const blob = await response.blob();
                     const url = window.URL.createObjectURL(blob);
@@ -792,19 +886,20 @@
                     window.URL.revokeObjectURL(url);
                     document.body.removeChild(a);
                     
-                    displayResult({
+                    displayResponse({
                         success: true,
                         message: 'Resume downloaded successfully'
                     });
                 } else {
                     const error = await response.json();
-                    displayResult(error);
+                    displayResponse(error, true);
                 }
             } catch (error) {
-                displayResult({
+                displayResponse({
                     success: false,
-                    message: 'Failed to download resume'
-                });
+                    message: 'Failed to download resume',
+                    error: error.message
+                }, true);
             }
         }
 
@@ -1035,6 +1130,607 @@
             await makeRequest('POST', `/candidates/${candidateId}/strengths-weaknesses`, data);
         }
 
+        // Personality Assessment Functions
+        
+        // Trait subcategories mapping
+        const traitSubCategories = {
+            'cognitiveAndProblemSolving': {
+                'analyticalThinking': 'Analytical Thinking',
+                'curiosity': 'Curiosity',
+                'creativity': 'Creativity',
+                'attentionToDetail': 'Attention to Detail',
+                'criticalThinking': 'Critical Thinking',
+                'resourcefulness': 'Resourcefulness'
+            },
+            'communicationAndTeamwork': {
+                'clearCommunication': 'Clear Communication',
+                'activeListening': 'Active Listening',
+                'collaboration': 'Collaboration',
+                'empathy': 'Empathy',
+                'conflictResolution': 'Conflict Resolution'
+            },
+            'workEthicAndReliability': {
+                'dependability': 'Dependability',
+                'accountability': 'Accountability',
+                'persistence': 'Persistence',
+                'timeManagement': 'Time Management',
+                'organization': 'Organization'
+            },
+            'growthAndLeadership': {
+                'initiative': 'Initiative',
+                'selfMotivation': 'Self-Motivation',
+                'leadership': 'Leadership',
+                'adaptability': 'Adaptability',
+                'coachability': 'Coachability'
+            },
+            'cultureAndPersonalityFit': {
+                'positiveAttitude': 'Positive Attitude',
+                'humility': 'Humility',
+                'confidence': 'Confidence',
+                'integrity': 'Integrity',
+                'professionalism': 'Professionalism',
+                'openMindedness': 'Open-Mindedness',
+                'enthusiasm': 'Enthusiasm'
+            },
+            'bonusTraits': {
+                'customerFocus': 'Customer Focus',
+                'visionaryThinking': 'Visionary Thinking',
+                'culturalAwareness': 'Cultural Awareness',
+                'senseOfHumor': 'Sense of Humor',
+                'grit': 'Grit'
+            }
+        };
+
+        function updateTraitSubCategoryOptions() {
+            const categorySelect = document.getElementById('traitCategory');
+            const subCategorySelect = document.getElementById('traitSubCategory');
+            const selectedCategory = categorySelect.value;
+            
+            // Clear existing options
+            subCategorySelect.innerHTML = '<option value="">Select trait...</option>';
+            
+            if (selectedCategory && traitSubCategories[selectedCategory]) {
+                Object.entries(traitSubCategories[selectedCategory]).forEach(([key, value]) => {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = value;
+                    subCategorySelect.appendChild(option);
+                });
+            }
+            
+            // Clear trait form when category changes
+            document.getElementById('traitScore').value = '';
+            document.getElementById('traitEvidence').value = '';
+        }
+
+        // Personality Helper Functions
+        function fillSamplePersonalityData() {
+            const sampleData = {
+                personality: {
+                    cognitiveAndProblemSolving: {
+                        analyticalThinking: {
+                            traitName: "Analytical Thinking",
+                            score: 8.5,
+                            evidence: "Demonstrated strong analytical skills by breaking down complex problems systematically during technical interview"
+                        },
+                        creativity: {
+                            traitName: "Creativity",
+                            score: 7.0,
+                            evidence: "Proposed innovative solutions and alternative approaches to standard problems"
+                        },
+                        curiosity: {
+                            traitName: "Curiosity",
+                            score: 8.0,
+                            evidence: "Asked insightful questions about company processes and technology stack"
+                        },
+                        attentionToDetail: {
+                            traitName: "Attention to Detail",
+                            score: 7.5,
+                            evidence: "Caught subtle errors in code examples and provided precise corrections"
+                        }
+                    },
+                    communicationAndTeamwork: {
+                        clearCommunication: {
+                            traitName: "Clear Communication",
+                            score: 8.0,
+                            evidence: "Articulated ideas clearly and concisely throughout the interview process"
+                        },
+                        collaboration: {
+                            traitName: "Collaboration",
+                            score: 7.5,
+                            evidence: "Showed enthusiasm for team projects and demonstrated understanding of collaborative workflows"
+                        },
+                        activeListening: {
+                            traitName: "Active Listening",
+                            score: 8.0,
+                            evidence: "Responded thoughtfully to questions and built upon interviewer's comments"
+                        }
+                    },
+                    workEthicAndReliability: {
+                        dependability: {
+                            traitName: "Dependability",
+                            score: 9.0,
+                            evidence: "Strong track record of meeting deadlines and commitments in previous roles"
+                        },
+                        accountability: {
+                            traitName: "Accountability",
+                            score: 8.0,
+                            evidence: "Took ownership of past mistakes and described lessons learned"
+                        },
+                        timeManagement: {
+                            traitName: "Time Management",
+                            score: 7.5,
+                            evidence: "Effectively managed complex project timelines in previous positions"
+                        }
+                    },
+                    growthAndLeadership: {
+                        initiative: {
+                            traitName: "Initiative",
+                            score: 8.0,
+                            evidence: "Proactively identified areas for improvement and suggested solutions without prompting"
+                        },
+                        adaptability: {
+                            traitName: "Adaptability",
+                            score: 8.5,
+                            evidence: "Successfully transitioned between different technology stacks in previous roles"
+                        },
+                        coachability: {
+                            traitName: "Coachability",
+                            score: 9.0,
+                            evidence: "Receptive to feedback and asked follow-up questions to ensure understanding"
+                        }
+                    },
+                    cultureAndPersonalityFit: {
+                        positiveAttitude: {
+                            traitName: "Positive Attitude",
+                            score: 8.5,
+                            evidence: "Maintained enthusiasm and positive outlook throughout the interview process"
+                        },
+                        integrity: {
+                            traitName: "Integrity",
+                            score: 9.0,
+                            evidence: "Honest about knowledge gaps and committed to continuous learning"
+                        },
+                        professionalism: {
+                            traitName: "Professionalism",
+                            score: 8.0,
+                            evidence: "Demonstrated professional communication and appropriate interview etiquette"
+                        }
+                    },
+                    bonusTraits: {
+                        grit: {
+                            traitName: "Grit",
+                            score: 7.5,
+                            evidence: "Persevered through challenging technical questions and showed resilience under pressure"
+                        },
+                        customerFocus: {
+                            traitName: "Customer Focus",
+                            score: 7.0,
+                            evidence: "Discussed user experience considerations in technical decisions"
+                        }
+                    }
+                }
+            };
+            
+            document.getElementById('personalityData').value = JSON.stringify(sampleData, null, 2);
+        }
+
+        async function generatePersonalityReport() {
+            const candidateId = document.getElementById('personalityCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            // Get full candidate data including personality
+            try {
+                const response = await fetch(`${API_BASE}/candidates/${candidateId}/full`);
+                const data = await response.json();
+                
+                if (data.success && data.data && data.data.personality) {
+                    const report = generatePersonalityReportText(data.data.personality);
+                    displayResponse({ 
+                        candidateId,
+                        personalityReport: report,
+                        generatedAt: new Date().toISOString()
+                    });
+                } else {
+                    alert('No personality data found for this candidate');
+                }
+            } catch (error) {
+                alert('Error generating report: ' + error.message);
+            }
+        }
+
+        function generatePersonalityReportText(personality) {
+            const categories = Object.keys(personality);
+            let report = "=== PERSONALITY ASSESSMENT REPORT ===\n\n";
+            
+            categories.forEach(category => {
+                const categoryName = category.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                report += `${categoryName.toUpperCase()}:\n`;
+                
+                const traits = personality[category];
+                Object.values(traits).forEach(trait => {
+                    if (trait.score > 0) {
+                        report += `  • ${trait.traitName}: ${trait.score}/10\n`;
+                        if (trait.evidence) {
+                            report += `    Evidence: ${trait.evidence}\n`;
+                        }
+                    }
+                });
+                report += "\n";
+            });
+            
+            return report;
+        }
+
+        function exportPersonalityData() {
+            const candidateId = document.getElementById('personalityCandidateId').value;
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            fetch(`${API_BASE}/candidates/${candidateId}/full`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data) {
+                        const exportData = {
+                            candidateId,
+                            name: data.data.name,
+                            personality: data.data.personality,
+                            exportedAt: new Date().toISOString()
+                        };
+                        
+                        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `personality-assessment-${candidateId}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    } else {
+                        alert('No candidate data found');
+                    }
+                })
+                .catch(error => {
+                    alert('Error exporting data: ' + error.message);
+                });
+        }
+
+        // Update a single trait
+        async function updateSingleTrait() {
+            const candidateId = document.getElementById('personalityCandidateId').value;
+            const category = document.getElementById('traitCategory').value;
+            const subCategory = document.getElementById('traitSubCategory').value;
+            const score = parseFloat(document.getElementById('traitScore').value);
+            const evidence = document.getElementById('traitEvidence').value;
+            
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            if (!category || !subCategory) {
+                alert('Please select both category and trait');
+                return;
+            }
+            
+            if (isNaN(score) || score < 0 || score > 10) {
+                alert('Please enter a valid score between 0.0 and 10.0');
+                return;
+            }
+            
+            try {
+                // First get current candidate data
+                const currentResponse = await fetch(`${API_BASE}/candidates/${candidateId}/full`);
+                const currentData = await currentResponse.json();
+                
+                if (!currentData.success) {
+                    alert('Failed to get current candidate data');
+                    return;
+                }
+                
+                // Update the specific trait in the personality data
+                const personality = currentData.data.personality || {};
+                if (!personality[category]) {
+                    personality[category] = {};
+                }
+                
+                const traitName = traitSubCategories[category][subCategory];
+                personality[category][subCategory] = {
+                    traitName: traitName,
+                    score: score,
+                    evidence: evidence,
+                    createdAt: personality[category][subCategory]?.createdAt || new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                
+                // Send the update
+                const updateData = { personality };
+                await makeRequest('PUT', `/candidates/${candidateId}`, updateData);
+                
+                // Clear the form
+                document.getElementById('traitScore').value = '';
+                document.getElementById('traitEvidence').value = '';
+                
+            } catch (error) {
+                alert('Error updating trait: ' + error.message);
+            }
+        }
+
+        // Load current trait data
+        async function loadCurrentTraitData() {
+            const candidateId = document.getElementById('personalityCandidateId').value;
+            const category = document.getElementById('traitCategory').value;
+            const subCategory = document.getElementById('traitSubCategory').value;
+            
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            if (!category || !subCategory) {
+                alert('Please select both category and trait');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/candidates/${candidateId}/full`);
+                const data = await response.json();
+                
+                if (data.success && data.data && data.data.personality) {
+                    const trait = data.data.personality[category]?.[subCategory];
+                    if (trait) {
+                        document.getElementById('traitScore').value = trait.score || '';
+                        document.getElementById('traitEvidence').value = trait.evidence || '';
+                        
+                        displayResponse({
+                            message: 'Current trait data loaded',
+                            trait: trait
+                        });
+                    } else {
+                        document.getElementById('traitScore').value = '';
+                        document.getElementById('traitEvidence').value = '';
+                        
+                        displayResponse({
+                            message: 'No existing data for this trait',
+                            category: category,
+                            subCategory: subCategory
+                        });
+                    }
+                } else {
+                    alert('No personality data found for this candidate');
+                }
+            } catch (error) {
+                alert('Error loading trait data: ' + error.message);
+            }
+        }
+
+        // Load category for editing
+        async function loadCategoryForEditing() {
+            const candidateId = document.getElementById('personalityCandidateId').value;
+            const category = document.getElementById('editCategory').value;
+            const categoryEditor = document.getElementById('categoryTraitsEditor');
+            const traitsContainer = document.getElementById('traitsContainer');
+            
+            if (!candidateId) {
+                alert('Please select a candidate first');
+                return;
+            }
+            
+            if (!category) {
+                categoryEditor.style.display = 'none';
+                return;
+            }
+            
+            try {
+                // Get current candidate data
+                const response = await fetch(`${API_BASE}/candidates/${candidateId}/full`);
+                const data = await response.json();
+                
+                const currentTraits = data.success && data.data && data.data.personality && data.data.personality[category] 
+                    ? data.data.personality[category] 
+                    : {};
+                
+                // Generate trait input fields
+                traitsContainer.innerHTML = '';
+                const categoryTraits = traitSubCategories[category];
+                
+                Object.entries(categoryTraits).forEach(([key, displayName]) => {
+                    const trait = currentTraits[key] || {};
+                    
+                    const traitDiv = document.createElement('div');
+                    traitDiv.className = 'form-group';
+                    traitDiv.style.border = '1px solid #e9ecef';
+                    traitDiv.style.padding = '15px';
+                    traitDiv.style.marginBottom = '10px';
+                    traitDiv.style.borderRadius = '5px';
+                    
+                    traitDiv.innerHTML = `
+                        <h5>${displayName}</h5>
+                        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 10px;">
+                            <div>
+                                <label>Score (0.0-10.0)</label>
+                                <input type="number" id="${key}_score" min="0" max="10" step="0.1" 
+                                       value="${trait.score || ''}" placeholder="0.0">
+                            </div>
+                            <div>
+                                <label>Evidence</label>
+                                <textarea id="${key}_evidence" rows="2" 
+                                          placeholder="Specific examples and observations...">${trait.evidence || ''}</textarea>
+                            </div>
+                        </div>
+                    `;
+                    
+                    traitsContainer.appendChild(traitDiv);
+                });
+                
+                categoryEditor.style.display = 'block';
+                
+            } catch (error) {
+                alert('Error loading category data: ' + error.message);
+            }
+        }
+
+        async function updateCategoryTraits() {
+            const candidateId = document.getElementById('personalityCandidateId').value;
+            const category = document.getElementById('editCategory').value;
+            
+            if (!candidateId || !category) {
+                alert('Please select a candidate and category');
+                return;
+            }
+            
+            try {
+                // Get current candidate data
+                const currentResponse = await fetch(`${API_BASE}/candidates/${candidateId}/full`);
+                const currentData = await currentResponse.json();
+                
+                if (!currentData.success) {
+                    alert('Failed to get current candidate data');
+                    return;
+                }
+                
+                // Build updated personality data
+                const personality = currentData.data.personality || {};
+                if (!personality[category]) {
+                    personality[category] = {};
+                }
+                
+                // Collect data from all trait inputs
+                const categoryTraits = traitSubCategories[category];
+                let hasValidData = false;
+                
+                Object.entries(categoryTraits).forEach(([key, displayName]) => {
+                    const scoreInput = document.getElementById(`${key}_score`);
+                    const evidenceInput = document.getElementById(`${key}_evidence`);
+                    
+                    if (scoreInput && evidenceInput) {
+                        const score = parseFloat(scoreInput.value);
+                        const evidence = evidenceInput.value.trim();
+                        
+                        if (!isNaN(score) && score >= 0 && score <= 10) {
+                            personality[category][key] = {
+                                traitName: displayName,
+                                score: score,
+                                evidence: evidence,
+                                createdAt: personality[category][key]?.createdAt || new Date().toISOString(),
+                                updatedAt: new Date().toISOString()
+                            };
+                            hasValidData = true;
+                        } else if (score !== '' && (isNaN(score) || score < 0 || score > 10)) {
+                            alert(`Invalid score for ${displayName}. Please enter a value between 0.0 and 10.0`);
+                            return;
+                        }
+                    }
+                });
+                
+                if (!hasValidData) {
+                    alert('Please enter at least one valid trait score');
+                    return;
+                }
+                
+                // Send the update
+                const updateData = { personality };
+                await makeRequest('PUT', `/candidates/${candidateId}`, updateData);
+                
+            } catch (error) {
+                alert('Error updating category traits: ' + error.message);
+            }
+        }
+
+        function validatePersonalityData() {
+            const personalityDataText = document.getElementById('personalityData').value;
+            
+            if (!personalityDataText.trim()) {
+                alert('No personality data to validate');
+                return;
+            }
+            
+            try {
+                const data = JSON.parse(personalityDataText);
+                
+                if (!data.personality) {
+                    displayResponse({
+                        valid: false,
+                        error: 'Missing "personality" property in data'
+                    }, true);
+                    return;
+                }
+                
+                const personality = data.personality;
+                let validationResult = {
+                    valid: true,
+                    categories: {},
+                    totalTraits: 0,
+                    validTraits: 0,
+                    errors: []
+                };
+                
+                // Validate each category
+                Object.entries(traitSubCategories).forEach(([categoryKey, traits]) => {
+                    const categoryData = personality[categoryKey] || {};
+                    let categoryValid = 0;
+                    let categoryTotal = Object.keys(traits).length;
+                    let categoryErrors = [];
+                    
+                    Object.entries(traits).forEach(([traitKey, traitName]) => {
+                        const trait = categoryData[traitKey];
+                        validationResult.totalTraits++;
+                        
+                        if (trait) {
+                            if (typeof trait.score === 'number' && trait.score >= 0 && trait.score <= 10) {
+                                categoryValid++;
+                                validationResult.validTraits++;
+                            } else {
+                                categoryErrors.push(`${traitName}: Invalid score (${trait.score})`);
+                            }
+                        }
+                    });
+                    
+                    validationResult.categories[categoryKey] = {
+                        name: categoryKey.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
+                        valid: categoryValid,
+                        total: categoryTotal,
+                        percentage: Math.round((categoryValid / categoryTotal) * 100),
+                        errors: categoryErrors
+                    };
+                    
+                    validationResult.errors = validationResult.errors.concat(categoryErrors);
+                });
+                
+                validationResult.completionPercentage = Math.round((validationResult.validTraits / validationResult.totalTraits) * 100);
+                
+                displayResponse(validationResult);
+                
+            } catch (error) {
+                displayResponse({
+                    valid: false,
+                    error: 'Invalid JSON format: ' + error.message
+                }, true);
+            }
+        }
+
+        function clearPersonalityData() {
+            if (confirm('Are you sure you want to clear all personality data? This will reset the form but not delete data from the server.')) {
+                document.getElementById('personalityData').value = '';
+                document.getElementById('traitCategory').value = '';
+                document.getElementById('traitSubCategory').innerHTML = '<option value="">Select trait...</option>';
+                document.getElementById('traitScore').value = '';
+                document.getElementById('traitEvidence').value = '';
+                document.getElementById('editCategory').value = '';
+                document.getElementById('categoryTraitsEditor').style.display = 'none';
+                
+                displayResponse({
+                    message: 'Personality form data cleared',
+                    timestamp: new Date().toISOString()
+                });
+            }
+        }
         // Load candidates on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadCandidates();
