@@ -54,11 +54,11 @@ export const PERSONALITY_SUB_CATEGORIES = {
     ]
 };
 export const SCORE_RANGE = {
-    MIN: 0,
-    MAX: 10
+    MIN: 0.0,
+    MAX: 10.0
 } as const;
 export const PERSONALITY_DEFAULTS = {
-    SCORE: 0,
+    SCORE: 0.0,
     EVIDENCE: '',
     DEFAULT_TOP_TRAITS_COUNT: 5,
     DEFAULT_IMPROVEMENT_AREAS_COUNT: 5,
