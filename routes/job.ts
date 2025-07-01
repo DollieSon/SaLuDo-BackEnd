@@ -271,6 +271,108 @@ router.post('/:id/skills',
     })
 );
 
+// POST /api/jobs/:id/skills/bulk - Add multiple skills to a job
+router.post('/:id/skills/bulk', 
+    validation.requireFields(['skills']),
+    asyncHandler(async (req: Request, res: Response) => {
+        const { id } = req.params;
+        const { skills } = req.body;
+        
+        // Validate skills array
+        if (!Array.isArray(skills) || skills.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Skills must be a non-empty array'
+            });
+        }
+        
+        // Validate each skill in the array
+        for (let i = 0; i < skills.length; i++) {
+            const skill = skills[i];
+            
+            if (!skill.skillId) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Skill at index ${i} must have a skillId`
+                });
+            }
+            
+            if (typeof skill.requiredLevel !== 'number' || skill.requiredLevel < 0.0 || skill.requiredLevel > 10.0) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Required level must be a number between 0.0 and 10.0 for skill at index ${i}`
+                });
+            }
+            
+            // Validate evidence field if provided
+            if (skill.evidence && typeof skill.evidence !== 'string') {
+                return res.status(400).json({
+                    success: false,
+                    message: `Evidence must be a string if provided for skill at index ${i}`
+                });
+            }
+        }
+        
+        await jobService.addSkillsToJob(id, skills);
+        
+        res.json({
+            success: true,
+            message: `${skills.length} skills added to job successfully`
+        });
+    })
+);
+
+// POST /api/jobs/:id/skills/bulk-by-name - Add multiple skills to a job by skill names
+router.post('/:id/skills/bulk-by-name', 
+    validation.requireFields(['skills']),
+    asyncHandler(async (req: Request, res: Response) => {
+        const { id } = req.params;
+        const { skills } = req.body;
+        
+        // Validate skills array
+        if (!Array.isArray(skills) || skills.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Skills must be a non-empty array'
+            });
+        }
+        
+        // Validate each skill in the array
+        for (let i = 0; i < skills.length; i++) {
+            const skill = skills[i];
+            
+            if (!skill.skillName || typeof skill.skillName !== 'string' || skill.skillName.trim() === '') {
+                return res.status(400).json({
+                    success: false,
+                    message: `Skill at index ${i} must have a non-empty skillName`
+                });
+            }
+            
+            if (typeof skill.requiredLevel !== 'number' || skill.requiredLevel < 0.0 || skill.requiredLevel > 10.0) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Required level must be a number between 0.0 and 10.0 for skill at index ${i}`
+                });
+            }
+            
+            // Validate evidence field if provided
+            if (skill.evidence && typeof skill.evidence !== 'string') {
+                return res.status(400).json({
+                    success: false,
+                    message: `Evidence must be a string if provided for skill at index ${i}`
+                });
+            }
+        }
+        
+        await jobService.addSkillsToJobByName(id, skills);
+        
+        res.json({
+            success: true,
+            message: `${skills.length} skills added to job successfully by name (skills auto-created if needed)`
+        });
+    })
+);
+
 // DELETE /api/jobs/:id/skills/:skillId - Remove a skill from a job
 router.delete('/:id/skills/:skillId', asyncHandler(async (req: Request, res: Response) => {
     const { id, skillId } = req.params;

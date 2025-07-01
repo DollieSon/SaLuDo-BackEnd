@@ -305,6 +305,106 @@ class JobsAPI {
         }
     }
 
+    // Bulk add skills to job
+    async bulkAddSkills(jobId, skillsData) {
+        if (!jobId) {
+            Helpers.showToast('Please enter a job ID', 'warning');
+            return;
+        }
+
+        let skills;
+        try {
+            skills = typeof skillsData === 'string' ? JSON.parse(skillsData) : skillsData;
+        } catch (error) {
+            Helpers.showToast('Invalid JSON format for skills data', 'error');
+            return;
+        }
+
+        if (!Array.isArray(skills) || skills.length === 0) {
+            Helpers.showToast('Skills must be a non-empty array', 'warning');
+            return;
+        }
+
+        // Validate each skill
+        for (let i = 0; i < skills.length; i++) {
+            const skill = skills[i];
+            if (!skill.skillId || typeof skill.requiredLevel !== 'number') {
+                Helpers.showToast(`Skill at index ${i} must have skillId and requiredLevel`, 'warning');
+                return;
+            }
+            if (skill.requiredLevel < 0 || skill.requiredLevel > 10) {
+                Helpers.showToast(`Required level must be between 0 and 10 for skill at index ${i}`, 'warning');
+                return;
+            }
+        }
+
+        LoadingState.show('Adding skills to job...');
+        try {
+            const response = await this.api.post(`${this.basePath}/${jobId}/skills/bulk`, { skills });
+            ResponseDisplay.updateResponseUI(response);
+            
+            if (response.success) {
+                Helpers.showToast(`${skills.length} skills added to job successfully!`, 'success');
+            }
+            
+            return response;
+        } finally {
+            LoadingState.hide();
+        }
+    }
+
+    // Bulk add skills to job by name
+    async bulkAddSkillsByName(jobId, skillsData) {
+        if (!jobId) {
+            Helpers.showToast('Please enter a job ID', 'warning');
+            return;
+        }
+
+        let skills;
+        try {
+            skills = typeof skillsData === 'string' ? JSON.parse(skillsData) : skillsData;
+        } catch (error) {
+            Helpers.showToast('Invalid JSON format for skills data', 'error');
+            return;
+        }
+
+        if (!Array.isArray(skills) || skills.length === 0) {
+            Helpers.showToast('Skills must be a non-empty array', 'warning');
+            return;
+        }
+
+        // Validate each skill
+        for (let i = 0; i < skills.length; i++) {
+            const skill = skills[i];
+            if (!skill.skillName || typeof skill.skillName !== 'string' || skill.skillName.trim() === '') {
+                Helpers.showToast(`Skill at index ${i} must have a non-empty skillName`, 'warning');
+                return;
+            }
+            if (typeof skill.requiredLevel !== 'number') {
+                Helpers.showToast(`Skill at index ${i} must have a numeric requiredLevel`, 'warning');
+                return;
+            }
+            if (skill.requiredLevel < 0 || skill.requiredLevel > 10) {
+                Helpers.showToast(`Required level must be between 0 and 10 for skill at index ${i}`, 'warning');
+                return;
+            }
+        }
+
+        LoadingState.show('Adding skills to job by name...');
+        try {
+            const response = await this.api.post(`${this.basePath}/${jobId}/skills/bulk-by-name`, { skills });
+            ResponseDisplay.updateResponseUI(response);
+            
+            if (response.success) {
+                Helpers.showToast(`${skills.length} skills added to job successfully (auto-created if needed)!`, 'success');
+            }
+            
+            return response;
+        } finally {
+            LoadingState.hide();
+        }
+    }
+
     // Get jobs with pagination
     async getWithPagination(page = 1, limit = 10) {
         LoadingState.show('Fetching jobs...');
