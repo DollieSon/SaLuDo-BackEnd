@@ -307,4 +307,85 @@ export class SkillService {
             throw new Error('Failed to retrieve skill master data');
         }
     }
+
+    async mergeSkills(targetSkillId: string, sourceSkillIds: string[]): Promise<{ 
+        mergedCount: number; 
+        updatedCandidates: number; 
+        targetSkill: SkillMaster 
+    }> {
+        await this.init();
+        try {
+            // Validate that target skill exists
+            const targetSkill = await this.skillMasterRepo.findById(targetSkillId);
+            if (!targetSkill) {
+                throw new Error('Target skill not found');
+            }
+
+            // Validate that all source skills exist
+            for (const sourceSkillId of sourceSkillIds) {
+                const sourceSkill = await this.skillMasterRepo.findById(sourceSkillId);
+                if (!sourceSkill) {
+                    throw new Error(`Source skill ${sourceSkillId} not found`);
+                }
+            }
+
+            // Find all candidates with any of the source skills
+            const allCandidates = await this.resumeRepo.findAll();
+            let updatedCandidatesCount = 0;
+
+            for (const candidate of allCandidates) {
+                let hasChanges = false;
+                const updatedSkills = candidate.skills.map(skillData => {
+                    const skill = Skill.fromObject(skillData);
+                    
+                    // If this skill references one of the source skills, update it to target skill
+                    if (sourceSkillIds.includes(skill.skillId)) {
+                        skill.skillId = targetSkillId;
+                        hasChanges = true;
+                    }
+                    
+                    return skill.toObject();
+                });
+
+                // Remove duplicates (in case candidate had both source and target skills)
+                const uniqueSkills = updatedSkills.reduce((acc, skill) => {
+                    const existingIndex = acc.findIndex(s => s.skillId === skill.skillId);
+                    if (existingIndex >= 0) {
+                        // Keep the one with higher score or more recent evidence
+                        const existing = Skill.fromObject(acc[existingIndex]);
+                        const current = Skill.fromObject(skill);
+                        
+                        if (current.score > existing.score || 
+                            (current.score === existing.score && current.evidence.length > existing.evidence.length)) {
+                            acc[existingIndex] = skill;
+                        }
+                    } else {
+                        acc.push(skill);
+                    }
+                    return acc;
+                }, [] as any[]);
+
+                if (hasChanges) {
+                    await this.resumeRepo.update(candidate.candidateId, {
+                        skills: uniqueSkills
+                    });
+                    updatedCandidatesCount++;
+                }
+            }
+
+            // Remove source skills from master database
+            for (const sourceSkillId of sourceSkillIds) {
+                await this.skillMasterRepo.hardDelete(sourceSkillId);
+            }
+
+            return {
+                mergedCount: sourceSkillIds.length,
+                updatedCandidates: updatedCandidatesCount,
+                targetSkill: targetSkill
+            };
+        } catch (error) {
+            console.error('Error merging skills:', error);
+            throw new Error('Failed to merge skills');
+        }
+    }
 }

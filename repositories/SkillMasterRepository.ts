@@ -191,4 +191,16 @@ export class SkillMasterRepository {
             throw new Error('Failed to find skill IDs by names');
         }
     }
+
+    async hardDelete(skillId: string): Promise<void> {
+        try {
+            const result = await this.collection.deleteOne({ skillId });
+            if (result.deletedCount === 0) {
+                throw new Error('Skill not found');
+            }
+        } catch (error) {
+            console.error('Error hard deleting skill:', error);
+            throw new Error('Failed to hard delete skill');
+        }
+    }
 }

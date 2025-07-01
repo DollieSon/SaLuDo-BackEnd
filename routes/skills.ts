@@ -231,6 +231,37 @@ router.get('/master', asyncHandler(async (req: Request, res: Response) => {
     });
 }));
 
+// POST /api/skills/master/merge - Merge multiple skills into one
+router.post('/master/merge', 
+    validation.requireFields(['targetSkillId', 'sourceSkillIds']),
+    asyncHandler(async (req: Request, res: Response) => {
+        const { targetSkillId, sourceSkillIds } = req.body;
+        
+        // Validate input
+        if (!Array.isArray(sourceSkillIds) || sourceSkillIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'sourceSkillIds must be a non-empty array'
+            });
+        }
+        
+        if (sourceSkillIds.includes(targetSkillId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Target skill cannot be included in source skills'
+            });
+        }
+        
+        const result = await skillService.mergeSkills(targetSkillId, sourceSkillIds);
+        
+        res.json({
+            success: true,
+            message: `Successfully merged ${sourceSkillIds.length} skills into target skill`,
+            data: result
+        });
+    })
+);
+
 // Error handling middleware
 router.use(errorHandler);
 export default router;
