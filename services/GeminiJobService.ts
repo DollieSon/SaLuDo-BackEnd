@@ -65,11 +65,10 @@ ${jobDescription}`;
   try {
     // Clean out Markdown-style code fences if present
     const cleaned = contentText
-      .replace(/^```(?:json)?\s*/i, "") // remove ```json or ``` at the start
-      .replace(/```$/, "") // remove ``` at the end
+      .replace(/^```(?:json)?\s*|```[\s\n]*$/gi, "") // robustly remove opening and closing code fences
       .trim();
 
-      console.log("Cleaned Gemini response:", cleaned);
+    console.log("Cleaned Gemini response:", cleaned);
     const parsed: InferredJobSkill[] = JSON.parse(cleaned);
     return parsed;
   } catch (err) {
