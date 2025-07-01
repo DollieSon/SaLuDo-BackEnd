@@ -25,7 +25,8 @@
     "multer-gridfs-storage": "^5.0.2",
     "node-fetch": "^2.7.0",
     "openai": "^5.8.2",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "stream-buffers": "^3.0.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.18",
@@ -33,6 +34,7 @@
     "@types/mongodb": "^4.0.6",
     "@types/node": "^22.15.29",
     "@types/node-fetch": "^2.6.12",
+    "@types/stream-buffers": "^3.0.7",
     "nodemon": "^3.0.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"

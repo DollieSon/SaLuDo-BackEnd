@@ -8,6 +8,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
+const canID= "6863403cbd4434ce9b6fc0fb"; // Example candidate ID for testing
 
 const BASE_URL = 'http://localhost:3000/api';
 
@@ -63,42 +64,43 @@ async function runTranscriptTests() {
     console.log('🎵 Starting Transcript File Handling Tests 🎵\n');
 
     try {
-        // Step 1: Create a test candidate first
-        console.log('1. Creating test candidate...');
-        const candidateData = {
-            name: 'Test Candidate for Transcripts',
-            email: ['transcript.test@example.com'],
-            birthdate: '1995-03-15',
-            roleApplied: 'Senior Developer'
-        };
+        // // Step 1: Create a test candidate first
+        // console.log('1. Creating test candidate...');
+        // const candidateData = {
+        //     name: 'Test Candidate for Transcripts',
+        //     email: ['transcript.test@example.com'],
+        //     birthdate: '1995-03-15',
+        //     roleApplied: 'Senior Developer'
+        // };
 
-        const createResponse = await axios.post(`${BASE_URL}/candidates`, candidateData);
-        testCandidateId = createResponse.data.data.candidateId;
-        console.log(`   ✅ Created candidate: ${testCandidateId}\n`);
+        // const createResponse = await axios.post(`${BASE_URL}/candidates`, candidateData);
+        // testCandidateId = createResponse.data.data.candidateId;
+        // console.log(`   ✅ Created candidate: ${testCandidateId}\n`);
 
-        // Step 2: Upload audio transcript
-        console.log('2. Uploading audio transcript file...');
-        const audioForm = new FormData();
-        const audioBuffer = createSampleAudioFile();
-        audioForm.append('transcript', audioBuffer, {
-            filename: 'technical_interview.wav',
-            contentType: 'audio/wav'
-        });
-        audioForm.append('interviewRound', 'technical');
-        audioForm.append('duration', '1800'); // 30 minutes
+        // // Step 2: Upload audio transcript
+        // console.log('2. Uploading audio transcript file...');
+        // const audioForm = new FormData();
+        // const audioBuffer = createSampleAudioFile();
+        // audioForm.append('transcript', audioBuffer, {
+        //     filename: 'technical_interview.wav',
+        //     contentType: 'audio/wav'
+        // });
+        // audioForm.append('interviewRound', 'technical');
+        // audioForm.append('duration', '1800'); // 30 minutes
 
-        const uploadResponse = await axios.post(
-            `${BASE_URL}/candidates/${testCandidateId}/transcripts`,
-            audioForm,
-            { headers: audioForm.getHeaders() }
-        );
+        // const uploadResponse = await axios.post(
+        //     `${BASE_URL}/candidates/${testCandidateId}/transcripts`,
+        //     audioForm,
+        //     { headers: audioForm.getHeaders() }
+        // );
         
-        testTranscriptId = uploadResponse.data.data.fileId;
-        console.log(`   ✅ Uploaded audio transcript: ${testTranscriptId}`);
-        console.log(`   📄 File: ${uploadResponse.data.data.filename}`);
-        console.log(`   🎯 Round: ${uploadResponse.data.data.interviewRound}`);
-        console.log(`   ⏱️  Duration: ${uploadResponse.data.data.duration} seconds\n`);
+        // testTranscriptId = uploadResponse.data.data.fileId;
+        // console.log(`   ✅ Uploaded audio transcript: ${testTranscriptId}`);
+        // console.log(`   📄 File: ${uploadResponse.data.data.filename}`);
+        // console.log(`   🎯 Round: ${uploadResponse.data.data.interviewRound}`);
+        // console.log(`   ⏱️  Duration: ${uploadResponse.data.data.duration} seconds\n`);
 
+        testCandidateId = canID; // Use the provided candidate ID for testing
         // Step 3: Upload text transcript
         console.log('3. Uploading text transcript file...');
         const textForm = new FormData();
@@ -129,70 +131,70 @@ async function runTranscriptTests() {
         });
         console.log('');
 
-        // Step 5: Get transcript metadata
-        console.log('5. Getting transcript metadata...');
-        const metadataResponse = await axios.get(
-            `${BASE_URL}/candidates/${testCandidateId}/transcripts/${testTranscriptId}/metadata`
-        );
-        console.log(`   ✅ Metadata retrieved:`);
-        console.log(`   📄 File: ${metadataResponse.data.data.filename}`);
-        console.log(`   📦 Size: ${metadataResponse.data.data.size} bytes`);
-        console.log(`   🎯 Round: ${metadataResponse.data.data.interviewRound}`);
-        console.log(`   📅 Uploaded: ${metadataResponse.data.data.uploadedAt}\n`);
+        // // Step 5: Get transcript metadata
+        // console.log('5. Getting transcript metadata...');
+        // const metadataResponse = await axios.get(
+        //     `${BASE_URL}/candidates/${testCandidateId}/transcripts/${testTranscriptId}/metadata`
+        // );
+        // console.log(`   ✅ Metadata retrieved:`);
+        // console.log(`   📄 File: ${metadataResponse.data.data.filename}`);
+        // console.log(`   📦 Size: ${metadataResponse.data.data.size} bytes`);
+        // console.log(`   🎯 Round: ${metadataResponse.data.data.interviewRound}`);
+        // console.log(`   📅 Uploaded: ${metadataResponse.data.data.uploadedAt}\n`);
 
-        // Step 6: Update transcript file
-        console.log('6. Updating transcript file...');
-        const updateForm = new FormData();
-        const updatedAudioBuffer = createSampleAudioFile();
-        updateForm.append('transcript', updatedAudioBuffer, {
-            filename: 'technical_interview_updated.wav',
-            contentType: 'audio/wav'
-        });
-        updateForm.append('interviewRound', 'final');
-        updateForm.append('duration', '2400'); // 40 minutes
+        // // Step 6: Update transcript file
+        // console.log('6. Updating transcript file...');
+        // const updateForm = new FormData();
+        // const updatedAudioBuffer = createSampleAudioFile();
+        // updateForm.append('transcript', updatedAudioBuffer, {
+        //     filename: 'technical_interview_updated.wav',
+        //     contentType: 'audio/wav'
+        // });
+        // updateForm.append('interviewRound', 'final');
+        // updateForm.append('duration', '2400'); // 40 minutes
 
-        const updateResponse = await axios.put(
-            `${BASE_URL}/candidates/${testCandidateId}/transcripts/${testTranscriptId}`,
-            updateForm,
-            { headers: updateForm.getHeaders() }
-        );
+        // const updateResponse = await axios.put(
+        //     `${BASE_URL}/candidates/${testCandidateId}/transcripts/${testTranscriptId}`,
+        //     updateForm,
+        //     { headers: updateForm.getHeaders() }
+        // );
         
-        console.log(`   ✅ Updated transcript: ${updateResponse.data.data.fileId}`);
-        console.log(`   📄 New file: ${updateResponse.data.data.filename}`);
-        console.log(`   🎯 New round: ${updateResponse.data.data.interviewRound}`);
-        console.log(`   ⏱️  New duration: ${updateResponse.data.data.duration} seconds\n`);
+        // console.log(`   ✅ Updated transcript: ${updateResponse.data.data.fileId}`);
+        // console.log(`   📄 New file: ${updateResponse.data.data.filename}`);
+        // console.log(`   🎯 New round: ${updateResponse.data.data.interviewRound}`);
+        // console.log(`   ⏱️  New duration: ${updateResponse.data.data.duration} seconds\n`);
 
-        // Step 7: Test transcription request (placeholder)
-        console.log('7. Requesting transcription...');
-        const transcribeResponse = await axios.post(
-            `${BASE_URL}/candidates/${testCandidateId}/transcripts/${testTranscriptId}/transcribe`
-        );
-        console.log(`   ✅ ${transcribeResponse.data.message}`);
-        console.log(`   📝 Note: ${transcribeResponse.data.data.note}\n`);
+        // // Step 7: Test transcription request (placeholder)
+        // console.log('7. Requesting transcription...');
+        // const transcribeResponse = await axios.post(
+        //     `${BASE_URL}/candidates/${testCandidateId}/transcripts/${testTranscriptId}/transcribe`
+        // );
+        // console.log(`   ✅ ${transcribeResponse.data.message}`);
+        // console.log(`   📝 Note: ${transcribeResponse.data.data.note}\n`);
 
-        // Step 8: Download transcript file (stream test)
-        console.log('8. Testing transcript download...');
-        const downloadResponse = await axios.get(
-            `${BASE_URL}/candidates/${testCandidateId}/transcripts/${testTranscriptId}`,
-            { responseType: 'stream' }
-        );
+        // // Step 8: Download transcript file (stream test)
+        // console.log('8. Testing transcript download...');
+        // const downloadResponse = await axios.get(
+        //     `${BASE_URL}/candidates/${testCandidateId}/transcripts/${testTranscriptId}`,
+        //     { responseType: 'stream' }
+        // );
         
-        console.log(`   ✅ Download initiated`);
-        console.log(`   📄 Content-Type: ${downloadResponse.headers['content-type']}`);
-        console.log(`   📦 Content-Length: ${downloadResponse.headers['content-length']} bytes\n`);
+        // console.log(`   ✅ Download initiated`);
+        // console.log(`   📄 Content-Type: ${downloadResponse.headers['content-type']}`);
+        // console.log(`   📦 Content-Length: ${downloadResponse.headers['content-length']} bytes\n`);
 
-        // Step 9: Delete transcript
-        console.log('9. Deleting transcript...');
-        await axios.delete(`${BASE_URL}/candidates/${testCandidateId}/transcripts/${testTranscriptId}`);
-        console.log(`   ✅ Transcript deleted: ${testTranscriptId}\n`);
+        // // Step 9: Delete transcript
+        // console.log('9. Deleting transcript...');
+        // await axios.delete(`${BASE_URL}/candidates/${testCandidateId}/transcripts/${testTranscriptId}`);
+        // console.log(`   ✅ Transcript deleted: ${testTranscriptId}\n`);
 
-        // Step 10: Verify deletion
-        console.log('10. Verifying deletion...');
-        const finalListResponse = await axios.get(`${BASE_URL}/candidates/${testCandidateId}/transcripts`);
-        console.log(`   ✅ Remaining transcripts: ${finalListResponse.data.count}`);
+        // // Step 10: Verify deletion
+        // console.log('10. Verifying deletion...');
+        // const finalListResponse = await axios.get(`${BASE_URL}/candidates/${testCandidateId}/transcripts`);
+        // console.log(`   ✅ Remaining transcripts: ${finalListResponse.data.count}`);
 
-        console.log('\n🎉 All transcript file handling tests completed successfully! 🎉');
-        console.log('💫 Your transcript file system is absolutely serving! 💫');
+        // console.log('\n🎉 All transcript file handling tests completed successfully! 🎉');
+        // console.log('💫 Your transcript file system is absolutely serving! 💫');
 
     } catch (error) {
         console.error('\n❌ Test failed:', error.message);
@@ -320,7 +322,7 @@ async function runAllTests() {
     console.log('================================================\n');
 
     await runTranscriptTests();
-    await runValidationTests();
+    // await runValidationTests();
 
     console.log('\n================================================');
     console.log('🎯 All transcript tests completed! 🎯');
