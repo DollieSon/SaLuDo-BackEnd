@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import usersRouter from './routes/users';
 import jobRouter from './routes/job';
-import candidatesRouter from './routes/candidates-core';
+import candidatesRouter from './routes/candidates';
 import skillsRouter from './routes/skills';
 import experienceRouter from './routes/experience';
 import educationRouter from './routes/education';

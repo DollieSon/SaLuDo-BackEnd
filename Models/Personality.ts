@@ -66,13 +66,56 @@ export class Personality {
     };
     constructor(personalityData?: PersonalityData) {
         if (personalityData) {
-            // Initialize from provided data
-            this.cognitiveAndProblemSolving = personalityData.cognitiveAndProblemSolving;
-            this.communicationAndTeamwork = personalityData.communicationAndTeamwork;
-            this.workEthicAndReliability = personalityData.workEthicAndReliability;
-            this.growthAndLeadership = personalityData.growthAndLeadership;
-            this.cultureAndPersonalityFit = personalityData.cultureAndPersonalityFit;
-            this.bonusTraits = personalityData.bonusTraits;
+            console.log('=== DEBUG: Personality constructor with data ===');
+            console.log('Data type:', typeof personalityData);
+            console.log('Data keys:', Object.keys(personalityData || {}));
+            
+            // Validate that personalityData has the required structure
+            if (!personalityData.cognitiveAndProblemSolving || 
+                !personalityData.communicationAndTeamwork ||
+                !personalityData.workEthicAndReliability ||
+                !personalityData.growthAndLeadership ||
+                !personalityData.cultureAndPersonalityFit ||
+                !personalityData.bonusTraits) {
+                console.error('=== DEBUG: Invalid personality data structure ===');
+                console.error('Missing categories in personalityData:', {
+                    cognitiveAndProblemSolving: !!personalityData.cognitiveAndProblemSolving,
+                    communicationAndTeamwork: !!personalityData.communicationAndTeamwork,
+                    workEthicAndReliability: !!personalityData.workEthicAndReliability,
+                    growthAndLeadership: !!personalityData.growthAndLeadership,
+                    cultureAndPersonalityFit: !!personalityData.cultureAndPersonalityFit,
+                    bonusTraits: !!personalityData.bonusTraits
+                });
+                throw new Error('Invalid personality data structure: missing required categories');
+            }
+            
+            // Initialize from provided data with validation
+            this.cognitiveAndProblemSolving = this.validateAndProcessCategory(
+                personalityData.cognitiveAndProblemSolving, 
+                'cognitiveAndProblemSolving'
+            );
+            this.communicationAndTeamwork = this.validateAndProcessCategory(
+                personalityData.communicationAndTeamwork, 
+                'communicationAndTeamwork'
+            );
+            this.workEthicAndReliability = this.validateAndProcessCategory(
+                personalityData.workEthicAndReliability, 
+                'workEthicAndReliability'
+            );
+            this.growthAndLeadership = this.validateAndProcessCategory(
+                personalityData.growthAndLeadership, 
+                'growthAndLeadership'
+            );
+            this.cultureAndPersonalityFit = this.validateAndProcessCategory(
+                personalityData.cultureAndPersonalityFit, 
+                'cultureAndPersonalityFit'
+            );
+            this.bonusTraits = this.validateAndProcessCategory(
+                personalityData.bonusTraits, 
+                'bonusTraits'
+            );
+            
+            console.log('=== DEBUG: Personality constructor completed successfully ===');
         } else {
             // Initialize all traits with default empty values for new candidates
             this.cognitiveAndProblemSolving = {
@@ -273,6 +316,127 @@ export class Personality {
             })
             .join('')
             .replace(/[^a-zA-Z0-9]/g, '');
+    }
+    private validateAndProcessCategory(categoryData: any, categoryName: string): any {
+        console.log(`=== DEBUG: validateAndProcessCategory for ${categoryName} ===`);
+        console.log('Input data:', JSON.stringify(categoryData, null, 2));
+        
+        if (!categoryData || typeof categoryData !== 'object') {
+            console.error(`Invalid category data for ${categoryName}:`, categoryData);
+            throw new Error(`Invalid category data for ${categoryName}: must be an object`);
+        }
+
+        const processedCategory: any = {};
+        
+        // Get expected traits for this category based on the category name
+        const expectedTraits = this.getExpectedTraitsForCategory(categoryName);
+        
+        for (const traitName of expectedTraits) {
+            const traitData = categoryData[traitName];
+            
+            if (!traitData) {
+                console.warn(`Missing trait '${traitName}' in category '${categoryName}'`);
+                processedCategory[traitName] = this.createEmptyTrait(this.formatTraitName(traitName));
+                continue;
+            }
+            
+            // Validate and process the trait
+            try {
+                processedCategory[traitName] = this.validateAndProcessTrait(traitData, traitName);
+            } catch (error) {
+                console.error(`Error processing trait '${traitName}' in category '${categoryName}':`, error);
+                processedCategory[traitName] = this.createEmptyTrait(this.formatTraitName(traitName));
+            }
+        }
+        
+        console.log(`Processed category ${categoryName}:`, JSON.stringify(processedCategory, null, 2));
+        return processedCategory;
+    }
+    private getExpectedTraitsForCategory(categoryName: string): string[] {
+        const traitMap: { [key: string]: string[] } = {
+            'cognitiveAndProblemSolving': [
+                'analyticalThinking', 'curiosity', 'creativity', 
+                'attentionToDetail', 'criticalThinking', 'resourcefulness'
+            ],
+            'communicationAndTeamwork': [
+                'clearCommunication', 'activeListening', 'collaboration', 
+                'empathy', 'conflictResolution'
+            ],
+            'workEthicAndReliability': [
+                'dependability', 'accountability', 'persistence', 
+                'timeManagement', 'organization'
+            ],
+            'growthAndLeadership': [
+                'initiative', 'selfMotivation', 'leadership', 
+                'adaptability', 'coachability'
+            ],
+            'cultureAndPersonalityFit': [
+                'positiveAttitude', 'humility', 'confidence', 
+                'integrity', 'professionalism', 'openMindedness', 'enthusiasm'
+            ],
+            'bonusTraits': [
+                'customerFocus', 'visionaryThinking', 'culturalAwareness', 
+                'senseOfHumor', 'grit'
+            ]
+        };
+        
+        return traitMap[categoryName] || [];
+    }
+    private validateAndProcessTrait(traitData: any, traitName: string): Trait {
+        console.log(`Validating trait '${traitName}':`, traitData);
+        
+        if (!traitData || typeof traitData !== 'object') {
+            throw new Error(`Invalid trait data for '${traitName}': must be an object`);
+        }
+        
+        // Ensure required fields exist and are valid
+        const score = typeof traitData.score === 'number' ? traitData.score : 
+                     typeof traitData.score === 'string' ? parseFloat(traitData.score) : 0;
+        
+        // Handle both 'evidence' and 'explanation' for backward compatibility
+        const evidence = typeof traitData.evidence === 'string' ? traitData.evidence : 
+                        typeof traitData.explanation === 'string' ? traitData.explanation : '';
+        
+        let createdAt: Date;
+        let updatedAt: Date;
+        
+        if (traitData.createdAt instanceof Date) {
+            createdAt = traitData.createdAt;
+        } else if (typeof traitData.createdAt === 'string') {
+            createdAt = new Date(traitData.createdAt);
+        } else if (traitData.dateGenerated instanceof Date) {
+            createdAt = traitData.dateGenerated;
+        } else if (typeof traitData.dateGenerated === 'string') {
+            createdAt = new Date(traitData.dateGenerated);
+        } else {
+            createdAt = new Date();
+        }
+        
+        if (traitData.updatedAt instanceof Date) {
+            updatedAt = traitData.updatedAt;
+        } else if (typeof traitData.updatedAt === 'string') {
+            updatedAt = new Date(traitData.updatedAt);
+        } else {
+            updatedAt = new Date();
+        }
+        
+        const validatedTrait: Trait = {
+            traitName: this.formatTraitName(traitName),
+            score: Math.max(0, Math.min(10, score)), // Clamp between 0-10
+            evidence,
+            createdAt,
+            updatedAt
+        };
+        
+        console.log(`Validated trait '${traitName}':`, validatedTrait);
+        return validatedTrait;
+    }
+    private formatTraitName(traitName: string): string {
+        // Convert camelCase to proper display name
+        return traitName
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/^./, str => str.toUpperCase())
+            .trim();
     }
     private getAllTraits(): Trait[] {
         const allTraits: Trait[] = [];

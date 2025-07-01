@@ -120,26 +120,88 @@ export class SkillService {
                 throw new Error('Candidate resume data not found');
             }
             const skills = resumeData.skills.map(s => Skill.fromObject(s));
+            const skillToDelete = skills.find(s => s.candidateSkillId === candidateSkillId);
+            
+            if (!skillToDelete) {
+                throw new Error('Skill not found');
+            }
+
+            // Soft delete by setting isDeleted to true
+            skillToDelete.isDeleted = true;
+
+            await this.resumeRepo.update(candidateId, {
+                skills: skills.map(s => s.toObject())
+            });
+        } catch (error) {
+            console.error('Error soft deleting skill:', error);
+            throw new Error('Failed to delete skill');
+        }
+    }
+
+    // Method to restore a soft deleted skill
+    async restoreSkill(candidateId: string, candidateSkillId: string): Promise<void> {
+        await this.init();
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            if (!resumeData) {
+                throw new Error('Candidate resume data not found');
+            }
+            const skills = resumeData.skills.map(s => Skill.fromObject(s));
+            const skillToRestore = skills.find(s => s.candidateSkillId === candidateSkillId);
+            
+            if (!skillToRestore) {
+                throw new Error('Skill not found');
+            }
+
+            // Restore by setting isDeleted to false
+            skillToRestore.isDeleted = false;
+
+            await this.resumeRepo.update(candidateId, {
+                skills: skills.map(s => s.toObject())
+            });
+        } catch (error) {
+            console.error('Error restoring skill:', error);
+            throw new Error('Failed to restore skill');
+        }
+    }
+
+    // Method to hard delete (permanently remove) a skill
+    async hardDeleteSkill(candidateId: string, candidateSkillId: string): Promise<void> {
+        await this.init();
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            if (!resumeData) {
+                throw new Error('Candidate resume data not found');
+            }
+            const skills = resumeData.skills.map(s => Skill.fromObject(s));
             const filteredSkills = skills.filter(s => s.candidateSkillId !== candidateSkillId);
+            
             if (filteredSkills.length === skills.length) {
                 throw new Error('Skill not found');
             }
+
             await this.resumeRepo.update(candidateId, {
                 skills: filteredSkills.map(s => s.toObject())
             });
         } catch (error) {
-            console.error('Error deleting skill:', error);
-            throw new Error('Failed to delete skill');
+            console.error('Error hard deleting skill:', error);
+            throw new Error('Failed to permanently delete skill');
         }
     }
-    async getSkills(candidateId: string, includeUnaccepted: boolean = true): Promise<Array<Skill & { skillName: string; isAccepted: boolean }>> {
+    async getSkills(candidateId: string, includeUnaccepted: boolean = true, includeDeleted: boolean = false): Promise<Array<Skill & { skillName: string; isAccepted: boolean }>> {
         await this.init();
         try {
             const resumeData = await this.resumeRepo.findById(candidateId);
             if (!resumeData) {
                 return [];
             }
-            const candidateSkills = resumeData.skills.map(s => Skill.fromObject(s));
+            let candidateSkills = resumeData.skills.map(s => Skill.fromObject(s));
+            
+            // Filter out soft deleted skills by default
+            if (!includeDeleted) {
+                candidateSkills = candidateSkills.filter(s => !s.isDeleted);
+            }
+            
             const enrichedSkills: Array<Skill & { skillName: string; isAccepted: boolean }> = [];
             // Enrich with master skill data
             for (const skill of candidateSkills) {

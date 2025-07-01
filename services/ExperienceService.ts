@@ -67,26 +67,91 @@ export class ExperienceService {
                 throw new Error('Candidate resume data not found');
             }
             const experiences = resumeData.experience.map(e => Experience.fromObject(e));
+            const experienceToDelete = experiences.find(e => e.experienceId === experienceId);
+            
+            if (!experienceToDelete) {
+                throw new Error('Experience not found');
+            }
+
+            // Soft delete by setting isDeleted to true
+            experienceToDelete.isDeleted = true;
+            experienceToDelete.updatedAt = new Date();
+
+            await this.resumeRepo.update(candidateId, {
+                experience: experiences.map(e => e.toObject())
+            });
+        } catch (error) {
+            console.error('Error soft deleting experience:', error);
+            throw new Error('Failed to delete experience');
+        }
+    }
+
+    // Method to restore a soft deleted experience
+    async restoreExperience(candidateId: string, experienceId: string): Promise<void> {
+        await this.init();
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            if (!resumeData) {
+                throw new Error('Candidate resume data not found');
+            }
+            const experiences = resumeData.experience.map(e => Experience.fromObject(e));
+            const experienceToRestore = experiences.find(e => e.experienceId === experienceId);
+            
+            if (!experienceToRestore) {
+                throw new Error('Experience not found');
+            }
+
+            // Restore by setting isDeleted to false
+            experienceToRestore.isDeleted = false;
+            experienceToRestore.updatedAt = new Date();
+
+            await this.resumeRepo.update(candidateId, {
+                experience: experiences.map(e => e.toObject())
+            });
+        } catch (error) {
+            console.error('Error restoring experience:', error);
+            throw new Error('Failed to restore experience');
+        }
+    }
+
+    // Method to hard delete (permanently remove) an experience
+    async hardDeleteExperience(candidateId: string, experienceId: string): Promise<void> {
+        await this.init();
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            if (!resumeData) {
+                throw new Error('Candidate resume data not found');
+            }
+            const experiences = resumeData.experience.map(e => Experience.fromObject(e));
             const filteredExperiences = experiences.filter(e => e.experienceId !== experienceId);
+            
             if (filteredExperiences.length === experiences.length) {
                 throw new Error('Experience not found');
             }
+
             await this.resumeRepo.update(candidateId, {
                 experience: filteredExperiences.map(e => e.toObject())
             });
         } catch (error) {
-            console.error('Error deleting experience:', error);
-            throw new Error('Failed to delete experience');
+            console.error('Error hard deleting experience:', error);
+            throw new Error('Failed to permanently delete experience');
         }
     }
-    async getExperience(candidateId: string): Promise<Experience[]> {
+    async getExperience(candidateId: string, includeDeleted: boolean = false): Promise<Experience[]> {
         await this.init();
         try {
             const resumeData = await this.resumeRepo.findById(candidateId);
             if (!resumeData) {
                 return [];
             }
-            return resumeData.experience.map(e => Experience.fromObject(e));
+            const experiences = resumeData.experience.map(e => Experience.fromObject(e));
+            
+            // Filter out soft deleted items by default
+            if (!includeDeleted) {
+                return experiences.filter(e => !e.isDeleted);
+            }
+            
+            return experiences;
         } catch (error) {
             console.error('Error getting experience:', error);
             throw new Error('Failed to retrieve experience');

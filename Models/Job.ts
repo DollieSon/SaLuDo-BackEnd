@@ -85,7 +85,7 @@ export class Job {
         return {
             _id: this._id!,
             jobName: this.jobName,
-            skillsCount: this.skills.length,
+            skillsCount: this.getActiveSkills().length,
             createdAt: this.createdAt
         };
     }
@@ -114,11 +114,11 @@ export class Job {
         );
         
         if (existingSkillIndex !== -1) {
-            // Update existing skill
-            this.skills[existingSkillIndex] = skill;
+            // Update existing skill and mark as not deleted
+            this.skills[existingSkillIndex] = { ...skill, isDeleted: false };
         } else {
-            // Add new skill
-            this.skills.push(skill);
+            // Add new skill with isDeleted defaulting to false
+            this.skills.push({ ...skill, isDeleted: false });
         }
         
         this.updatedAt = new Date();
@@ -129,17 +129,40 @@ export class Job {
         this.updatedAt = new Date();
     }
 
+    // Soft delete a skill
+    softDeleteSkill(skillId: string): void {
+        const skill = this.skills.find(s => s.skillId === skillId);
+        if (skill) {
+            skill.isDeleted = true;
+            this.updatedAt = new Date();
+        }
+    }
+
+    // Restore a soft deleted skill
+    restoreSkill(skillId: string): void {
+        const skill = this.skills.find(s => s.skillId === skillId);
+        if (skill) {
+            skill.isDeleted = false;
+            this.updatedAt = new Date();
+        }
+    }
+
+    // Get active (non-deleted) skills
+    getActiveSkills(): JobSkillRequirement[] {
+        return this.skills.filter(skill => !skill.isDeleted);
+    }
+
     hasSkill(skillId: string): boolean {
-        return this.skills.some(skill => skill.skillId === skillId);
+        return this.skills.some(skill => skill.skillId === skillId && !skill.isDeleted);
     }
 
     getSkillRequiredLevel(skillId: string): number | null {
-        const skill = this.skills.find(s => s.skillId === skillId);
+        const skill = this.getActiveSkills().find(s => s.skillId === skillId);
         return skill ? skill.requiredLevel : null;
     }
 
     getSkillsCount(): number {
-        return this.skills.length;
+        return this.getActiveSkills().length;
     }
 }
 

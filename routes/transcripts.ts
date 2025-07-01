@@ -46,12 +46,17 @@ router.post(
     }
     var currentPersonality = await candidateService.getCandidatePersonality(candidateId);
     console.log(`Current personality for candidate ${candidateId}:`, currentPersonality);
-    console.log(`Transcript text for candidate ${candidateId}: ${text}`);
+    console.log(`Transcript text for candidate ${candidateId}: ${text.substring(0, 200)}...`);
 
+    console.log('=== DEBUG: Calling analyzeTranscriptWithGemini ===');
     const personality = await analyzeTranscriptWithGemini(text);
-    console.log(`\n\n\n\n\n\n\n\n\nPersonality analysis for candidate ${candidateId}:`, personality);
+    console.log(`=== DEBUG: Gemini response type:`, typeof personality);
+    console.log(`=== DEBUG: Gemini response keys:`, Object.keys(personality || {}));
+    console.log(`=== DEBUG: Full Gemini response:`, JSON.stringify(personality, null, 2));
+    
+    console.log('=== DEBUG: Calling updateCandidatePersonality ===');
     await candidateService.updateCandidatePersonality(candidateId, personality);
-    console.log(`\n\n________________________________\n\nPersonality analysis for candidate ${candidateId}:`, personality);
+    console.log(`=== DEBUG: Personality update completed successfully ===`);
     res.status(201).json({
       success: true,
       message: "Transcript file uploaded successfully",

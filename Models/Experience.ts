@@ -3,6 +3,7 @@ export class Experience {
     public title: string;
     public role: string;
     public description?: string;
+    public isDeleted: boolean;
     public createdAt: Date;
     public updatedAt: Date;
     constructor(
@@ -10,6 +11,7 @@ export class Experience {
         title: string,
         role: string,
         description?: string,
+        isDeleted?: boolean,
         createdAt?: Date,
         updatedAt?: Date
     ) {
@@ -17,6 +19,7 @@ export class Experience {
         this.title = title;
         this.role = role;
         this.description = description;
+        this.isDeleted = isDeleted || false;
         this.createdAt = createdAt || new Date();
         this.updatedAt = updatedAt || new Date();
     }
@@ -26,6 +29,7 @@ export class Experience {
             obj.title,
             obj.role,
             obj.description,
+            obj.isDeleted || false,
             obj.createdAt ? new Date(obj.createdAt) : undefined,
             obj.updatedAt ? new Date(obj.updatedAt) : undefined
         );
@@ -36,6 +40,7 @@ export class Experience {
             title: this.title,
             role: this.role,
             description: this.description,
+            isDeleted: this.isDeleted,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
         };
@@ -68,6 +73,7 @@ export interface ExperienceData {
     title: string;
     role: string;
     description?: string;
+    isDeleted: boolean;
     createdAt: Date;
     updatedAt: Date;
 }

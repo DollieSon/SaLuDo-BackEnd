@@ -71,26 +71,91 @@ export class EducationService {
                 throw new Error('Candidate resume data not found');
             }
             const educations = resumeData.education.map(e => Education.fromObject(e));
+            const educationToDelete = educations.find(e => e.educationId === educationId);
+            
+            if (!educationToDelete) {
+                throw new Error('Education not found');
+            }
+
+            // Soft delete by setting isDeleted to true
+            educationToDelete.isDeleted = true;
+            educationToDelete.updatedAt = new Date();
+
+            await this.resumeRepo.update(candidateId, {
+                education: educations.map(e => e.toObject())
+            });
+        } catch (error) {
+            console.error('Error soft deleting education:', error);
+            throw new Error('Failed to delete education');
+        }
+    }
+
+    // Method to restore a soft deleted education
+    async restoreEducation(candidateId: string, educationId: string): Promise<void> {
+        await this.init();
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            if (!resumeData) {
+                throw new Error('Candidate resume data not found');
+            }
+            const educations = resumeData.education.map(e => Education.fromObject(e));
+            const educationToRestore = educations.find(e => e.educationId === educationId);
+            
+            if (!educationToRestore) {
+                throw new Error('Education not found');
+            }
+
+            // Restore by setting isDeleted to false
+            educationToRestore.isDeleted = false;
+            educationToRestore.updatedAt = new Date();
+
+            await this.resumeRepo.update(candidateId, {
+                education: educations.map(e => e.toObject())
+            });
+        } catch (error) {
+            console.error('Error restoring education:', error);
+            throw new Error('Failed to restore education');
+        }
+    }
+
+    // Method to hard delete (permanently remove) an education
+    async hardDeleteEducation(candidateId: string, educationId: string): Promise<void> {
+        await this.init();
+        try {
+            const resumeData = await this.resumeRepo.findById(candidateId);
+            if (!resumeData) {
+                throw new Error('Candidate resume data not found');
+            }
+            const educations = resumeData.education.map(e => Education.fromObject(e));
             const filteredEducations = educations.filter(e => e.educationId !== educationId);
+            
             if (filteredEducations.length === educations.length) {
                 throw new Error('Education not found');
             }
+
             await this.resumeRepo.update(candidateId, {
                 education: filteredEducations.map(e => e.toObject())
             });
         } catch (error) {
-            console.error('Error deleting education:', error);
-            throw new Error('Failed to delete education');
+            console.error('Error hard deleting education:', error);
+            throw new Error('Failed to permanently delete education');
         }
     }
-    async getEducation(candidateId: string): Promise<Education[]> {
+    async getEducation(candidateId: string, includeDeleted: boolean = false): Promise<Education[]> {
         await this.init();
         try {
             const resumeData = await this.resumeRepo.findById(candidateId);
             if (!resumeData) {
                 return [];
             }
-            return resumeData.education.map(e => Education.fromObject(e));
+            const educations = resumeData.education.map(e => Education.fromObject(e));
+            
+            // Filter out soft deleted items by default
+            if (!includeDeleted) {
+                return educations.filter(e => !e.isDeleted);
+            }
+            
+            return educations;
         } catch (error) {
             console.error('Error getting education:', error);
             throw new Error('Failed to retrieve education');

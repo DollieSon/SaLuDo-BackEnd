@@ -53,7 +53,31 @@ router.delete('/:candidateId/education/:eduId',
         await educationService.deleteEducation(candidateId, eduId);
         res.json({
             success: true,
-            message: 'Education removed successfully'
+            message: 'Education soft deleted successfully'
+        });
+    })
+);
+// Restore soft deleted education
+router.patch('/:candidateId/education/:eduId/restore',
+    candidateExists,
+    asyncHandler(async (req: Request, res: Response) => {
+        const { candidateId, eduId } = req.params;
+        await educationService.restoreEducation(candidateId, eduId);
+        res.json({
+            success: true,
+            message: 'Education restored successfully'
+        });
+    })
+);
+// Hard delete education (permanent removal)
+router.delete('/:candidateId/education/:eduId/hard',
+    candidateExists,
+    asyncHandler(async (req: Request, res: Response) => {
+        const { candidateId, eduId } = req.params;
+        await educationService.hardDeleteEducation(candidateId, eduId);
+        res.json({
+            success: true,
+            message: 'Education permanently deleted'
         });
     })
 );

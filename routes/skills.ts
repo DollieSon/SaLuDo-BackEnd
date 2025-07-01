@@ -108,7 +108,33 @@ router.delete('/:candidateId/skills/:candidateSkillId',
         await skillService.deleteSkill(candidateId, candidateSkillId);
         res.json({
             success: true,
-            message: 'Skill removed successfully'
+            message: 'Skill soft deleted successfully'
+        });
+    })
+);
+
+// Restore soft deleted skill
+router.patch('/:candidateId/skills/:candidateSkillId/restore',
+    candidateExists,
+    asyncHandler(async (req: Request, res: Response) => {
+        const { candidateId, candidateSkillId } = req.params;
+        await skillService.restoreSkill(candidateId, candidateSkillId);
+        res.json({
+            success: true,
+            message: 'Skill restored successfully'
+        });
+    })
+);
+
+// Hard delete skill (permanent removal)
+router.delete('/:candidateId/skills/:candidateSkillId/hard',
+    candidateExists,
+    asyncHandler(async (req: Request, res: Response) => {
+        const { candidateId, candidateSkillId } = req.params;
+        await skillService.hardDeleteSkill(candidateId, candidateSkillId);
+        res.json({
+            success: true,
+            message: 'Skill permanently deleted'
         });
     })
 );

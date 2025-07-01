@@ -655,108 +655,29 @@ export class CandidateService {
     transcriptId: string
   ): Promise<Buffer> {
     await this.init();
-    const db = await connectDB();
-    const bucket = new GridFSBucket(db, { bucketName: "transcripts" });
-
-    const interviewData = await this.interviewRepo.findById(candidateId);
-    const transcript = interviewData?.transcripts?.find(
-      (t) => t.fileId === transcriptId
-    );
-    if (!transcript) {
-      throw new Error("Transcript not found");
-    }
-
-    const downloadStream = bucket.openDownloadStream(
-      new ObjectId(transcriptId)
-    );
-    const writableStream = new streamBuffers.WritableStreamBuffer();
-
-    return new Promise((resolve, reject) => {
-      downloadStream.pipe(writableStream);
-      downloadStream.on("error", reject);
-      writableStream.on("finish", () => {
-        const contents = writableStream.getContents();
-        if (!contents) {
-          return reject(new Error("Transcript buffer is empty"));
-        }
-        resolve(contents);
-      });
-
-      writableStream.on("error", reject);
-    });
-  }
-
-  // =====================
-  // JOB-RELATED METHODS
-  // =====================
-
-  async getCandidatesByJob(jobId: string): Promise<Candidate[]> {
-    await this.init();
     try {
-      // Get all personal info records and filter by jobId
-      const allPersonalInfos = await this.personalInfoRepo.findAll();
-      const filteredPersonalInfos = allPersonalInfos.filter(
-        (info) => info.roleApplied === jobId
-      );
-
-      const candidates: Candidate[] = [];
-      for (const personalInfo of filteredPersonalInfos) {
-        const candidate = await this.getCandidate(personalInfo.candidateId);
-        if (candidate) {
-          candidates.push(candidate);
-        }
-      }
-      return candidates;
-    } catch (error) {
-      console.error("Error getting candidates by job:", error);
-      throw new Error("Failed to retrieve candidates for job");
-    }
-  }
-
-  async getCandidatesWithoutJob(): Promise<Candidate[]> {
-    await this.init();
-    try {
-      // Get all personal info records and filter for those without jobs
-      const allPersonalInfos = await this.personalInfoRepo.findAll();
-      const filteredPersonalInfos = allPersonalInfos.filter(
-        (info) => info.roleApplied === null || info.roleApplied === undefined
-      );
-
-      const candidates: Candidate[] = [];
-      for (const personalInfo of filteredPersonalInfos) {
-        const candidate = await this.getCandidate(personalInfo.candidateId);
-        if (candidate) {
-          candidates.push(candidate);
-        }
-      }
-      return candidates;
-    } catch (error) {
-      console.error("Error getting candidates without job:", error);
-      throw new Error("Failed to retrieve candidates without job");
-    }
-  }
-
-  async applyCandidateToJob(candidateId: string, jobId: string): Promise<void> {
-    await this.init();
-    try {
-      await this.personalInfoRepo.update(candidateId, {
-        roleApplied: jobId,
+      const db = await connectDB();
+      const bucket = new GridFSBucket(db, { bucketName: 'transcripts' });
+      
+      const chunks: Buffer[] = [];
+      const downloadStream = bucket.openDownloadStream(new ObjectId(transcriptId));
+      
+      return new Promise((resolve, reject) => {
+        downloadStream.on('data', (chunk) => {
+          chunks.push(chunk);
+        });
+        
+        downloadStream.on('end', () => {
+          resolve(Buffer.concat(chunks));
+        });
+        
+        downloadStream.on('error', (error) => {
+          reject(error);
+        });
       });
     } catch (error) {
-      console.error("Error applying candidate to job:", error);
-      throw new Error("Failed to apply candidate to job");
-    }
-  }
-
-  async removeCandidateFromJob(candidateId: string): Promise<void> {
-    await this.init();
-    try {
-      await this.personalInfoRepo.update(candidateId, {
-        roleApplied: null,
-      });
-    } catch (error) {
-      console.error("Error removing candidate from job:", error);
-      throw new Error("Failed to remove candidate from job");
+      console.error('Error getting transcript buffer:', error);
+      throw new Error('Failed to retrieve transcript buffer');
     }
   }
 
@@ -835,19 +756,38 @@ export class CandidateService {
   ): Promise<void> {
     await this.init();
     try {
+      console.log('=== DEBUG: updateCandidatePersonality START ===');
+      console.log('candidateId:', candidateId);
+      console.log('personalityData type:', typeof personalityData);
+      console.log('personalityData keys:', Object.keys(personalityData || {}));
+      
+      // Check if personalityData has the expected structure
+      if (!personalityData || typeof personalityData !== 'object') {
+        throw new Error('Invalid personality data: must be an object');
+      }
+      
       const interviewData = await this.interviewRepo.findById(candidateId);
       if (!interviewData) {
         throw new Error("Candidate not found");
       }
 
+      console.log('Current interview personality:', interviewData.personality);
+
       // Create personality instance to validate data
+      console.log('Creating Personality instance...');
       const personality = new Personality(personalityData);
+      console.log('Personality instance created successfully');
+      
+      const personalityObject = personality.toObject();
+      console.log('Personality toObject() result:', JSON.stringify(personalityObject, null, 2));
 
       // Save updated personality
+      console.log('Updating personality in database...');
       await this.interviewRepo.update(candidateId, {
-        personality: personality.toObject(),
+        personality: personalityObject,
         dateUpdated: new Date(),
       });
+      console.log('=== DEBUG: updateCandidatePersonality END ===');
     } catch (error) {
       console.error("Error updating candidate personality:", error);
       if (error instanceof Error) {

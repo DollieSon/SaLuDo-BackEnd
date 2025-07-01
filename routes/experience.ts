@@ -53,7 +53,33 @@ router.delete('/:candidateId/experience/:expId',
         await experienceService.deleteExperience(candidateId, expId);
         res.json({
             success: true,
-            message: 'Experience removed successfully'
+            message: 'Experience soft deleted successfully'
+        });
+    })
+);
+
+// Restore soft deleted experience
+router.patch('/:candidateId/experience/:expId/restore',
+    candidateExists,
+    asyncHandler(async (req: Request, res: Response) => {
+        const { candidateId, expId } = req.params;
+        await experienceService.restoreExperience(candidateId, expId);
+        res.json({
+            success: true,
+            message: 'Experience restored successfully'
+        });
+    })
+);
+
+// Hard delete experience (permanent removal)
+router.delete('/:candidateId/experience/:expId/hard',
+    candidateExists,
+    asyncHandler(async (req: Request, res: Response) => {
+        const { candidateId, expId } = req.params;
+        await experienceService.hardDeleteExperience(candidateId, expId);
+        res.json({
+            success: true,
+            message: 'Experience permanently deleted'
         });
     })
 );

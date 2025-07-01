@@ -4,6 +4,7 @@ export class Education {
     public startDate: Date;
     public endDate?: Date;
     public description?: string;
+    public isDeleted: boolean;
     public createdAt: Date;
     public updatedAt: Date;
     constructor(
@@ -12,6 +13,7 @@ export class Education {
         startDate: Date,
         endDate?: Date,
         description?: string,
+        isDeleted?: boolean,
         createdAt?: Date,
         updatedAt?: Date
     ) {
@@ -20,6 +22,7 @@ export class Education {
         this.startDate = startDate;
         this.endDate = endDate;
         this.description = description;
+        this.isDeleted = isDeleted || false;
         this.createdAt = createdAt || new Date();
         this.updatedAt = updatedAt || new Date();
     }
@@ -30,6 +33,7 @@ export class Education {
             new Date(obj.startDate),
             obj.endDate ? new Date(obj.endDate) : undefined,
             obj.description,
+            obj.isDeleted || false,
             obj.createdAt ? new Date(obj.createdAt) : undefined,
             obj.updatedAt ? new Date(obj.updatedAt) : undefined
         );
@@ -41,6 +45,7 @@ export class Education {
             startDate: this.startDate,
             endDate: this.endDate,
             description: this.description,
+            isDeleted: this.isDeleted,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
         };
@@ -59,6 +64,7 @@ export interface EducationData {
     startDate: Date;
     endDate?: Date;
     description?: string;
+    isDeleted: boolean;
     createdAt: Date;
     updatedAt: Date;
 }

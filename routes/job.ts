@@ -385,13 +385,43 @@ router.post(
   })
 );
 
-// DELETE /api/jobs/:id/skills/:skillId - Remove a skill from a job
+// DELETE /api/jobs/:id/skills/:skillId - Soft delete a skill from a job
 router.delete(
   "/:id/skills/:skillId",
   asyncHandler(async (req: Request, res: Response) => {
     const { id, skillId } = req.params;
     await jobService.removeSkillFromJob(id, skillId);
-    res.json({ success: true, message: "Skill removed from job successfully" });
+    res.json({ success: true, message: "Skill soft deleted from job successfully" });
+  })
+);
+
+// PATCH /api/jobs/:id/skills/:skillId/restore - Restore a soft deleted skill to a job
+router.patch(
+  "/:id/skills/:skillId/restore",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id, skillId } = req.params;
+    await jobService.restoreSkillToJob(id, skillId);
+    res.json({ success: true, message: "Skill restored to job successfully" });
+  })
+);
+
+// DELETE /api/jobs/:id/skills/:skillId/hard - Hard delete (permanently remove) a skill from a job
+router.delete(
+  "/:id/skills/:skillId/hard",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id, skillId } = req.params;
+    await jobService.hardRemoveSkillFromJob(id, skillId);
+    res.json({ success: true, message: "Skill permanently removed from job" });
+  })
+);
+
+// GET /api/jobs/:id/skills/active - Get active (non-deleted) skills for a specific job
+router.get(
+  "/:id/skills/active",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const activeSkills = await jobService.getJobActiveSkills(id);
+    res.json({ success: true, data: activeSkills });
   })
 );
 

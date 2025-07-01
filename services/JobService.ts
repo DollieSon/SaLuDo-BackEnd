@@ -344,18 +344,66 @@ export class JobService {
                 throw new Error('Job not found');
             }
 
-            // Create job instance and remove skill
+            // Create job instance and soft delete skill
+            const job = Job.fromObject(existingJob);
+            job.softDeleteSkill(skillId);
+
+            // Update in database
+            await this.jobRepo.update(jobId, { skills: job.skills });
+        } catch (error) {
+            console.error('Error soft deleting skill from job:', error);
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error('Failed to remove skill from job');
+        }
+    }
+
+    // Method to restore a soft deleted job skill
+    async restoreSkillToJob(jobId: string, skillId: string): Promise<void> {
+        try {
+            // Check if job exists
+            const existingJob = await this.jobRepo.findById(jobId);
+            if (!existingJob) {
+                throw new Error('Job not found');
+            }
+
+            // Create job instance and restore skill
+            const job = Job.fromObject(existingJob);
+            job.restoreSkill(skillId);
+
+            // Update in database
+            await this.jobRepo.update(jobId, { skills: job.skills });
+        } catch (error) {
+            console.error('Error restoring skill to job:', error);
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error('Failed to restore skill to job');
+        }
+    }
+
+    // Method to hard delete (permanently remove) a job skill
+    async hardRemoveSkillFromJob(jobId: string, skillId: string): Promise<void> {
+        try {
+            // Check if job exists
+            const existingJob = await this.jobRepo.findById(jobId);
+            if (!existingJob) {
+                throw new Error('Job not found');
+            }
+
+            // Create job instance and hard remove skill
             const job = Job.fromObject(existingJob);
             job.removeSkill(skillId);
 
             // Update in database
             await this.jobRepo.update(jobId, { skills: job.skills });
         } catch (error) {
-            console.error('Error removing skill from job:', error);
+            console.error('Error hard removing skill from job:', error);
             if (error instanceof Error) {
                 throw error;
             }
-            throw new Error('Failed to remove skill from job');
+            throw new Error('Failed to permanently remove skill from job');
         }
     }
 
@@ -385,6 +433,25 @@ export class JobService {
             if (!skill) {
                 throw new Error(`Skill with ID ${skillId} not found`);
             }
+        }
+    }
+
+    // Method to get active (non-deleted) skills for a job
+    async getJobActiveSkills(jobId: string): Promise<JobSkillRequirement[]> {
+        try {
+            const existingJob = await this.jobRepo.findById(jobId);
+            if (!existingJob) {
+                throw new Error('Job not found');
+            }
+
+            const job = Job.fromObject(existingJob);
+            return job.getActiveSkills();
+        } catch (error) {
+            console.error('Error getting active job skills:', error);
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error('Failed to retrieve active job skills');
         }
     }
 }
