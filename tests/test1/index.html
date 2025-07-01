@@ -435,6 +435,36 @@
                                     </button>
                                 </div>
 
+                                <!-- Bulk Add Skills to Job -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/jobs/:id/skills/bulk</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="bulkAddSkillsJobId">
+                                        <textarea placeholder="Skills JSON (Array of {skillId, requiredLevel, evidence?})" class="form-control" id="bulkAddSkillsData" rows="4">[{"skillId": "skill_id_here", "requiredLevel": 5.0, "evidence": "Required for this role"}]</textarea>
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="jobs" data-action="bulkAddSkills">
+                                        Bulk Add Skills to Job
+                                    </button>
+                                </div>
+
+                                <!-- Bulk Add Skills to Job by Name -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/jobs/:id/skills/bulk-by-name</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="bulkAddSkillsByNameJobId">
+                                        <textarea placeholder="Skills JSON (Array of {skillName, requiredLevel, evidence?})" class="form-control" id="bulkAddSkillsByNameData" rows="4">[{"skillName": "JavaScript", "requiredLevel": 7.0, "evidence": "Must be proficient for frontend development"}]</textarea>
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="jobs" data-action="bulkAddSkillsByName">
+                                        Bulk Add Skills by Name (Auto-creates skills)
+                                    </button>
+                                </div>
+
                                 <!-- Get Job Skills -->
                                 <div class="route-item">
                                     <div class="route-header">

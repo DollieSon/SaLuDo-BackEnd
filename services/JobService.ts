@@ -1,5 +1,5 @@
 import { Job, JobData, CreateJobData, UpdateJobData, JobSearchCriteria, JobSummary } from '../Models/Job';
-import { JobWithSkillNames } from '../Models/JobTypes';
+import { JobWithSkillNames, JobSkillRequirement } from '../Models/JobTypes';
 import { JobRepository } from '../repositories/JobRepository';
 import { SkillMasterRepository } from '../repositories/SkillMasterRepository';
 import { connectDB } from '../mongo_db';
@@ -222,6 +222,117 @@ export class JobService {
                 throw error;
             }
             throw new Error('Failed to add skill to job');
+        }
+    }
+
+    async addSkillsToJob(jobId: string, skillRequirements: JobSkillRequirement[]): Promise<void> {
+        try {
+            // Initialize skill master repo
+            await this.initSkillMasterRepo();
+            
+            // Validate inputs
+            if (!Array.isArray(skillRequirements) || skillRequirements.length === 0) {
+                throw new Error('Skills array is required and must contain at least one skill');
+            }
+
+            // Check if job exists
+            const existingJob = await this.jobRepo.findById(jobId);
+            if (!existingJob) {
+                throw new Error('Job not found');
+            }
+
+            // Validate all skills first before adding any
+            const validatedSkills: JobSkillRequirement[] = [];
+            
+            for (const skillReq of skillRequirements) {
+                // Validate required level
+                if (skillReq.requiredLevel < 0.0 || skillReq.requiredLevel > 10.0) {
+                    throw new Error(`Required level must be between 0.0 and 10.0 for skill: ${skillReq.skillId}`);
+                }
+
+                // Validate skill exists in SkillMaster
+                const skill = await this.skillMasterRepo!.findById(skillReq.skillId);
+                if (!skill) {
+                    throw new Error(`Skill not found in master database: ${skillReq.skillId}`);
+                }
+
+                validatedSkills.push({
+                    skillId: skillReq.skillId,
+                    requiredLevel: skillReq.requiredLevel,
+                    evidence: skillReq.evidence
+                });
+            }
+
+            // Create job instance and add all skills
+            const job = Job.fromObject(existingJob);
+            
+            // Add each validated skill to the job
+            for (const skillData of validatedSkills) {
+                job.addSkill({
+                    skillId: skillData.skillId,
+                    requiredLevel: skillData.requiredLevel,
+                    evidence: skillData.evidence
+                });
+            }
+
+            // Update in database with all skills at once
+            await this.jobRepo.update(jobId, { skills: job.skills });
+            
+        } catch (error) {
+            console.error('Error adding skills to job:', error);
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error('Failed to add skills to job');
+        }
+    }
+
+    // Helper method to add skills by skillName instead of skillId
+    // Uses SkillMaster's getOrCreate to automatically create missing skills
+    async addSkillsToJobByName(jobId: string, skillRequirements: Array<{skillName: string, requiredLevel: number, evidence?: string}>): Promise<void> {
+        try {
+            // Initialize skill master repo
+            await this.initSkillMasterRepo();
+            
+            // Validate inputs
+            if (!Array.isArray(skillRequirements) || skillRequirements.length === 0) {
+                throw new Error('Skills array is required and must contain at least one skill');
+            }
+
+            // Check if job exists
+            const existingJob = await this.jobRepo.findById(jobId);
+            if (!existingJob) {
+                throw new Error('Job not found');
+            }
+
+            // Convert skillNames to skillIds using getOrCreate
+            const skillRequirementsWithIds: JobSkillRequirement[] = [];
+            
+            for (const skillReq of skillRequirements) {
+                // Validate required level
+                if (skillReq.requiredLevel < 0.0 || skillReq.requiredLevel > 10.0) {
+                    throw new Error(`Required level must be between 0.0 and 10.0 for skill: ${skillReq.skillName}`);
+                }
+
+                // Get or create the skill in SkillMaster
+                const skillMaster = await this.skillMasterRepo!.getOrCreate(skillReq.skillName);
+                
+                skillRequirementsWithIds.push({
+                    skillId: skillMaster.skillId,
+                    requiredLevel: skillReq.requiredLevel,
+                    evidence: skillReq.evidence
+                });
+            }
+
+            // Use the existing addSkillsToJob method with the converted skill IDs
+            await this.addSkillsToJob(jobId, skillRequirementsWithIds);
+            
+        } catch (error) {
+            console.error('Error adding skills to job by name:', error);
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error('Failed to add skills to job by name');
         }
     }
 
