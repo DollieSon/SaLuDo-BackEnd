@@ -306,6 +306,64 @@
                                         Get Interview Data
                                     </button>
                                 </div>
+
+                                <!-- Get Personality -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/:id/personality</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="getPersonalityCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getPersonality">
+                                        Get Personality
+                                    </button>
+                                </div>
+
+                                <!-- Update Personality Trait -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/candidates/:id/personality/:category/:subcategory</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateTraitCandidateId">
+                                        <select class="form-control" id="personalityCategory">
+                                            <option value="">Select Category</option>
+                                            <option value="cognitive">Cognitive & Problem-Solving</option>
+                                            <option value="communication">Communication & Teamwork</option>
+                                            <option value="workethic">Work Ethic & Reliability</option>
+                                            <option value="growth">Growth & Leadership</option>
+                                            <option value="culture">Culture & Personality Fit</option>
+                                            <option value="bonus">Bonus Traits</option>
+                                        </select>
+                                        <select class="form-control" id="personalitySubcategory">
+                                            <option value="">Select Subcategory</option>
+                                            <!-- Options will be populated based on category selection -->
+                                        </select>
+                                        <input type="number" placeholder="Score (0-10)" min="0" max="10" step="0.1" class="form-control" id="personalityScore">
+                                        <textarea placeholder="Evidence/Notes" class="form-control" id="personalityEvidence" rows="3"></textarea>
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="candidates" data-action="updatePersonalityTrait">
+                                        Update Personality Trait
+                                    </button>
+                                </div>
+
+                                <!-- Update Full Personality -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/candidates/:id/personality</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateFullPersonalityCandidateId">
+                                        <textarea placeholder="Full Personality JSON Data" class="form-control" id="fullPersonalityData" rows="6">{"cognitiveAndProblemSolving": {...}, "communicationAndTeamwork": {...}}</textarea>
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="candidates" data-action="updateFullPersonality">
+                                        Update Full Personality
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

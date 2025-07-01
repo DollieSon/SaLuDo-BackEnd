@@ -6,7 +6,7 @@ import { Experience, CreateExperienceData } from '../Models/Experience';
 import { Education, CreateEducationData } from '../Models/Education';
 import { Certification, CreateCertificationData } from '../Models/Certification';
 import { StrengthWeakness, CreateStrengthWeaknessData } from '../Models/StrengthWeakness';
-import { Personality } from '../Models/Personality';
+import { Personality, PersonalityData } from '../Models/Personality';
 import { GridFSBucket, ObjectId } from 'mongodb';
 export class CandidateService {
     private personalInfoRepo: PersonalInfoRepository;
@@ -630,5 +630,186 @@ export class CandidateService {
             console.error('Error removing candidate from job:', error);
             throw new Error('Failed to remove candidate from job');
         }
+    }
+    
+    // =====================
+    // PERSONALITY METHODS
+    // =====================
+    
+    async getCandidatePersonality(candidateId: string): Promise<Personality | null> {
+        await this.init();
+        try {
+            const interviewData = await this.interviewRepo.findById(candidateId);
+            if (!interviewData?.personality) {
+                return null;
+            }
+            return Personality.fromObject(interviewData.personality);
+        } catch (error) {
+            console.error('Error getting candidate personality:', error);
+            throw new Error('Failed to retrieve candidate personality');
+        }
+    }
+    
+    async updateCandidatePersonalityTrait(
+        candidateId: string, 
+        category: string, 
+        subcategory: string, 
+        traitData: { score: number; evidence: string }
+    ): Promise<void> {
+        await this.init();
+        try {
+            // Validate category and subcategory
+            this.validatePersonalityCategory(category, subcategory);
+            
+            // Validate score
+            if (traitData.score < 0 || traitData.score > 10) {
+                throw new Error('Score must be between 0 and 10');
+            }
+            
+            // Get current personality data
+            const interviewData = await this.interviewRepo.findById(candidateId);
+            if (!interviewData) {
+                throw new Error('Candidate not found');
+            }
+            
+            // Get current personality or create new one
+            const personality = interviewData.personality 
+                ? Personality.fromObject(interviewData.personality)
+                : new Personality();
+            
+            // Update the specific trait
+            this.updatePersonalityTrait(personality, category, subcategory, traitData);
+            
+            // Save updated personality
+            await this.interviewRepo.update(candidateId, {
+                personality: personality.toObject(),
+                dateUpdated: new Date()
+            });
+            
+        } catch (error) {
+            console.error('Error updating candidate personality trait:', error);
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error('Failed to update candidate personality trait');
+        }
+    }
+    
+    async updateCandidatePersonality(candidateId: string, personalityData: PersonalityData): Promise<void> {
+        await this.init();
+        try {
+            const interviewData = await this.interviewRepo.findById(candidateId);
+            if (!interviewData) {
+                throw new Error('Candidate not found');
+            }
+            
+            // Create personality instance to validate data
+            const personality = new Personality(personalityData);
+            
+            // Save updated personality
+            await this.interviewRepo.update(candidateId, {
+                personality: personality.toObject(),
+                dateUpdated: new Date()
+            });
+            
+        } catch (error) {
+            console.error('Error updating candidate personality:', error);
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error('Failed to update candidate personality');
+        }
+    }
+    
+    private validatePersonalityCategory(category: string, subcategory: string): void {
+        const categoryMap: Record<string, string> = {
+            'cognitive': 'cognitiveAndProblemSolving',
+            'communication': 'communicationAndTeamwork', 
+            'workethic': 'workEthicAndReliability',
+            'growth': 'growthAndLeadership',
+            'culture': 'cultureAndPersonalityFit',
+            'bonus': 'bonusTraits'
+        };
+        
+        const normalizedCategory = category.toLowerCase().replace(/[^a-z]/g, '');
+        if (!categoryMap[normalizedCategory]) {
+            throw new Error(`Invalid category: ${category}. Valid categories are: cognitive, communication, workethic, growth, culture, bonus`);
+        }
+    }
+    
+    private updatePersonalityTrait(
+        personality: Personality, 
+        category: string, 
+        subcategory: string, 
+        traitData: { score: number; evidence: string }
+    ): void {
+        const categoryMap: Record<string, keyof Personality> = {
+            'cognitive': 'cognitiveAndProblemSolving',
+            'communication': 'communicationAndTeamwork',
+            'workethic': 'workEthicAndReliability', 
+            'growth': 'growthAndLeadership',
+            'culture': 'cultureAndPersonalityFit',
+            'bonus': 'bonusTraits'
+        };
+        
+        const subcategoryMap: Record<string, string> = {
+            'analyticalthinking': 'analyticalThinking',
+            'curiosity': 'curiosity',
+            'creativity': 'creativity',
+            'attentiontodetail': 'attentionToDetail',
+            'criticalthinking': 'criticalThinking',
+            'resourcefulness': 'resourcefulness',
+            'clearcommunication': 'clearCommunication',
+            'activelistening': 'activeListening',
+            'collaboration': 'collaboration',
+            'empathy': 'empathy',
+            'conflictresolution': 'conflictResolution',
+            'dependability': 'dependability',
+            'accountability': 'accountability',
+            'persistence': 'persistence',
+            'timemanagement': 'timeManagement',
+            'organization': 'organization',
+            'initiative': 'initiative',
+            'selfmotivation': 'selfMotivation',
+            'leadership': 'leadership',
+            'adaptability': 'adaptability',
+            'coachability': 'coachability',
+            'positiveattitude': 'positiveAttitude',
+            'humility': 'humility',
+            'confidence': 'confidence',
+            'integrity': 'integrity',
+            'professionalism': 'professionalism',
+            'openmindedness': 'openMindedness',
+            'enthusiasm': 'enthusiasm',
+            'customerfocus': 'customerFocus',
+            'visionarythinking': 'visionaryThinking',
+            'culturalawareness': 'culturalAwareness',
+            'senseofhumor': 'senseOfHumor',
+            'grit': 'grit'
+        };
+        
+        const normalizedCategory = category.toLowerCase().replace(/[^a-z]/g, '');
+        const normalizedSubcategory = subcategory.toLowerCase().replace(/[^a-z]/g, '');
+        
+        const categoryKey = categoryMap[normalizedCategory];
+        const subcategoryKey = subcategoryMap[normalizedSubcategory];
+        
+        if (!categoryKey || !subcategoryKey) {
+            throw new Error(`Invalid category "${category}" or subcategory "${subcategory}"`);
+        }
+        
+        const categoryData = personality[categoryKey] as any;
+        if (!categoryData || !categoryData[subcategoryKey]) {
+            throw new Error(`Trait not found: ${category}.${subcategory}`);
+        }
+        
+        // Update the trait
+        const currentTrait = categoryData[subcategoryKey];
+        categoryData[subcategoryKey] = {
+            ...currentTrait,
+            score: traitData.score,
+            evidence: traitData.evidence,
+            updatedAt: new Date()
+        };
     }
 }
