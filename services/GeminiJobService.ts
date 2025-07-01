@@ -26,7 +26,7 @@ Return a JSON array of skill objects like this:
   {
     skillName: string,         // name of the required skill
     requiredLevel: number,     // between 0.0 and 10.0 based on how important the skill is
-    evidence: string           // a short excerpt from the job description that supports this requirement
+    evidence: string           // evidence should tell us why you chose this skill
   }
 ]
 
