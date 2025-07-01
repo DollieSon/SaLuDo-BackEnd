@@ -22,6 +22,14 @@ export class JobRepository {
         if (!this.collection) return;
 
         try {
+            // Drop legacy jobId index if it exists (from old schema)
+            try {
+                await this.collection.dropIndex('jobId_1');
+                console.log('Dropped legacy jobId index');
+            } catch (error) {
+                // Index might not exist, which is fine
+            }
+
             // Index on jobName for text search
             await this.collection.createIndex({ jobName: 'text', jobDescription: 'text' });
             
@@ -41,9 +49,13 @@ export class JobRepository {
         await this.init();
         
         try {
-            const result = await this.collection!.insertOne(jobData);
+            // Ensure we don't have any legacy jobId field
+            const cleanJobData = { ...jobData };
+            delete (cleanJobData as any).jobId; // Remove any legacy jobId field
+            
+            const result = await this.collection!.insertOne(cleanJobData);
             return {
-                ...jobData,
+                ...cleanJobData,
                 _id: result.insertedId.toString()
             };
         } catch (error) {

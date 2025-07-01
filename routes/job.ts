@@ -3,6 +3,8 @@ import { JobService } from "../services/JobService";
 import { asyncHandler, errorHandler } from "./middleware/errorHandler";
 import { validation } from "./middleware/validation";
 import { parseJobWithGemini } from "../services/GeminiJobService";
+import { SkillMasterRepository } from "../repositories/SkillMasterRepository";
+import { connectDB } from "../mongo_db";
 // import { JobSkillRequirement } from '../models/JobTypes';
 
 const router = Router();
@@ -153,18 +155,18 @@ router.post(
       const parsed = await parseJobWithGemini(jobName, jobDescription);
 
       // Map parsed skills to JobSkillRequirement[] by looking up or creating skills by name
-      const skillMasterRepo = require("../repositories/SkillMasterRepository");
-      const skillMaster = new skillMasterRepo.SkillMasterRepository();
+      const db = await connectDB();
+      const skillMaster = new SkillMasterRepository(db);
       const skillsWithIds = [];
       for (const skill of parsed) {
         // Try to find the skill by name
         let skillDoc = await skillMaster.findByName(skill.skillName);
         if (!skillDoc) {
           // If not found, create it
-          skillDoc = await skillMaster.create({ name: skill.skillName });
+          skillDoc = await skillMaster.getOrCreate(skill.skillName);
         }
         skillsWithIds.push({
-          skillId: skillDoc._id,
+          skillId: skillDoc.skillId,
           requiredLevel: skill.requiredLevel,
           evidence: skill.evidence,
         });
