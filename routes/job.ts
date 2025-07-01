@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { JobService } from '../services/JobService';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { validation } from './middleware/validation';
+import { parseJobWithGemini } from '../services/GeminiJobService';
 
 const router = Router();
 const jobService = new JobService();
@@ -14,9 +15,9 @@ const jobService = new JobService();
 router.get('/', asyncHandler(async (req: Request, res: Response) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
-    
+
     const result = await jobService.getAllJobs(page, limit);
-    
+
     res.json({
         success: true,
         data: result.jobs,
@@ -33,9 +34,9 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 router.get('/summaries', asyncHandler(async (req: Request, res: Response) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
-    
+
     const result = await jobService.getJobSummaries(page, limit);
-    
+
     res.json({
         success: true,
         data: result.summaries,
@@ -57,9 +58,9 @@ router.get('/search', asyncHandler(async (req: Request, res: Response) => {
         page: parseInt(req.query.page as string) || 1,
         limit: parseInt(req.query.limit as string) || 10
     };
-    
+
     const result = await jobService.searchJobs(criteria);
-    
+
     res.json({
         success: true,
         data: result.jobs,
@@ -76,7 +77,7 @@ router.get('/search', asyncHandler(async (req: Request, res: Response) => {
 router.get('/by-skill/:skillId', asyncHandler(async (req: Request, res: Response) => {
     const { skillId } = req.params;
     const jobs = await jobService.getJobsBySkill(skillId);
-    
+
     res.json({
         success: true,
         data: jobs,
@@ -88,7 +89,7 @@ router.get('/by-skill/:skillId', asyncHandler(async (req: Request, res: Response
 router.get('/by-skill-name/:skillName', asyncHandler(async (req: Request, res: Response) => {
     const { skillName } = req.params;
     const jobs = await jobService.getJobsBySkillName(skillName);
-    
+
     res.json({
         success: true,
         data: jobs,
@@ -100,144 +101,87 @@ router.get('/by-skill-name/:skillName', asyncHandler(async (req: Request, res: R
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const includeSkillNames = req.query.includeSkillNames === 'true';
-    
-    if (includeSkillNames) {
-        const job = await jobService.getJobWithSkillNames(id);
-        if (!job) {
-            return res.status(404).json({
-                success: false,
-                message: 'Job not found'
-            });
-        }
-        
-        res.json({
-            success: true,
-            data: job
-        });
-    } else {
-        const job = await jobService.getJob(id);
-        if (!job) {
-            return res.status(404).json({
-                success: false,
-                message: 'Job not found'
-            });
-        }
-        
-        res.json({
-            success: true,
-            data: job
+
+    const job = includeSkillNames ? await jobService.getJobWithSkillNames(id) : await jobService.getJob(id);
+
+    if (!job) {
+        return res.status(404).json({
+            success: false,
+            message: 'Job not found'
         });
     }
+
+    res.json({
+        success: true,
+        data: job
+    });
 }));
 
-// POST /api/jobs - Create a new job
-router.post('/', 
-    validation.requireFields(['jobName', 'jobDescription']), // Removed 'skills' from required fields
-    asyncHandler(async (req: Request, res: Response) => {
-        console.log('📝 Received job creation request:', req.body);
-        
-        const jobData = {
-            jobName: req.body.jobName,
-            jobDescription: req.body.jobDescription,
-            skills: req.body.skills || [] // Default to empty array if not provided
-        };
-        
-        console.log('📝 Processed job data:', jobData);
-        
-        // Validate skills array if provided
-        if (req.body.skills && (!Array.isArray(req.body.skills))) {
-            return res.status(400).json({
-                success: false,
-                message: 'Skills must be an array if provided'
-            });
-        }
-        
-        // Validate each skill requirement if skills are provided
-        if (jobData.skills && jobData.skills.length > 0) {
-            for (const skill of jobData.skills) {
-                if (!skill.skillId) {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'Each skill must have a skillId'
-                    });
-                }
-                
-                if (typeof skill.requiredLevel !== 'number' || skill.requiredLevel < 0.0 || skill.requiredLevel > 10.0) {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'Required level must be a number between 0.0 and 10.0'
-                    });
-                }
-                
-                // Validate evidence field if provided
-                if (skill.evidence && typeof skill.evidence !== 'string') {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'Evidence must be a string if provided'
-                    });
-                }
-            }
-        }
-        
-        const newJob = await jobService.createJob(jobData);
-        
-        res.status(201).json({
-            success: true,
-            message: 'Job created successfully',
-            data: newJob
-        });
-    })
+// POST /api/jobs - Create a new job with AI-parsed skills
+router.post(
+  '/',
+  validation.requireFields(['jobName', 'jobDescription']),
+  asyncHandler(async (req: Request, res: Response) => {
+    try {
+      const { jobName, jobDescription } = req.body;
+
+      const parsed = await parseJobWithGemini(jobName, jobDescription);
+
+      const jobData = {
+        jobName,
+        jobDescription,
+        skills: parsed.map((s: any) => ({
+          skillId: s.skillId,
+          requiredLevel: s.requiredLevel,
+          evidence: s.evidence
+        }))
+      };
+
+      const newJob = await jobService.createJob(jobData);
+      res.status(201).json({
+        success: true,
+        message: 'Job created and skills parsed successfully',
+        data: newJob
+      });
+    } catch (err: any) {
+      console.error('❌ Job creation error:', err);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create job',
+        error: err.message || 'Unknown error'
+      });
+    }
+  })
 );
+
+
 
 // PUT /api/jobs/:id - Update a job
 router.put('/:id', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const updateData = req.body;
-    
-    // Validate skills if provided
+
     if (updateData.skills) {
         if (!Array.isArray(updateData.skills)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Skills must be an array'
-            });
+            return res.status(400).json({ success: false, message: 'Skills must be an array' });
         }
-        
+
         for (const skill of updateData.skills) {
-            if (!skill.skillId) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Each skill must have a skillId'
-                });
-            }
-            
-            if (typeof skill.requiredLevel !== 'number' || skill.requiredLevel < 0.0 || skill.requiredLevel > 10.0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Required level must be a number between 0.0 and 10.0'
-                });
+            if (!skill.skillId || typeof skill.requiredLevel !== 'number' || skill.requiredLevel < 0.0 || skill.requiredLevel > 10.0) {
+                return res.status(400).json({ success: false, message: 'Invalid skill data' });
             }
         }
     }
-    
+
     await jobService.updateJob(id, updateData);
-    
-    res.json({
-        success: true,
-        message: 'Job updated successfully'
-    });
+    res.json({ success: true, message: 'Job updated successfully' });
 }));
 
 // DELETE /api/jobs/:id - Delete a job
 router.delete('/:id', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    
     await jobService.deleteJob(id);
-    
-    res.json({
-        success: true,
-        message: 'Job deleted successfully'
-    });
+    res.json({ success: true, message: 'Job deleted successfully' });
 }));
 
 // POST /api/jobs/:id/skills - Add a skill to a job
@@ -246,63 +190,38 @@ router.post('/:id/skills',
     asyncHandler(async (req: Request, res: Response) => {
         const { id } = req.params;
         const { skillId, requiredLevel, evidence } = req.body;
-        
+
         if (typeof requiredLevel !== 'number' || requiredLevel < 0.0 || requiredLevel > 10.0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Required level must be a number between 0.0 and 10.0'
-            });
+            return res.status(400).json({ success: false, message: 'Required level must be a number between 0.0 and 10.0' });
         }
-        
-        // Validate evidence field if provided
+
         if (evidence && typeof evidence !== 'string') {
-            return res.status(400).json({
-                success: false,
-                message: 'Evidence must be a string if provided'
-            });
+            return res.status(400).json({ success: false, message: 'Evidence must be a string if provided' });
         }
-        
+        //todo create addskillstojob taking in a list of skills
         await jobService.addSkillToJob(id, skillId, requiredLevel, evidence);
-        
-        res.json({
-            success: true,
-            message: 'Skill added to job successfully'
-        });
+        res.json({ success: true, message: 'Skill added to job successfully' });
     })
 );
 
 // DELETE /api/jobs/:id/skills/:skillId - Remove a skill from a job
 router.delete('/:id/skills/:skillId', asyncHandler(async (req: Request, res: Response) => {
     const { id, skillId } = req.params;
-    
     await jobService.removeSkillFromJob(id, skillId);
-    
-    res.json({
-        success: true,
-        message: 'Skill removed from job successfully'
-    });
+    res.json({ success: true, message: 'Skill removed from job successfully' });
 }));
 
 // GET /api/jobs/:id/skills - Get skills for a specific job
 router.get('/:id/skills', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    
     const job = await jobService.getJob(id);
+
     if (!job) {
-        return res.status(404).json({
-            success: false,
-            message: 'Job not found'
-        });
+        return res.status(404).json({ success: false, message: 'Job not found' });
     }
-    
-    res.json({
-        success: true,
-        data: job.skills,
-        count: job.skills.length
-    });
+
+    res.json({ success: true, data: job.skills, count: job.skills.length });
 }));
 
-// Error handling middleware
 router.use(errorHandler);
-
 export default router;
