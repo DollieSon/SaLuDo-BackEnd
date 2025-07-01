@@ -42,6 +42,7 @@ export async function parseResumeWithGemini(buffer: Buffer): Promise<ParsedData>
   certifications: [{ name, issuingOrganization, issueDate, description(give me the reason why you chose this certification) }],
   strengths: [{ name, description(give me the reason why you gave them this strength), type: "Strength" }],
   weaknesses: [{ name, description(give me the reason why you gave them this strength), type: "Weakness" }]
+  generalAssessment: string // a 3-5 sentence professional summary based on the resume
 }
 
 Resume:
