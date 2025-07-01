@@ -162,5 +162,80 @@ router.post('/:id/resume/parse', asyncHandler(async (req: Request, res: Response
     });
 }));
 
+// ====================
+// PERSONALITY ENDPOINTS
+// ====================
+
+// GET /api/candidates/:id/personality - Get candidate's personality
+router.get('/:id/personality', asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    
+    const personality = await candidateService.getCandidatePersonality(id);
+    
+    if (!personality) {
+        return res.status(404).json({
+            success: false,
+            message: 'Personality data not found for this candidate'
+        });
+    }
+    
+    res.json({
+        success: true,
+        data: personality.toObject()
+    });
+}));
+
+// PUT /api/candidates/:id/personality - Update entire personality
+router.put('/:id/personality', 
+    validation.requireFields(['personalityData']),
+    asyncHandler(async (req: Request, res: Response) => {
+        const { id } = req.params;
+        const { personalityData } = req.body;
+        
+        await candidateService.updateCandidatePersonality(id, personalityData);
+        
+        res.json({
+            success: true,
+            message: 'Personality updated successfully'
+        });
+    })
+);
+
+// PUT /api/candidates/:id/personality/:category/:subcategory - Update specific personality trait
+router.put('/:id/personality/:category/:subcategory', 
+    validation.requireFields(['score', 'evidence']),
+    asyncHandler(async (req: Request, res: Response) => {
+        const { id, category, subcategory } = req.params;
+        const { score, evidence } = req.body;
+        
+        // Validate score
+        const numericScore = parseFloat(score);
+        if (isNaN(numericScore) || numericScore < 0 || numericScore > 10) {
+            return res.status(400).json({
+                success: false,
+                message: 'Score must be a number between 0 and 10'
+            });
+        }
+        
+        // Validate evidence
+        if (typeof evidence !== 'string') {
+            return res.status(400).json({
+                success: false,
+                message: 'Evidence must be a string'
+            });
+        }
+        
+        await candidateService.updateCandidatePersonalityTrait(id, category, subcategory, {
+            score: numericScore,
+            evidence: evidence.trim()
+        });
+        
+        res.json({
+            success: true,
+            message: `Updated ${category}.${subcategory} successfully`
+        });
+    })
+);
+
 router.use(errorHandler);
 export default router;

@@ -561,6 +561,30 @@ document.addEventListener('DOMContentLoaded', function() {
                     await window.jobsAPI.getSkills(getJobSkillsId);
                     break;
                     
+                case 'bulkAddSkills':
+                    const bulkAddSkillsJobId = document.getElementById('bulkAddSkillsJobId')?.value;
+                    const bulkAddSkillsData = document.getElementById('bulkAddSkillsData')?.value;
+                    
+                    if (!bulkAddSkillsJobId || !bulkAddSkillsData) {
+                        Helpers.showToast('Please fill in job ID and skills data', 'warning');
+                        break;
+                    }
+                    
+                    await window.jobsAPI.bulkAddSkills(bulkAddSkillsJobId, bulkAddSkillsData);
+                    break;
+                    
+                case 'bulkAddSkillsByName':
+                    const bulkAddSkillsByNameJobId = document.getElementById('bulkAddSkillsByNameJobId')?.value;
+                    const bulkAddSkillsByNameData = document.getElementById('bulkAddSkillsByNameData')?.value;
+                    
+                    if (!bulkAddSkillsByNameJobId || !bulkAddSkillsByNameData) {
+                        Helpers.showToast('Please fill in job ID and skills data', 'warning');
+                        break;
+                    }
+                    
+                    await window.jobsAPI.bulkAddSkillsByName(bulkAddSkillsByNameJobId, bulkAddSkillsByNameData);
+                    break;
+                    
                 default:
                     Helpers.showToast(`Action "${action}" not implemented yet`, 'info');
             }

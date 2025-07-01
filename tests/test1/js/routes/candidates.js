@@ -424,6 +424,85 @@ class CandidatesAPI {
             resumeFile: resumeInput?.files?.[0] || null
         };
     }
+
+    // Get personality
+    async getPersonality(candidateId) {
+        if (!candidateId) {
+            Helpers.showToast('Please enter a candidate ID', 'warning');
+            return;
+        }
+
+        LoadingState.show('Fetching personality...');
+        try {
+            const response = await this.api.get(`${this.basePath}/${candidateId}/personality`);
+            ResponseDisplay.updateResponseUI(response);
+            return response;
+        } finally {
+            LoadingState.hide();
+        }
+    }
+
+    // Update personality trait
+    async updatePersonalityTrait(candidateId, category, subcategory, traitData) {
+        if (!candidateId || !category || !subcategory) {
+            Helpers.showToast('Please enter candidate ID, category, and subcategory', 'warning');
+            return;
+        }
+
+        if (traitData.score < 0 || traitData.score > 10) {
+            Helpers.showToast('Score must be between 0 and 10', 'warning');
+            return;
+        }
+
+        LoadingState.show('Updating personality trait...');
+        try {
+            const response = await this.api.put(`${this.basePath}/${candidateId}/personality/${category}/${subcategory}`, {
+                score: parseFloat(traitData.score),
+                evidence: traitData.evidence || ''
+            });
+            ResponseDisplay.updateResponseUI(response);
+            
+            if (response.success) {
+                Helpers.showToast('Personality trait updated successfully!', 'success');
+            }
+            
+            return response;
+        } finally {
+            LoadingState.hide();
+        }
+    }
+
+    // Update full personality
+    async updateFullPersonality(candidateId, personalityData) {
+        if (!candidateId) {
+            Helpers.showToast('Please enter a candidate ID', 'warning');
+            return;
+        }
+
+        let parsedPersonalityData;
+        try {
+            parsedPersonalityData = typeof personalityData === 'string' ? JSON.parse(personalityData) : personalityData;
+        } catch (error) {
+            Helpers.showToast('Invalid JSON format for personality data', 'error');
+            return;
+        }
+
+        LoadingState.show('Updating full personality...');
+        try {
+            const response = await this.api.put(`${this.basePath}/${candidateId}/personality`, {
+                personalityData: parsedPersonalityData
+            });
+            ResponseDisplay.updateResponseUI(response);
+            
+            if (response.success) {
+                Helpers.showToast('Full personality updated successfully!', 'success');
+            }
+            
+            return response;
+        } finally {
+            LoadingState.hide();
+        }
+    }
 }
 
 // Initialize candidates API handler
@@ -534,11 +613,119 @@ document.addEventListener('DOMContentLoaded', function() {
                     await window.candidatesAPI.getInterviewData(interviewCandidateId);
                     break;
                     
+                case 'getPersonality':
+                    const getPersonalityCandidateId = document.getElementById('getPersonalityCandidateId')?.value;
+                    await window.candidatesAPI.getPersonality(getPersonalityCandidateId);
+                    break;
+                    
+                case 'updatePersonalityTrait':
+                    const updateTraitCandidateId = document.getElementById('updateTraitCandidateId')?.value;
+                    const personalityCategory = document.getElementById('personalityCategory')?.value;
+                    const personalitySubcategory = document.getElementById('personalitySubcategory')?.value;
+                    const personalityScore = document.getElementById('personalityScore')?.value;
+                    const personalityEvidence = document.getElementById('personalityEvidence')?.value;
+                    
+                    if (!updateTraitCandidateId || !personalityCategory || !personalitySubcategory || !personalityScore) {
+                        Helpers.showToast('Please fill in all required fields for personality trait update', 'warning');
+                        break;
+                    }
+                    
+                    await window.candidatesAPI.updatePersonalityTrait(updateTraitCandidateId, personalityCategory, personalitySubcategory, {
+                        score: parseFloat(personalityScore),
+                        evidence: personalityEvidence
+                    });
+                    break;
+                    
+                case 'updateFullPersonality':
+                    const updateFullPersonalityCandidateId = document.getElementById('updateFullPersonalityCandidateId')?.value;
+                    const fullPersonalityData = document.getElementById('fullPersonalityData')?.value;
+                    
+                    if (!updateFullPersonalityCandidateId || !fullPersonalityData) {
+                        Helpers.showToast('Please fill in candidate ID and personality data', 'warning');
+                        break;
+                    }
+                    
+                    await window.candidatesAPI.updateFullPersonality(updateFullPersonalityCandidateId, fullPersonalityData);
+                    break;
+                    
                 default:
                     Helpers.showToast(`Action "${action}" not implemented yet`, 'info');
             }
         });
     });
+});
+
+// Personality category/subcategory mappings
+const personalitySubcategories = {
+    'cognitive': [
+        { value: 'analyticalthinking', text: 'Analytical Thinking' },
+        { value: 'curiosity', text: 'Curiosity' },
+        { value: 'creativity', text: 'Creativity' },
+        { value: 'attentiontodetail', text: 'Attention to Detail' },
+        { value: 'criticalthinking', text: 'Critical Thinking' },
+        { value: 'resourcefulness', text: 'Resourcefulness' }
+    ],
+    'communication': [
+        { value: 'clearcommunication', text: 'Clear Communication' },
+        { value: 'activelistening', text: 'Active Listening' },
+        { value: 'collaboration', text: 'Collaboration' },
+        { value: 'empathy', text: 'Empathy' },
+        { value: 'conflictresolution', text: 'Conflict Resolution' }
+    ],
+    'workethic': [
+        { value: 'dependability', text: 'Dependability' },
+        { value: 'accountability', text: 'Accountability' },
+        { value: 'persistence', text: 'Persistence' },
+        { value: 'timemanagement', text: 'Time Management' },
+        { value: 'organization', text: 'Organization' }
+    ],
+    'growth': [
+        { value: 'initiative', text: 'Initiative' },
+        { value: 'selfmotivation', text: 'Self-Motivation' },
+        { value: 'leadership', text: 'Leadership' },
+        { value: 'adaptability', text: 'Adaptability' },
+        { value: 'coachability', text: 'Coachability' }
+    ],
+    'culture': [
+        { value: 'positiveattitude', text: 'Positive Attitude' },
+        { value: 'humility', text: 'Humility' },
+        { value: 'confidence', text: 'Confidence' },
+        { value: 'integrity', text: 'Integrity' },
+        { value: 'professionalism', text: 'Professionalism' },
+        { value: 'openmindedness', text: 'Open-Mindedness' },
+        { value: 'enthusiasm', text: 'Enthusiasm' }
+    ],
+    'bonus': [
+        { value: 'customerfocus', text: 'Customer Focus' },
+        { value: 'visionarythinking', text: 'Visionary Thinking' },
+        { value: 'culturalawareness', text: 'Cultural Awareness' },
+        { value: 'senseofhumor', text: 'Sense of Humor' },
+        { value: 'grit', text: 'Grit' }
+    ]
+};
+
+// Handle personality category change
+document.addEventListener('change', function(event) {
+    if (event.target.id === 'personalityCategory') {
+        const categorySelect = event.target;
+        const subcategorySelect = document.getElementById('personalitySubcategory');
+        
+        if (!subcategorySelect) return;
+        
+        // Clear existing options
+        subcategorySelect.innerHTML = '<option value="">Select Subcategory</option>';
+        
+        const selectedCategory = categorySelect.value;
+        if (selectedCategory && personalitySubcategories[selectedCategory]) {
+            // Add subcategories for selected category
+            personalitySubcategories[selectedCategory].forEach(subcategory => {
+                const option = document.createElement('option');
+                option.value = subcategory.value;
+                option.textContent = subcategory.text;
+                subcategorySelect.appendChild(option);
+            });
+        }
+    }
 });
 
 console.log('✅ Candidates API handlers loaded');
