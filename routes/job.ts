@@ -1,36 +1,308 @@
 import { Router, Request, Response } from 'express';
-import multer from 'multer';
-import { connectDB } from '../mongo_db';
+import { JobService } from '../services/JobService';
+import { asyncHandler, errorHandler } from './middleware/errorHandler';
+import { validation } from './middleware/validation';
+
 const router = Router();
-const upload = multer();
-/*
-// GET /jobs - List all jobs
-router.get('/', (req: Request, res: Response) => {
-    res.send('List of jobs');
-});
-// GET /jobs/:id - Get a specific job
-router.get('/:id', (req: Request, res: Response) => {
+const jobService = new JobService();
+
+// ====================
+// JOB MANAGEMENT ENDPOINTS
+// ====================
+
+// GET /api/jobs - List all jobs with pagination
+router.get('/', asyncHandler(async (req: Request, res: Response) => {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    
+    const result = await jobService.getAllJobs(page, limit);
+    
+    res.json({
+        success: true,
+        data: result.jobs,
+        pagination: {
+            page,
+            limit,
+            total: result.total,
+            totalPages: result.totalPages
+        }
+    });
+}));
+
+// GET /api/jobs/summaries - List job summaries
+router.get('/summaries', asyncHandler(async (req: Request, res: Response) => {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    
+    const result = await jobService.getJobSummaries(page, limit);
+    
+    res.json({
+        success: true,
+        data: result.summaries,
+        pagination: {
+            page,
+            limit,
+            total: result.total,
+            totalPages: result.totalPages
+        }
+    });
+}));
+
+// GET /api/jobs/search - Search jobs
+router.get('/search', asyncHandler(async (req: Request, res: Response) => {
+    const criteria = {
+        jobName: req.query.jobName as string,
+        skillIds: req.query.skillIds ? (req.query.skillIds as string).split(',') : undefined,
+        skillNames: req.query.skillNames ? (req.query.skillNames as string).split(',') : undefined,
+        page: parseInt(req.query.page as string) || 1,
+        limit: parseInt(req.query.limit as string) || 10
+    };
+    
+    const result = await jobService.searchJobs(criteria);
+    
+    res.json({
+        success: true,
+        data: result.jobs,
+        pagination: {
+            page: criteria.page,
+            limit: criteria.limit,
+            total: result.total,
+            totalPages: result.totalPages
+        }
+    });
+}));
+
+// GET /api/jobs/by-skill/:skillId - Get jobs requiring a specific skill
+router.get('/by-skill/:skillId', asyncHandler(async (req: Request, res: Response) => {
+    const { skillId } = req.params;
+    const jobs = await jobService.getJobsBySkill(skillId);
+    
+    res.json({
+        success: true,
+        data: jobs,
+        count: jobs.length
+    });
+}));
+
+// GET /api/jobs/by-skill-name/:skillName - Get jobs requiring a specific skill by name
+router.get('/by-skill-name/:skillName', asyncHandler(async (req: Request, res: Response) => {
+    const { skillName } = req.params;
+    const jobs = await jobService.getJobsBySkillName(skillName);
+    
+    res.json({
+        success: true,
+        data: jobs,
+        count: jobs.length
+    });
+}));
+
+// GET /api/jobs/:id - Get specific job
+router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    res.send(`Get job with ID: ${id}`);
-});
-// PUT /jobs/:id - Update a job
-router.put('/:id', (req: Request, res: Response) => {
+    const includeSkillNames = req.query.includeSkillNames === 'true';
+    
+    if (includeSkillNames) {
+        const job = await jobService.getJobWithSkillNames(id);
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: 'Job not found'
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: job
+        });
+    } else {
+        const job = await jobService.getJob(id);
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: 'Job not found'
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: job
+        });
+    }
+}));
+
+// POST /api/jobs - Create a new job
+router.post('/', 
+    validation.requireFields(['jobName', 'jobDescription']), // Removed 'skills' from required fields
+    asyncHandler(async (req: Request, res: Response) => {
+        console.log('📝 Received job creation request:', req.body);
+        
+        const jobData = {
+            jobName: req.body.jobName,
+            jobDescription: req.body.jobDescription,
+            skills: req.body.skills || [] // Default to empty array if not provided
+        };
+        
+        console.log('📝 Processed job data:', jobData);
+        
+        // Validate skills array if provided
+        if (req.body.skills && (!Array.isArray(req.body.skills))) {
+            return res.status(400).json({
+                success: false,
+                message: 'Skills must be an array if provided'
+            });
+        }
+        
+        // Validate each skill requirement if skills are provided
+        if (jobData.skills && jobData.skills.length > 0) {
+            for (const skill of jobData.skills) {
+                if (!skill.skillId) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Each skill must have a skillId'
+                    });
+                }
+                
+                if (typeof skill.requiredLevel !== 'number' || skill.requiredLevel < 0.0 || skill.requiredLevel > 10.0) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Required level must be a number between 0.0 and 10.0'
+                    });
+                }
+                
+                // Validate evidence field if provided
+                if (skill.evidence && typeof skill.evidence !== 'string') {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Evidence must be a string if provided'
+                    });
+                }
+            }
+        }
+        
+        const newJob = await jobService.createJob(jobData);
+        
+        res.status(201).json({
+            success: true,
+            message: 'Job created successfully',
+            data: newJob
+        });
+    })
+);
+
+// PUT /api/jobs/:id - Update a job
+router.put('/:id', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    res.send(`Update job with ID: ${id}`);
-});
-// DELETE /jobs/:id - Delete a job
-router.delete('/:id', (req: Request, res: Response) => {
+    const updateData = req.body;
+    
+    // Validate skills if provided
+    if (updateData.skills) {
+        if (!Array.isArray(updateData.skills)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Skills must be an array'
+            });
+        }
+        
+        for (const skill of updateData.skills) {
+            if (!skill.skillId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Each skill must have a skillId'
+                });
+            }
+            
+            if (typeof skill.requiredLevel !== 'number' || skill.requiredLevel < 0.0 || skill.requiredLevel > 10.0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Required level must be a number between 0.0 and 10.0'
+                });
+            }
+        }
+    }
+    
+    await jobService.updateJob(id, updateData);
+    
+    res.json({
+        success: true,
+        message: 'Job updated successfully'
+    });
+}));
+
+// DELETE /api/jobs/:id - Delete a job
+router.delete('/:id', asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    res.send(`Delete job with ID: ${id}`);
-});
-*/
-// POST /jobs - Create a new job
-router.post('/', upload.none(),async (req: Request, res: Response) => {
-    console.log('Received job data:', req.body);
-    // TODO - Handle job creation logic here, e.g., save to database
-    const db = await connectDB();
-    const newJob = req.body;
-    const result = await db.collection('JobDetails').insertOne(newJob);
-    res.send('Create a new job');
-});
+    
+    await jobService.deleteJob(id);
+    
+    res.json({
+        success: true,
+        message: 'Job deleted successfully'
+    });
+}));
+
+// POST /api/jobs/:id/skills - Add a skill to a job
+router.post('/:id/skills', 
+    validation.requireFields(['skillId', 'requiredLevel']),
+    asyncHandler(async (req: Request, res: Response) => {
+        const { id } = req.params;
+        const { skillId, requiredLevel, evidence } = req.body;
+        
+        if (typeof requiredLevel !== 'number' || requiredLevel < 0.0 || requiredLevel > 10.0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Required level must be a number between 0.0 and 10.0'
+            });
+        }
+        
+        // Validate evidence field if provided
+        if (evidence && typeof evidence !== 'string') {
+            return res.status(400).json({
+                success: false,
+                message: 'Evidence must be a string if provided'
+            });
+        }
+        
+        await jobService.addSkillToJob(id, skillId, requiredLevel, evidence);
+        
+        res.json({
+            success: true,
+            message: 'Skill added to job successfully'
+        });
+    })
+);
+
+// DELETE /api/jobs/:id/skills/:skillId - Remove a skill from a job
+router.delete('/:id/skills/:skillId', asyncHandler(async (req: Request, res: Response) => {
+    const { id, skillId } = req.params;
+    
+    await jobService.removeSkillFromJob(id, skillId);
+    
+    res.json({
+        success: true,
+        message: 'Skill removed from job successfully'
+    });
+}));
+
+// GET /api/jobs/:id/skills - Get skills for a specific job
+router.get('/:id/skills', asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    
+    const job = await jobService.getJob(id);
+    if (!job) {
+        return res.status(404).json({
+            success: false,
+            message: 'Job not found'
+        });
+    }
+    
+    res.json({
+        success: true,
+        data: job.skills,
+        count: job.skills.length
+    });
+}));
+
+// Error handling middleware
+router.use(errorHandler);
+
 export default router;

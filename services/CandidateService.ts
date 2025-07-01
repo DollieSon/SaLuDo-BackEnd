@@ -28,7 +28,7 @@ export class CandidateService {
         name: string,
         email: string[],
         birthdate: Date,
-        roleApplied: string,
+        roleApplied: string | null = null,
         resumeFile?: Express.Multer.File
     ): Promise<Candidate> {
         await this.init();
@@ -558,6 +558,77 @@ export class CandidateService {
         const maxSize = 50 * 1024 * 1024; // 50MB in bytes
         if (file.size > maxSize) {
             throw new Error('File size too large. Maximum size is 50MB.');
+        }
+    }
+    // =====================
+    // JOB-RELATED METHODS
+    // =====================
+    
+    async getCandidatesByJob(jobId: string): Promise<Candidate[]> {
+        await this.init();
+        try {
+            // Get all personal info records and filter by jobId
+            const allPersonalInfos = await this.personalInfoRepo.findAll();
+            const filteredPersonalInfos = allPersonalInfos.filter(info => info.roleApplied === jobId);
+            
+            const candidates: Candidate[] = [];
+            for (const personalInfo of filteredPersonalInfos) {
+                const candidate = await this.getCandidate(personalInfo.candidateId);
+                if (candidate) {
+                    candidates.push(candidate);
+                }
+            }
+            return candidates;
+        } catch (error) {
+            console.error('Error getting candidates by job:', error);
+            throw new Error('Failed to retrieve candidates for job');
+        }
+    }
+    
+    async getCandidatesWithoutJob(): Promise<Candidate[]> {
+        await this.init();
+        try {
+            // Get all personal info records and filter for those without jobs
+            const allPersonalInfos = await this.personalInfoRepo.findAll();
+            const filteredPersonalInfos = allPersonalInfos.filter(info => 
+                info.roleApplied === null || info.roleApplied === undefined
+            );
+            
+            const candidates: Candidate[] = [];
+            for (const personalInfo of filteredPersonalInfos) {
+                const candidate = await this.getCandidate(personalInfo.candidateId);
+                if (candidate) {
+                    candidates.push(candidate);
+                }
+            }
+            return candidates;
+        } catch (error) {
+            console.error('Error getting candidates without job:', error);
+            throw new Error('Failed to retrieve candidates without job');
+        }
+    }
+    
+    async applyCandidateToJob(candidateId: string, jobId: string): Promise<void> {
+        await this.init();
+        try {
+            await this.personalInfoRepo.update(candidateId, {
+                roleApplied: jobId
+            });
+        } catch (error) {
+            console.error('Error applying candidate to job:', error);
+            throw new Error('Failed to apply candidate to job');
+        }
+    }
+    
+    async removeCandidateFromJob(candidateId: string): Promise<void> {
+        await this.init();
+        try {
+            await this.personalInfoRepo.update(candidateId, {
+                roleApplied: null
+            });
+        } catch (error) {
+            console.error('Error removing candidate from job:', error);
+            throw new Error('Failed to remove candidate from job');
         }
     }
 }

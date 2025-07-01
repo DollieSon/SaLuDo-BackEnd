@@ -181,6 +181,30 @@ router.put('/master/:skillId',
         });
     })
 );
+// ====================
+// GLOBAL SKILLS ENDPOINTS
+// ====================
+
+// GET /api/skills - Get all skills (master data)
+router.get('/', asyncHandler(async (req: Request, res: Response) => {
+    const skills = await skillService.getAllSkillMaster();
+    res.json({
+        success: true,
+        data: skills,
+        count: skills.length
+    });
+}));
+
+// GET /api/skills/master - Get skill master data
+router.get('/master', asyncHandler(async (req: Request, res: Response) => {
+    const skills = await skillService.getAllSkillMaster();
+    res.json({
+        success: true,
+        data: skills,
+        count: skills.length
+    });
+}));
+
 // Error handling middleware
 router.use(errorHandler);
 export default router;

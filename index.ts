@@ -29,7 +29,7 @@ app.get('/api/data', (req: Request, res: Response) => {
 });
 
 app.use('/api/users', usersRouter);
-app.use('/api/job', jobRouter);
+app.use('/api/jobs', jobRouter);  // Changed from /api/job to /api/jobs
 app.use('/api/candidates', candidatesRouter);
 app.use('/api/candidates', skillsRouter);  // Candidate-specific skill routes
 app.use('/api/skills', skillsRouter);       // Global skill routes (search, master data)

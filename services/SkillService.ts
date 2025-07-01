@@ -236,4 +236,13 @@ export class SkillService {
             throw new Error('Failed to update skill master data');
         }
     }
+    async getAllSkillMaster(): Promise<SkillMaster[]> {
+        await this.init();
+        try {
+            return await this.skillMasterRepo.findAll();
+        } catch (error) {
+            console.error('Error getting all skill master data:', error);
+            throw new Error('Failed to retrieve skill master data');
+        }
+    }
 }

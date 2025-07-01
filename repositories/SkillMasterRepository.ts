@@ -178,4 +178,17 @@ export class SkillMasterRepository {
             throw error;
         }
     }
+    async findIdsByNames(skillNames: string[]): Promise<string[]> {
+        try {
+            const results = await this.collection.find(
+                { skillName: { $in: skillNames } },
+                { projection: { skillId: 1, _id: 0 } }
+            ).toArray();
+            
+            return results.map(result => result.skillId);
+        } catch (error) {
+            console.error('Error finding skill IDs by names:', error);
+            throw new Error('Failed to find skill IDs by names');
+        }
+    }
 }

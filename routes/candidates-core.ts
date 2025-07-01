@@ -31,7 +31,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 }));
 router.post('/', 
     upload.single('resume'),
-    validation.requireFields(['name', 'email', 'birthdate', 'roleApplied']),
+    validation.requireFields(['name', 'email', 'birthdate']),
     validation.validateEmailMiddleware,
     validation.validateDatesMiddleware(['birthdate']),
     asyncHandler(async (req: Request, res: Response) => {
@@ -61,17 +61,20 @@ router.post('/',
         }
         // Parse email array if it's a string
         const emailArray = Array.isArray(email) ? email : [email];
+        
+        // Parse roleApplied (can be null, undefined, or a job ID)
+        const jobId = roleApplied || null;
+        
         const candidate = await candidateService.addCandidate(
             name,
             emailArray,
             new Date(birthdate),
-            roleApplied,
+            jobId,
             req.file
         );
         // @Ranz Implement The AI Resume Parsing Here
         // Do your thing bestfweind 💅💅
         // COMPREHENSIVE EXAMPLES: How to add all candidate data after AI resume parsing
-        // This would typically be done after parsing the resume content
         /*
         // ========================================
         // SKILLS EXAMPLES
@@ -403,6 +406,65 @@ router.post('/:id/resume/parse', asyncHandler(async (req: Request, res: Response
         }
     });
 }));
+// ====================
+// JOB-RELATED ENDPOINTS
+// ====================
+// Apply candidate to job
+router.put('/:candidateId/apply-job/:jobId', 
+    asyncHandler(async (req: Request, res: Response) => {
+        const { candidateId, jobId } = req.params;
+        
+        await candidateService.applyCandidateToJob(candidateId, jobId);
+        
+        res.json({
+            success: true,
+            message: 'Candidate successfully applied to job'
+        });
+    })
+);
+
+// Remove candidate from job
+router.put('/:candidateId/remove-job', 
+    asyncHandler(async (req: Request, res: Response) => {
+        const { candidateId } = req.params;
+        
+        await candidateService.removeCandidateFromJob(candidateId);
+        
+        res.json({
+            success: true,
+            message: 'Candidate successfully removed from job'
+        });
+    })
+);
+
+// Get candidates by job
+router.get('/by-job/:jobId', 
+    asyncHandler(async (req: Request, res: Response) => {
+        const { jobId } = req.params;
+        
+        const candidates = await candidateService.getCandidatesByJob(jobId);
+        
+        res.json({
+            success: true,
+            data: candidates,
+            count: candidates.length
+        });
+    })
+);
+
+// Get candidates without job
+router.get('/without-job', 
+    asyncHandler(async (req: Request, res: Response) => {
+        const candidates = await candidateService.getCandidatesWithoutJob();
+        
+        res.json({
+            success: true,
+            data: candidates,
+            count: candidates.length
+        });
+    })
+);
+
 // Error handling middleware
 router.use(errorHandler);
 export default router;

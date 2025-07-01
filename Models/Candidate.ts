@@ -5,6 +5,7 @@ import { Certification, CertificationData, CreateCertificationData } from './Cer
 import { StrengthWeakness, StrengthWeaknessData, CreateStrengthWeaknessData } from './StrengthWeakness';
 import { Personality } from './Personality';
 import { PersonalityData } from './PersonalityTypes';
+import { Job } from './Job';
 export interface ResumeMetadata {
     fileId: string;           // GridFS file ID
     filename: string;         // Original filename
@@ -35,7 +36,7 @@ export class Candidate {
     public birthdate: Date;
     public dateCreated: Date;
     public dateUpdated: Date;
-    public roleApplied: string; // Job reference
+    public roleApplied: string | null; // Optional Job reference (job ID or null)
     public status: CandidateStatus;
     public isDeleted: boolean;
     // Resume Information (Resume Database)
@@ -56,7 +57,7 @@ export class Candidate {
         name: string,
         email: string[],
         birthdate: Date,
-        roleApplied: string,
+        roleApplied: string | null = null,
         resumeMetadata?: ResumeMetadata,
         status: CandidateStatus = CandidateStatus.APPLIED,
         dateCreated?: Date,
@@ -82,6 +83,32 @@ export class Candidate {
         this.transcripts = [];
         this.personality = new Personality(); // Create empty personality for new candidate
     }
+    // =======================
+    // JOB REFERENCE METHODS
+    // =======================
+    
+    hasAppliedForJob(): boolean {
+        return this.roleApplied !== null;
+    }
+    
+    getJobId(): string | null {
+        return this.roleApplied;
+    }
+    
+    setJobId(jobId: string | null): void {
+        this.roleApplied = jobId;
+        this.dateUpdated = new Date();
+    }
+    
+    isAppliedForJob(jobId: string): boolean {
+        return this.roleApplied === jobId;
+    }
+    
+    removeJobApplication(): void {
+        this.roleApplied = null;
+        this.dateUpdated = new Date();
+    }
+
     // =======================
     // UTILITY METHODS
     // =======================
@@ -159,7 +186,8 @@ export class Candidate {
         return age;
     }
     getSummary(): string {
-        return `${this.name} - ${this.roleApplied} (${this.status})`;
+        const role = this.roleApplied || 'No role applied';
+        return `${this.name} - ${role} (${this.status})`;
     }
     hasResume(): boolean {
         return this.resumeMetadata !== undefined && this.resumeMetadata.fileId !== undefined;
@@ -259,7 +287,7 @@ export interface CandidateData {
     birthdate: Date;
     dateCreated: Date;
     dateUpdated: Date;
-    roleApplied: string;
+    roleApplied: string | null;
     resume?: ResumeMetadata;
     status: CandidateStatus;
     isDeleted: boolean;
@@ -281,7 +309,7 @@ export interface PersonalInfoData {
     birthdate: Date;
     dateCreated: Date;
     dateUpdated: Date;
-    roleApplied: string;
+    roleApplied: string | null;
     status: CandidateStatus;
     isDeleted: boolean;
 }
@@ -303,4 +331,30 @@ export interface InterviewData {
     personality: PersonalityData;
     interviewAssessment?: string;
     dateUpdated: Date;
+}
+// =======================
+// JOB REFERENCE INTERFACES
+// =======================
+
+export interface CandidateJobApplication {
+    candidateId: string;
+    jobId: string | null;
+    appliedAt?: Date;
+}
+
+export interface CreateCandidateData {
+    name: string;
+    email: string[];
+    birthdate: Date;
+    roleApplied?: string | null;
+    status?: CandidateStatus;
+}
+
+export interface CandidateJobSummary {
+    candidateId: string;
+    candidateName: string;
+    jobId: string | null;
+    jobName?: string;
+    status: CandidateStatus;
+    appliedAt: Date;
 }
