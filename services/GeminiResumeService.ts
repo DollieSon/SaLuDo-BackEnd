@@ -36,7 +36,7 @@ export async function parseResumeWithGemini(buffer: Buffer): Promise<ParsedData>
           {
             text: `You are a ai resume parser. Extract from this resume text the following structured fields as JSON:
 {
-  skills: [{ skillName, score (0.0-10.0 (use floating point number for more accuracy) should show how confident you are in your evaluation), evidence (evidence should tell us why you chose this skill), addedBy: "AI" }],
+  skills: [{ skillName, score (0.0-10.0 (use floating point number for more accuracy) should show how confident you are in your evaluation), evidence (evidence should tell us why you chose this skill), addedBy: "AI" }(Give atleast 10 skills, the more the better.)],
   education: [{ institution, startDate, endDate, description(give me the reason why you chose this education) }],
   experience: [{ title, role, description(give me the reason why you chose this experience) }],
   certifications: [{ name, issuingOrganization, issueDate, description(give me the reason why you chose this certification) }],

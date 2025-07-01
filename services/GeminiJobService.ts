@@ -30,7 +30,7 @@ Return a JSON array of skill objects like this:
   }
 ]
 
-Do not return any explanation or preamble. Only the JSON array.
+Do not return any explanation or preamble. Only the JSON array. Give atleast 10 skills, the more the better.
 
 Job Title: ${jobName}
 
