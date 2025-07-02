@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaLuDo REST API Tester</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/themes.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="container">
+                <h1 class="logo">
+                    <span class="logo-text">SaLuDo</span>
+                    <span class="logo-subtitle">REST API Tester</span>
+                </h1>
+                <div class="header-controls">
+                    <div class="server-status" id="serverStatus">
+                        <span class="status-indicator" id="statusIndicator"></span>
+                        <span class="status-text" id="statusText">Checking...</span>
+                    </div>
+                    <button class="btn btn-secondary" id="themeToggle">🌙</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <div class="container">
+                <!-- API Configuration -->
+                <section class="config-section">
+                    <div class="card">
+                        <h2>API Configuration</h2>
+                        <div class="form-group">
+                            <label for="baseUrl">Base URL:</label>
+                            <input type="text" id="baseUrl" value="http://localhost:3000" class="form-control">
+                        </div>
+                        <button class="btn btn-primary" id="testConnection">Test Connection</button>
+                    </div>
+                </section>
+
+                <!-- Navigation Tabs -->
+                <nav class="tab-nav">
+                    <button class="tab-btn active" data-tab="candidates">👤 Candidates</button>
+                    <button class="tab-btn" data-tab="jobs">💼 Jobs</button>
+                    <button class="tab-btn" data-tab="skills">🛠️ Skills</button>
+                    <button class="tab-btn" data-tab="education">🎓 Education</button>
+                    <button class="tab-btn" data-tab="experience">💻 Experience</button>
+                    <button class="tab-btn" data-tab="certifications">📜 Certifications</button>
+                    <button class="tab-btn" data-tab="strengths">💪 Strengths/Weaknesses</button>
+                    <button class="tab-btn" data-tab="transcripts">🎙️ Transcripts</button>
+                </nav>
+
+                <!-- Tab Content -->
+                <div class="tab-content">
+                    <!-- Candidates Tab -->
+                    <div id="candidates-tab" class="tab-pane active">
+                        <div class="route-section">
+                            <h3>Candidate Management</h3>
+                            <div class="route-grid">
+                                <!-- GET All Candidates -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates</span>
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getAll">
+                                        Get All Candidates
+                                    </button>
+                                </div>
+
+                                <!-- GET Candidate by ID -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/:id</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="candidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getById">
+                                        Get Candidate
+                                    </button>
+                                </div>
+
+                                <!-- POST Create Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/candidates</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Name" class="form-control" id="candidateName">
+                                        <input type="email" placeholder="Email" class="form-control" id="candidateEmail">
+                                        <input type="date" placeholder="Birthdate" class="form-control" id="candidateBirthdate">
+                                        <input type="text" placeholder="Role Applied (optional)" class="form-control" id="candidateRole">
+                                        <input type="file" accept=".pdf,.doc,.docx" class="form-control" id="candidateResume">
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="candidates" data-action="create">
+                                        Create Candidate
+                                    </button>
+                                </div>
+
+                                <!-- Job Application Routes -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/candidates/:id/apply-job/:jobId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="applyJobCandidateId">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="applyJobId">
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="candidates" data-action="applyJob">
+                                        Apply to Job
+                                    </button>
+                                </div>
+
+                                <!-- Get Candidates by Job -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/by-job/:jobId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="candidatesByJobId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getByJob">
+                                        Get Candidates by Job
+                                    </button>
+                                </div>
+
+                                <!-- Get Candidates without Job -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/without-job</span>
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getWithoutJob">
+                                        Get Candidates without Job
+                                    </button>
+                                </div>
+
+                                <!-- Resume Management Routes -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/:id/resume</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="resumeCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getResume">
+                                        Get Resume Data
+                                    </button>
+                                </div>
+
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/candidates/:id/resume</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateResumeCandidateId">
+                                        <input type="file" accept=".pdf,.doc,.docx" class="form-control" id="newResumeFile">
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="candidates" data-action="updateResume">
+                                        Update Resume
+                                    </button>
+                                </div>
+
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/:id/resume/download</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="downloadResumeCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="downloadResume">
+                                        Download Resume
+                                    </button>
+                                </div>
+
+                                <!-- Update Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/candidates/:id</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateCandidateId">
+                                        <input type="text" placeholder="Name" class="form-control" id="updateCandidateName">
+                                        <input type="email" placeholder="Email" class="form-control" id="updateCandidateEmail">
+                                        <input type="date" placeholder="Birthdate" class="form-control" id="updateCandidateBirthdate">
+                                        <input type="text" placeholder="Role Applied" class="form-control" id="updateCandidateRole">
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="candidates" data-action="update">
+                                        Update Candidate
+                                    </button>
+                                </div>
+
+                                <!-- Delete Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method delete">DELETE</span>
+                                        <span class="endpoint">/api/candidates/:id</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="deleteCandidateId">
+                                    </div>
+                                    <button class="btn btn-danger test-btn" data-route="candidates" data-action="delete">
+                                        Delete Candidate
+                                    </button>
+                                </div>
+
+                                <!-- Remove from Job -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/candidates/:id/remove-job</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="removeJobCandidateId">
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="candidates" data-action="removeFromJob">
+                                        Remove from Job
+                                    </button>
+                                </div>
+
+                                <!-- Get by Status -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates?status=:status</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <select class="form-control" id="candidateStatus">
+                                            <option value="">Select Status</option>
+                                            <option value="active">Active</option>
+                                            <option value="inactive">Inactive</option>
+                                            <option value="hired">Hired</option>
+                                            <option value="rejected">Rejected</option>
+                                        </select>
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getByStatus">
+                                        Get by Status
+                                    </button>
+                                </div>
+
+                                <!-- Search Candidates -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/search</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Search Query" class="form-control" id="candidateSearchQuery">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="search">
+                                        Search Candidates
+                                    </button>
+                                </div>
+
+                                <!-- Get Summary -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/:id/summary</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="summaryCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getSummary">
+                                        Get Summary
+                                    </button>
+                                </div>
+
+                                <!-- Get Personal Info -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/:id/personal-info</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="personalInfoCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getPersonalInfo">
+                                        Get Personal Info
+                                    </button>
+                                </div>
+
+                                <!-- Get Interview Data -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/:id/interview</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="interviewCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getInterviewData">
+                                        Get Interview Data
+                                    </button>
+                                </div>
+
+                                <!-- Get Personality -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/candidates/:id/personality</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="getPersonalityCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="candidates" data-action="getPersonality">
+                                        Get Personality
+                                    </button>
+                                </div>
+
+                                <!-- Update Personality Trait -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/candidates/:id/personality/:category/:subcategory</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateTraitCandidateId">
+                                        <select class="form-control" id="personalityCategory">
+                                            <option value="">Select Category</option>
+                                            <option value="cognitive">Cognitive & Problem-Solving</option>
+                                            <option value="communication">Communication & Teamwork</option>
+                                            <option value="workethic">Work Ethic & Reliability</option>
+                                            <option value="growth">Growth & Leadership</option>
+                                            <option value="culture">Culture & Personality Fit</option>
+                                            <option value="bonus">Bonus Traits</option>
+                                        </select>
+                                        <select class="form-control" id="personalitySubcategory">
+                                            <option value="">Select Subcategory</option>
+                                            <!-- Options will be populated based on category selection -->
+                                        </select>
+                                        <input type="number" placeholder="Score (0-10)" min="0" max="10" step="0.1" class="form-control" id="personalityScore">
+                                        <textarea placeholder="Evidence/Notes" class="form-control" id="personalityEvidence" rows="3"></textarea>
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="candidates" data-action="updatePersonalityTrait">
+                                        Update Personality Trait
+                                    </button>
+                                </div>
+
+                                <!-- Update Full Personality -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/candidates/:id/personality</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateFullPersonalityCandidateId">
+                                        <textarea placeholder="Full Personality JSON Data" class="form-control" id="fullPersonalityData" rows="6">{"cognitiveAndProblemSolving": {...}, "communicationAndTeamwork": {...}}</textarea>
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="candidates" data-action="updateFullPersonality">
+                                        Update Full Personality
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Jobs Tab -->
+                    <div id="jobs-tab" class="tab-pane">
+                        <div class="route-section">
+                            <h3>Job Management</h3>
+                            <div class="route-grid">
+                                <!-- GET All Jobs -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/jobs</span>
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="jobs" data-action="getAll">
+                                        Get All Jobs
+                                    </button>
+                                </div>
+
+                                <!-- POST Create Job -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/jobs</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job Name" class="form-control" id="jobName">
+                                        <textarea placeholder="Job Description" class="form-control" id="jobDescription"></textarea>
+                                        <input type="text" placeholder="Skills (comma-separated IDs) - Optional" class="form-control" id="jobSkills">
+                                        <input type="text" placeholder="Required Levels (comma-separated 0-10) - Optional" class="form-control" id="jobLevels">
+                                        <textarea placeholder="Evidence (comma-separated) - Optional" class="form-control" id="jobEvidence"></textarea>
+                                        <small class="form-text text-muted">Skills can be added later. Leave skills fields empty to create job with just name and description.</small>
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="jobs" data-action="create">
+                                        Create Job
+                                    </button>
+                                </div>
+
+                                <!-- Search Jobs -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/jobs/search</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Search Query" class="form-control" id="jobSearchQuery">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="jobs" data-action="search">
+                                        Search Jobs
+                                    </button>
+                                </div>
+
+                                <!-- Get Job by ID -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/jobs/:id</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="jobId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="jobs" data-action="getById">
+                                        Get Job
+                                    </button>
+                                </div>
+
+                                <!-- Update Job -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/jobs/:id</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="updateJobId">
+                                        <input type="text" placeholder="Job Name" class="form-control" id="updateJobName">
+                                        <textarea placeholder="Job Description" class="form-control" id="updateJobDescription"></textarea>
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="jobs" data-action="update">
+                                        Update Job
+                                    </button>
+                                </div>
+
+                                <!-- Delete Job -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method delete">DELETE</span>
+                                        <span class="endpoint">/api/jobs/:id</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="deleteJobId">
+                                    </div>
+                                    <button class="btn btn-danger test-btn" data-route="jobs" data-action="delete">
+                                        Delete Job
+                                    </button>
+                                </div>
+
+                                <!-- Add Skill to Job -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/jobs/:id/skills</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="addSkillJobId">
+                                        <input type="text" placeholder="Skill ID" class="form-control" id="addSkillId">
+                                        <input type="number" placeholder="Required Level (0.0-10.0)" min="0" max="10" step="0.1" class="form-control" id="addSkillLevel">
+                                        <textarea placeholder="Evidence (optional)" class="form-control" id="addSkillEvidence"></textarea>
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="jobs" data-action="addSkill">
+                                        Add Skill to Job
+                                    </button>
+                                </div>
+
+                                <!-- Remove Skill from Job -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method delete">DELETE</span>
+                                        <span class="endpoint">/api/jobs/:id/skills/:skillId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="removeSkillJobId">
+                                        <input type="text" placeholder="Skill ID" class="form-control" id="removeSkillId">
+                                    </div>
+                                    <button class="btn btn-danger test-btn" data-route="jobs" data-action="removeSkill">
+                                        Remove Skill from Job
+                                    </button>
+                                </div>
+
+                                <!-- Bulk Add Skills to Job -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/jobs/:id/skills/bulk</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="bulkAddSkillsJobId">
+                                        <textarea placeholder="Skills JSON (Array of {skillId, requiredLevel, evidence?})" class="form-control" id="bulkAddSkillsData" rows="4">[{"skillId": "skill_id_here", "requiredLevel": 5.0, "evidence": "Required for this role"}]</textarea>
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="jobs" data-action="bulkAddSkills">
+                                        Bulk Add Skills to Job
+                                    </button>
+                                </div>
+
+                                <!-- Bulk Add Skills to Job by Name -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/jobs/:id/skills/bulk-by-name</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="bulkAddSkillsByNameJobId">
+                                        <textarea placeholder="Skills JSON (Array of {skillName, requiredLevel, evidence?})" class="form-control" id="bulkAddSkillsByNameData" rows="4">[{"skillName": "JavaScript", "requiredLevel": 7.0, "evidence": "Must be proficient for frontend development"}]</textarea>
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="jobs" data-action="bulkAddSkillsByName">
+                                        Bulk Add Skills by Name (Auto-creates skills)
+                                    </button>
+                                </div>
+
+                                <!-- Get Job Skills -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/jobs/:id/skills</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Job ID" class="form-control" id="getJobSkillsId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="jobs" data-action="getSkills">
+                                        Get Job Skills
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Skills Tab -->
+                    <div id="skills-tab" class="tab-pane">
+                        <div class="route-section">
+                            <h3>Skill Management</h3>
+                            <div class="route-grid">
+                                <!-- GET All Skills -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/skills</span>
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="skills" data-action="getAll">
+                                        Get All Skills
+                                    </button>
+                                </div>
+
+                                <!-- Add Skill to Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/skills/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="skillCandidateId">
+                                        <input type="text" placeholder="Skill Name" class="form-control" id="skillName">
+                                        <input type="number" placeholder="Level (0-10)" min="0" max="10" step="0.1" class="form-control" id="skillLevel">
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="skills" data-action="addToCandidate">
+                                        Add Skill to Candidate
+                                    </button>
+                                </div>
+
+                                <!-- Get Skills by Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/skills/candidate/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="skillsByCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="skills" data-action="getByCandidate">
+                                        Get Skills by Candidate
+                                    </button>
+                                </div>
+
+                                <!-- Get Master Skills -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/skills/master</span>
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="skills" data-action="getMaster">
+                                        Get Master Skills
+                                    </button>
+                                </div>
+
+                                <!-- Update Skill Level -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/skills/:candidateId/:skillId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateSkillCandidateId">
+                                        <input type="text" placeholder="Skill ID" class="form-control" id="updateSkillId">
+                                        <input type="number" placeholder="New Level (0-10)" min="0" max="10" step="0.1" class="form-control" id="updateSkillLevel">
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="skills" data-action="updateLevel">
+                                        Update Skill Level
+                                    </button>
+                                </div>
+
+                                <!-- Remove Skill from Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method delete">DELETE</span>
+                                        <span class="endpoint">/api/skills/:candidateId/:skillId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="deleteSkillCandidateId">
+                                        <input type="text" placeholder="Skill ID" class="form-control" id="deleteSkillId">
+                                    </div>
+                                    <button class="btn btn-danger test-btn" data-route="skills" data-action="removeFromCandidate">
+                                        Remove Skill
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Education Tab -->
+                    <div id="education-tab" class="tab-pane">
+                        <div class="route-section">
+                            <h3>Education Management</h3>
+                            <div class="route-grid">
+                                <!-- GET Education by Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/education/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="educationCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="education" data-action="getByCandidate">
+                                        Get Education Records
+                                    </button>
+                                </div>
+
+                                <!-- POST Add Education -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/education/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="addEducationCandidateId">
+                                        <input type="text" placeholder="Institution" class="form-control" id="educationInstitution">
+                                        <input type="text" placeholder="Degree" class="form-control" id="educationDegree">
+                                        <input type="text" placeholder="Field of Study" class="form-control" id="educationField">
+                                        <input type="date" placeholder="Start Date" class="form-control" id="educationStartDate">
+                                        <input type="date" placeholder="End Date" class="form-control" id="educationEndDate">
+                                        <input type="number" placeholder="GPA (optional)" min="0" max="4" step="0.01" class="form-control" id="educationGPA">
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="education" data-action="add">
+                                        Add Education
+                                    </button>
+                                </div>
+
+                                <!-- PUT Update Education -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/education/:candidateId/:educationId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateEducationCandidateId">
+                                        <input type="text" placeholder="Education ID" class="form-control" id="updateEducationId">
+                                        <input type="text" placeholder="Institution" class="form-control" id="updateEducationInstitution">
+                                        <input type="text" placeholder="Degree" class="form-control" id="updateEducationDegree">
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="education" data-action="update">
+                                        Update Education
+                                    </button>
+                                </div>
+
+                                <!-- DELETE Education -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method delete">DELETE</span>
+                                        <span class="endpoint">/api/education/:candidateId/:educationId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="deleteEducationCandidateId">
+                                        <input type="text" placeholder="Education ID" class="form-control" id="deleteEducationId">
+                                    </div>
+                                    <button class="btn btn-danger test-btn" data-route="education" data-action="delete">
+                                        Delete Education
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Experience Tab -->
+                    <div id="experience-tab" class="tab-pane">
+                        <div class="route-section">
+                            <h3>Experience Management</h3>
+                            <div class="route-grid">
+                                <!-- GET Experience by Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/experience/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="experienceCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="experience" data-action="getByCandidate">
+                                        Get Experience Records
+                                    </button>
+                                </div>
+
+                                <!-- POST Add Experience -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/experience/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="addExperienceCandidateId">
+                                        <input type="text" placeholder="Job Title" class="form-control" id="experienceJobTitle">
+                                        <input type="text" placeholder="Company" class="form-control" id="experienceCompany">
+                                        <input type="date" placeholder="Start Date" class="form-control" id="experienceStartDate">
+                                        <input type="date" placeholder="End Date" class="form-control" id="experienceEndDate">
+                                        <textarea placeholder="Description" class="form-control" id="experienceDescription"></textarea>
+                                        <input type="text" placeholder="Location" class="form-control" id="experienceLocation">
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="experience" data-action="add">
+                                        Add Experience
+                                    </button>
+                                </div>
+
+                                <!-- PUT Update Experience -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/experience/:candidateId/:experienceId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateExperienceCandidateId">
+                                        <input type="text" placeholder="Experience ID" class="form-control" id="updateExperienceId">
+                                        <input type="text" placeholder="Job Title" class="form-control" id="updateExperienceJobTitle">
+                                        <input type="text" placeholder="Company" class="form-control" id="updateExperienceCompany">
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="experience" data-action="update">
+                                        Update Experience
+                                    </button>
+                                </div>
+
+                                <!-- DELETE Experience -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method delete">DELETE</span>
+                                        <span class="endpoint">/api/experience/:candidateId/:experienceId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="deleteExperienceCandidateId">
+                                        <input type="text" placeholder="Experience ID" class="form-control" id="deleteExperienceId">
+                                    </div>
+                                    <button class="btn btn-danger test-btn" data-route="experience" data-action="delete">
+                                        Delete Experience
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Certifications Tab -->
+                    <div id="certifications-tab" class="tab-pane">
+                        <div class="route-section">
+                            <h3>Certification Management</h3>
+                            <div class="route-grid">
+                                <!-- GET Certifications by Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/certifications/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="certificationCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="certifications" data-action="getByCandidate">
+                                        Get Certifications
+                                    </button>
+                                </div>
+
+                                <!-- POST Add Certification -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/certifications/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="addCertificationCandidateId">
+                                        <input type="text" placeholder="Certification Name" class="form-control" id="certificationName">
+                                        <input type="text" placeholder="Issuing Organization" class="form-control" id="certificationIssuer">
+                                        <input type="date" placeholder="Issue Date" class="form-control" id="certificationIssueDate">
+                                        <input type="date" placeholder="Expiry Date (optional)" class="form-control" id="certificationExpiryDate">
+                                        <input type="text" placeholder="Credential ID (optional)" class="form-control" id="certificationCredentialId">
+                                        <input type="url" placeholder="Credential URL (optional)" class="form-control" id="certificationUrl">
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="certifications" data-action="add">
+                                        Add Certification
+                                    </button>
+                                </div>
+
+                                <!-- PUT Update Certification -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/certifications/:candidateId/:certificationId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateCertificationCandidateId">
+                                        <input type="text" placeholder="Certification ID" class="form-control" id="updateCertificationId">
+                                        <input type="text" placeholder="Certification Name" class="form-control" id="updateCertificationName">
+                                        <input type="text" placeholder="Issuing Organization" class="form-control" id="updateCertificationIssuer">
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="certifications" data-action="update">
+                                        Update Certification
+                                    </button>
+                                </div>
+
+                                <!-- DELETE Certification -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method delete">DELETE</span>
+                                        <span class="endpoint">/api/certifications/:candidateId/:certificationId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="deleteCertificationCandidateId">
+                                        <input type="text" placeholder="Certification ID" class="form-control" id="deleteCertificationId">
+                                    </div>
+                                    <button class="btn btn-danger test-btn" data-route="certifications" data-action="delete">
+                                        Delete Certification
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Strengths & Weaknesses Tab -->
+                    <div id="strengths-tab" class="tab-pane">
+                        <div class="route-section">
+                            <h3>Strengths & Weaknesses Management</h3>
+                            <div class="route-grid">
+                                <!-- GET Strengths/Weaknesses by Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/strengths-weaknesses/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="strengthsCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="strengths" data-action="getByCandidate">
+                                        Get Strengths & Weaknesses
+                                    </button>
+                                </div>
+
+                                <!-- POST Add Strength -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/strengths-weaknesses/:candidateId/strength</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="addStrengthCandidateId">
+                                        <input type="text" placeholder="Strength Name" class="form-control" id="strengthName">
+                                        <textarea placeholder="Description" class="form-control" id="strengthDescription"></textarea>
+                                        <input type="number" placeholder="Score (0-10)" min="0" max="10" step="0.1" class="form-control" id="strengthScore">
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="strengths" data-action="addStrength">
+                                        Add Strength
+                                    </button>
+                                </div>
+
+                                <!-- POST Add Weakness -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/strengths-weaknesses/:candidateId/weakness</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="addWeaknessCandidateId">
+                                        <input type="text" placeholder="Weakness Name" class="form-control" id="weaknessName">
+                                        <textarea placeholder="Description" class="form-control" id="weaknessDescription"></textarea>
+                                        <input type="number" placeholder="Impact Score (0-10)" min="0" max="10" step="0.1" class="form-control" id="weaknessScore">
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="strengths" data-action="addWeakness">
+                                        Add Weakness
+                                    </button>
+                                </div>
+
+                                <!-- PUT Update Strength/Weakness -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method put">PUT</span>
+                                        <span class="endpoint">/api/strengths-weaknesses/:candidateId/:itemId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="updateStrengthCandidateId">
+                                        <input type="text" placeholder="Item ID" class="form-control" id="updateStrengthId">
+                                        <input type="text" placeholder="Name" class="form-control" id="updateStrengthName">
+                                        <textarea placeholder="Description" class="form-control" id="updateStrengthDescription"></textarea>
+                                    </div>
+                                    <button class="btn btn-warning test-btn" data-route="strengths" data-action="update">
+                                        Update Item
+                                    </button>
+                                </div>
+
+                                <!-- DELETE Strength/Weakness -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method delete">DELETE</span>
+                                        <span class="endpoint">/api/strengths-weaknesses/:candidateId/:itemId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="deleteStrengthCandidateId">
+                                        <input type="text" placeholder="Item ID" class="form-control" id="deleteStrengthId">
+                                    </div>
+                                    <button class="btn btn-danger test-btn" data-route="strengths" data-action="delete">
+                                        Delete Item
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Transcripts Tab -->
+                    <div id="transcripts-tab" class="tab-pane">
+                        <div class="route-section">
+                            <h3>Transcript Management</h3>
+                            <div class="route-grid">
+                                <!-- GET Transcripts by Candidate -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/transcripts/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="transcriptCandidateId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="transcripts" data-action="getByCandidate">
+                                        Get Transcripts
+                                    </button>
+                                </div>
+
+                                <!-- POST Upload Transcript -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/transcripts/:candidateId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="uploadTranscriptCandidateId">
+                                        <input type="file" accept="audio/*,video/*" class="form-control" id="transcriptFile">
+                                        <input type="text" placeholder="Interview Type" class="form-control" id="transcriptType">
+                                        <textarea placeholder="Additional Notes" class="form-control" id="transcriptNotes"></textarea>
+                                    </div>
+                                    <button class="btn btn-success test-btn" data-route="transcripts" data-action="upload">
+                                        Upload Transcript
+                                    </button>
+                                </div>
+
+                                <!-- GET Process Transcript -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method post">POST</span>
+                                        <span class="endpoint">/api/transcripts/:candidateId/:transcriptId/process</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="processTranscriptCandidateId">
+                                        <input type="text" placeholder="Transcript ID" class="form-control" id="processTranscriptId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="transcripts" data-action="process">
+                                        Process Transcript
+                                    </button>
+                                </div>
+
+                                <!-- GET Transcript Analysis -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/transcripts/:candidateId/:transcriptId/analysis</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="analysisTranscriptCandidateId">
+                                        <input type="text" placeholder="Transcript ID" class="form-control" id="analysisTranscriptId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="transcripts" data-action="getAnalysis">
+                                        Get Analysis
+                                    </button>
+                                </div>
+
+                                <!-- DELETE Transcript -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method delete">DELETE</span>
+                                        <span class="endpoint">/api/transcripts/:candidateId/:transcriptId</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="deleteTranscriptCandidateId">
+                                        <input type="text" placeholder="Transcript ID" class="form-control" id="deleteTranscriptId">
+                                    </div>
+                                    <button class="btn btn-danger test-btn" data-route="transcripts" data-action="delete">
+                                        Delete Transcript
+                                    </button>
+                                </div>
+
+                                <!-- GET Download Transcript -->
+                                <div class="route-item">
+                                    <div class="route-header">
+                                        <span class="method get">GET</span>
+                                        <span class="endpoint">/api/transcripts/:candidateId/:transcriptId/download</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <input type="text" placeholder="Candidate ID" class="form-control" id="downloadTranscriptCandidateId">
+                                        <input type="text" placeholder="Transcript ID" class="form-control" id="downloadTranscriptId">
+                                    </div>
+                                    <button class="btn btn-primary test-btn" data-route="transcripts" data-action="download">
+                                        Download Transcript
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Response Section -->
+                <section class="response-section">
+                    <div class="card">
+                        <div class="response-header">
+                            <h3>Response</h3>
+                            <div class="response-controls">
+                                <button class="btn btn-secondary" id="clearResponse">Clear</button>
+                                <button class="btn btn-secondary" id="copyResponse">Copy</button>
+                            </div>
+                        </div>
+                        <div class="response-content">
+                            <div class="response-meta" id="responseMeta">
+                                <span class="status-code" id="statusCode">Ready</span>
+                                <span class="response-time" id="responseTime"></span>
+                            </div>
+                            <pre class="response-body" id="responseBody">Click any test button to see the API response...</pre>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="container">
+                <p>&copy; 2025 SaLuDo REST API Tester. Built for comprehensive API testing.</p>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Testing API...</div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/utils/helpers.js"></script>
+    <script src="js/utils/api.js"></script>
+    <script src="js/routes/candidates.js"></script>
+    <script src="js/routes/jobs.js"></script>
+    <script src="js/routes/skills.js"></script>
+    <script src="js/routes/education.js"></script>
+    <script src="js/routes/experience.js"></script>
+    <script src="js/routes/certifications.js"></script>
+    <script src="js/routes/strengths.js"></script>
+    <script src="js/routes/transcripts.js"></script>
+    <script src="js/components/tabs.js"></script>
+    <script src="js/components/theme.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

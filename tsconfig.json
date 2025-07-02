@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+
     /* Visit https://aka.ms/tsconfig to read more about this file */
 
     /* Projects */
@@ -108,7 +109,8 @@
 
     /* Completeness */
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
-    "skipLibCheck": true                                 /* Skip type checking all .d.ts files. */
+    "skipLibCheck": true,                                 /* Skip type checking all .d.ts files. */
+    "typeRoots": ["./node_modules/@types", "./src/types"], /* Specify multiple folders that act like './node_modules/@types'. */
   },
-  "include": ["src/**/*", "routes/**/*", "index.ts"]
+  "include": ["src/**/*", "routes/**/*", "index.ts", "ForFrontEnd/documentation/endpoints/candidates-core.ts"],
 }
