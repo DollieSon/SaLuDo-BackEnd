@@ -7,7 +7,12 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
     "start": "npx tsc && node dist/index.js",
-    "dev": "nodemon --exec ts-node index.ts"
+    "dev": "nodemon --exec ts-node index.ts",
+    "dev:local": "powershell \"Copy-Item .env.local .env\" && nodemon --exec ts-node index.ts",
+    "dev:remote": "powershell \"Copy-Item .env.production .env\" && nodemon --exec ts-node index.ts",
+    "db:up": "docker-compose up -d mongodb",
+    "db:down": "docker-compose down",
+    "db:logs": "docker-compose logs -f mongodb"
   },
   "keywords": [],
   "author": "",
