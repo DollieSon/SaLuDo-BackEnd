@@ -10,6 +10,7 @@ import {
   CandidateStatus,
   ResumeMetadata,
   TranscriptMetadata,
+  VideoMetadata,
 } from "../Models/Candidate";
 import { Skill, CreateSkillData } from "../Models/Skill";
 import { Experience, CreateExperienceData } from "../Models/Experience";
@@ -23,7 +24,7 @@ import {
   CreateStrengthWeaknessData,
 } from "../Models/StrengthWeakness";
 import { Personality, PersonalityData } from "../Models/Personality";
-import { GridFSBucket, ObjectId } from "mongodb";
+import { GridFSBucket, GridFSBucketReadStream, ObjectId } from "mongodb";
 import streamBuffers from "stream-buffers";
 export class CandidateService {
   private personalInfoRepo: PersonalInfoRepository;
@@ -113,6 +114,8 @@ export class CandidateService {
       await this.interviewRepo.create({
         candidateId: personalInfo.candidateId,
         transcripts: [],
+        interviewVideos: [],
+        introductionVideos: [],
         personality: new Personality().toObject(),
       });
       // Create and return candidate object
@@ -184,6 +187,8 @@ export class CandidateService {
       // Populate interview data if exists
       if (interviewData) {
         candidate.transcripts = interviewData.transcripts || [];
+        candidate.interviewVideos = interviewData.interviewVideos || [];
+        candidate.introductionVideos = interviewData.introductionVideos || [];
         candidate.personality = Personality.fromObject(
           interviewData.personality
         );
@@ -657,27 +662,388 @@ export class CandidateService {
     await this.init();
     try {
       const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: 'transcripts' });
-      
+      const bucket = new GridFSBucket(db, { bucketName: "transcripts" });
+
       const chunks: Buffer[] = [];
-      const downloadStream = bucket.openDownloadStream(new ObjectId(transcriptId));
-      
+      const downloadStream = bucket.openDownloadStream(
+        new ObjectId(transcriptId)
+      );
+
       return new Promise((resolve, reject) => {
-        downloadStream.on('data', (chunk) => {
+        downloadStream.on("data", (chunk) => {
           chunks.push(chunk);
         });
-        
-        downloadStream.on('end', () => {
+
+        downloadStream.on("end", () => {
           resolve(Buffer.concat(chunks));
         });
-        
-        downloadStream.on('error', (error) => {
+
+        downloadStream.on("error", (error) => {
           reject(error);
         });
       });
     } catch (error) {
-      console.error('Error getting transcript buffer:', error);
-      throw new Error('Failed to retrieve transcript buffer');
+      console.error("Error getting transcript buffer:", error);
+      throw new Error("Failed to retrieve transcript buffer");
+    }
+  }
+
+  // ============================
+  // VIDEO FILE OPERATIONS
+  // ============================
+
+  async addVideoFile(
+    candidateId: string,
+    videoFile: Express.Multer.File,
+    videoType: "interview" | "introduction",
+    metadata?: Partial<VideoMetadata>
+  ): Promise<VideoMetadata> {
+    await this.init();
+    try {
+      // Validate file
+      this.validateVideoFile(videoFile);
+      const db = await connectDB();
+      const bucketName =
+        videoType === "interview" ? "interview-videos" : "introduction-videos";
+      const bucket = new GridFSBucket(db, { bucketName });
+
+      // Upload file to GridFS
+      const uploadStream = bucket.openUploadStream(videoFile.originalname, {
+        metadata: {
+          contentType: videoFile.mimetype,
+          uploadedBy: "candidate",
+          candidateId: candidateId,
+          videoType: videoType,
+          interviewRound: metadata?.interviewRound,
+          duration: metadata?.duration,
+          resolution: metadata?.resolution,
+          frameRate: metadata?.frameRate,
+          bitrate: metadata?.bitrate,
+        },
+      });
+
+      const fileId = uploadStream.id;
+      uploadStream.end(videoFile.buffer);
+
+      // Wait for upload to complete
+      await new Promise((resolve, reject) => {
+        uploadStream.on("finish", resolve);
+        uploadStream.on("error", reject);
+      });
+
+      const videoMetadata: VideoMetadata = {
+        fileId: fileId.toString(),
+        filename: videoFile.originalname,
+        contentType: videoFile.mimetype,
+        size: videoFile.size,
+        uploadedAt: new Date(),
+        processingStatus: "not_started",
+        videoType: videoType,
+        interviewRound: metadata?.interviewRound,
+        duration: metadata?.duration,
+        resolution: metadata?.resolution,
+        frameRate: metadata?.frameRate,
+        bitrate: metadata?.bitrate,
+        ...metadata,
+      };
+
+      // Get current interview data
+      const interviewData = await this.interviewRepo.findById(candidateId);
+      const currentInterviewVideos: VideoMetadata[] = Array.isArray(
+        interviewData?.interviewVideos
+      )
+        ? interviewData.interviewVideos
+        : [];
+      const currentIntroVideos: VideoMetadata[] = Array.isArray(
+        interviewData?.introductionVideos
+      )
+        ? interviewData.introductionVideos
+        : [];
+
+      // Add new video to appropriate array
+      if (videoType === "interview") {
+        currentInterviewVideos.push(videoMetadata);
+      } else {
+        currentIntroVideos.push(videoMetadata);
+      }
+
+      // Update interview data
+      const updatedInterviewData = {
+        candidateId: candidateId,
+        interviewVideos: currentInterviewVideos,
+        introductionVideos: currentIntroVideos,
+        dateUpdated: new Date(),
+      };
+
+      const existingData = await this.interviewRepo.findById(candidateId);
+      if (existingData) {
+        await this.interviewRepo.update(candidateId, updatedInterviewData);
+      } else {
+        await this.interviewRepo.create({
+          ...updatedInterviewData,
+          transcripts: [],
+          personality: new Personality().toObject(),
+        });
+      }
+      return videoMetadata;
+    } catch (error) {
+      console.error("Error adding video file:", error);
+      throw new Error("Failed to upload video file");
+    }
+  }
+
+  async getVideoFile(
+    candidateId: string,
+    videoId: string,
+    videoType: "interview" | "introduction"
+  ): Promise<{ stream: GridFSBucketReadStream; metadata: VideoMetadata }> {
+    await this.init();
+    try {
+      const db = await connectDB();
+      const bucketName =
+        videoType === "interview" ? "interview-videos" : "introduction-videos";
+      const bucket = new GridFSBucket(db, { bucketName });
+
+      const downloadStream = bucket.openDownloadStream(new ObjectId(videoId));
+      const metadata = await this.getVideoMetadata(
+        candidateId,
+        videoId,
+        videoType
+      );
+
+      if (!metadata) {
+        throw new Error("Video file not found");
+      }
+
+      return { stream: downloadStream, metadata };
+    } catch (error) {
+      console.error("Error getting video file:", error);
+      throw new Error("Failed to retrieve video file");
+    }
+  }
+
+  async updateVideoFile(
+    candidateId: string,
+    videoId: string,
+    videoFile: Express.Multer.File,
+    videoType: "interview" | "introduction",
+    metadata?: Partial<VideoMetadata>
+  ): Promise<VideoMetadata> {
+    await this.init();
+    try {
+      // Validate file
+      this.validateVideoFile(videoFile);
+      const db = await connectDB();
+      const bucketName =
+        videoType === "interview" ? "interview-videos" : "introduction-videos";
+      const bucket = new GridFSBucket(db, { bucketName });
+
+      // Delete old file from GridFS
+      await bucket.delete(new ObjectId(videoId));
+
+      // Upload new file
+      const uploadStream = bucket.openUploadStream(videoFile.originalname, {
+        metadata: {
+          contentType: videoFile.mimetype,
+          uploadedBy: "candidate",
+          candidateId: candidateId,
+          videoType: videoType,
+          interviewRound: metadata?.interviewRound,
+          duration: metadata?.duration,
+          resolution: metadata?.resolution,
+          frameRate: metadata?.frameRate,
+          bitrate: metadata?.bitrate,
+        },
+      });
+
+      const newFileId = uploadStream.id;
+      uploadStream.end(videoFile.buffer);
+
+      // Wait for upload to complete
+      await new Promise((resolve, reject) => {
+        uploadStream.on("finish", resolve);
+        uploadStream.on("error", reject);
+      });
+
+      const updatedVideoMetadata: VideoMetadata = {
+        fileId: newFileId.toString(),
+        filename: videoFile.originalname,
+        contentType: videoFile.mimetype,
+        size: videoFile.size,
+        uploadedAt: new Date(),
+        processingStatus: "not_started",
+        videoType: videoType,
+        interviewRound: metadata?.interviewRound,
+        duration: metadata?.duration,
+        resolution: metadata?.resolution,
+        frameRate: metadata?.frameRate,
+        bitrate: metadata?.bitrate,
+        ...metadata,
+      };
+
+      // Update interview data
+      const interviewData = await this.interviewRepo.findById(candidateId);
+      const videoArray =
+        videoType === "interview" ? "interviewVideos" : "introductionVideos";
+      const updatedVideos = interviewData?.[videoArray]?.map(
+        (v: VideoMetadata) => (v.fileId === videoId ? updatedVideoMetadata : v)
+      ) || [updatedVideoMetadata];
+
+      const updatedInterviewData = {
+        candidateId: candidateId,
+        [videoArray]: updatedVideos,
+        dateUpdated: new Date(),
+      };
+
+      await this.interviewRepo.update(candidateId, updatedInterviewData);
+      return updatedVideoMetadata;
+    } catch (error) {
+      console.error("Error updating video file:", error);
+      throw new Error("Failed to update video file");
+    }
+  }
+
+  async deleteVideoFile(
+    candidateId: string,
+    videoId: string,
+    videoType: "interview" | "introduction"
+  ): Promise<void> {
+    await this.init();
+    try {
+      const db = await connectDB();
+      const bucketName =
+        videoType === "interview" ? "interview-videos" : "introduction-videos";
+      const bucket = new GridFSBucket(db, { bucketName });
+
+      // Delete file from GridFS
+      await bucket.delete(new ObjectId(videoId));
+
+      // Remove from interview data
+      const interviewData = await this.interviewRepo.findById(candidateId);
+      const videoArray =
+        videoType === "interview" ? "interviewVideos" : "introductionVideos";
+      const updatedVideos =
+        interviewData?.[videoArray]?.filter(
+          (v: VideoMetadata) => v.fileId !== videoId
+        ) || [];
+
+      const updatedInterviewData = {
+        candidateId: candidateId,
+        [videoArray]: updatedVideos,
+        dateUpdated: new Date(),
+      };
+
+      await this.interviewRepo.update(candidateId, updatedInterviewData);
+    } catch (error) {
+      console.error("Error deleting video file:", error);
+      throw new Error("Failed to delete video file");
+    }
+  }
+
+  async getAllVideos(
+    candidateId: string,
+    videoType?: "interview" | "introduction"
+  ): Promise<{
+    interviewVideos: VideoMetadata[];
+    introductionVideos: VideoMetadata[];
+  }> {
+    await this.init();
+    try {
+      const interviewData = await this.interviewRepo.findById(candidateId);
+      const interviewVideos = interviewData?.interviewVideos || [];
+      const introductionVideos = interviewData?.introductionVideos || [];
+
+      if (videoType === "interview") {
+        return { interviewVideos, introductionVideos: [] };
+      } else if (videoType === "introduction") {
+        return { interviewVideos: [], introductionVideos };
+      }
+
+      return { interviewVideos, introductionVideos };
+    } catch (error) {
+      console.error("Error getting videos:", error);
+      throw new Error("Failed to retrieve videos");
+    }
+  }
+
+  async getVideoMetadata(
+    candidateId: string,
+    videoId: string,
+    videoType: "interview" | "introduction"
+  ): Promise<VideoMetadata | null> {
+    await this.init();
+    try {
+      const interviewData = await this.interviewRepo.findById(candidateId);
+      const videoArray =
+        videoType === "interview" ? "interviewVideos" : "introductionVideos";
+      return (
+        interviewData?.[videoArray]?.find(
+          (v: VideoMetadata) => v.fileId === videoId
+        ) || null
+      );
+    } catch (error) {
+      console.error("Error getting video metadata:", error);
+      throw new Error("Failed to retrieve video metadata");
+    }
+  }
+
+  private validateVideoFile(file: Express.Multer.File): void {
+    // Allowed MIME types for video files
+    const allowedTypes = [
+      "video/mp4", // MP4
+      "video/webm", // WebM
+      "video/avi", // AVI
+      "video/mov", // MOV (QuickTime)
+      "video/wmv", // WMV
+      "video/flv", // FLV
+      "video/mkv", // MKV
+      "video/m4v", // M4V
+    ];
+
+    if (!allowedTypes.includes(file.mimetype)) {
+      throw new Error(
+        "Invalid file type. Only MP4, WebM, AVI, MOV, WMV, FLV, MKV, and M4V files are allowed."
+      );
+    }
+
+    // Check file size (500MB limit for video files)
+    const maxSize = 500 * 1024 * 1024; // 500MB in bytes
+    if (file.size > maxSize) {
+      throw new Error("File size too large. Maximum size is 500MB.");
+    }
+  }
+
+  async getVideoBuffer(
+    candidateId: string,
+    videoId: string,
+    videoType: "interview" | "introduction"
+  ): Promise<Buffer> {
+    await this.init();
+    try {
+      const db = await connectDB();
+      const bucketName =
+        videoType === "interview" ? "interview-videos" : "introduction-videos";
+      const bucket = new GridFSBucket(db, { bucketName });
+
+      const chunks: Buffer[] = [];
+      const downloadStream = bucket.openDownloadStream(new ObjectId(videoId));
+
+      return new Promise((resolve, reject) => {
+        downloadStream.on("data", (chunk) => {
+          chunks.push(chunk);
+        });
+
+        downloadStream.on("end", () => {
+          resolve(Buffer.concat(chunks));
+        });
+
+        downloadStream.on("error", (error) => {
+          reject(error);
+        });
+      });
+    } catch (error) {
+      console.error("Error getting video buffer:", error);
+      throw new Error("Failed to retrieve video buffer");
     }
   }
 
@@ -756,38 +1122,41 @@ export class CandidateService {
   ): Promise<void> {
     await this.init();
     try {
-      console.log('=== DEBUG: updateCandidatePersonality START ===');
-      console.log('candidateId:', candidateId);
-      console.log('personalityData type:', typeof personalityData);
-      console.log('personalityData keys:', Object.keys(personalityData || {}));
-      
+      console.log("=== DEBUG: updateCandidatePersonality START ===");
+      console.log("candidateId:", candidateId);
+      console.log("personalityData type:", typeof personalityData);
+      console.log("personalityData keys:", Object.keys(personalityData || {}));
+
       // Check if personalityData has the expected structure
-      if (!personalityData || typeof personalityData !== 'object') {
-        throw new Error('Invalid personality data: must be an object');
+      if (!personalityData || typeof personalityData !== "object") {
+        throw new Error("Invalid personality data: must be an object");
       }
-      
+
       const interviewData = await this.interviewRepo.findById(candidateId);
       if (!interviewData) {
         throw new Error("Candidate not found");
       }
 
-      console.log('Current interview personality:', interviewData.personality);
+      console.log("Current interview personality:", interviewData.personality);
 
       // Create personality instance to validate data
-      console.log('Creating Personality instance...');
+      console.log("Creating Personality instance...");
       const personality = new Personality(personalityData);
-      console.log('Personality instance created successfully');
-      
+      console.log("Personality instance created successfully");
+
       const personalityObject = personality.toObject();
-      console.log('Personality toObject() result:', JSON.stringify(personalityObject, null, 2));
+      console.log(
+        "Personality toObject() result:",
+        JSON.stringify(personalityObject, null, 2)
+      );
 
       // Save updated personality
-      console.log('Updating personality in database...');
+      console.log("Updating personality in database...");
       await this.interviewRepo.update(candidateId, {
         personality: personalityObject,
         dateUpdated: new Date(),
       });
-      console.log('=== DEBUG: updateCandidatePersonality END ===');
+      console.log("=== DEBUG: updateCandidatePersonality END ===");
     } catch (error) {
       console.error("Error updating candidate personality:", error);
       if (error instanceof Error) {
