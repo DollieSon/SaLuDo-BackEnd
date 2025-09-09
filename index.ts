@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
+import { connectDB } from "./mongo_db";
 import usersRouter from "./routes/users";
 import jobRouter from "./routes/job";
 import candidatesRouter from "./routes/candidates";
@@ -43,6 +44,23 @@ app.use("/api/candidates/:candidateId/transcripts", transcriptsRouter); // Trans
 app.use("/api/candidates/:candidateId/videos", videosRouter); // Video routes
 app.use("/api/files", filesRouter); // File serving routes
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Initialize database connection and start server
+async function startServer() {
+  try {
+    // Test database connection at startup
+    await connectDB();
+    console.log('Database connection verified successfully');
+    
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`API available at: http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to connect to database:', error);
+    console.error('Please check your MONGO_URI environment variable');
+    process.exit(1);
+  }
+}
+
+// Start the server
+startServer();
