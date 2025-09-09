@@ -12,8 +12,20 @@ import transcriptsRouter from "./routes/transcripts";
 import videosRouter from "./routes/videos";
 import filesRouter from "./routes/files";
 import dotenv from "dotenv";
+import { connectDB } from "./mongo_db";
 
 dotenv.config();
+
+// Environment and MongoDB URI logging
+const nodeEnv = process.env.NODE_ENV || 'development';
+const mongoUri = process.env.MONGO_URI;
+const isLocal = mongoUri?.includes('localhost') || mongoUri?.includes('127.0.0.1');
+
+console.log('Application Starting...');
+console.log('Environment:', nodeEnv);
+console.log('Database Type:', isLocal ? 'LOCAL MongoDB' : 'REMOTE MongoDB');
+console.log('MongoDB URI:', mongoUri ? mongoUri.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@') : 'NOT SET');
+console.log('─'.repeat(60));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -43,6 +55,29 @@ app.use("/api/candidates/:candidateId/transcripts", transcriptsRouter); // Trans
 app.use("/api/candidates/:candidateId/videos", videosRouter); // Video routes
 app.use("/api/files", filesRouter); // File serving routes
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Function to start the server with database connection
+async function startServer() {
+  try {
+    // Test database connection during startup
+    console.log(' Testing database connection...');
+    await connectDB();
+    console.log(' Database connection successful!');
+    
+    // Start the server
+    app.listen(PORT, () => {
+      console.log(' Server Status:');
+      console.log(`    Server running on port ${PORT}`);
+      console.log(`    Environment: ${nodeEnv}`);
+      console.log(`    Database: ${isLocal ? 'LOCAL' : 'REMOTE'} MongoDB`);
+      console.log('─'.repeat(60));
+    });
+  } catch (error) {
+    console.error('   Failed to start server due to database connection error:');
+    console.error('   Error:', error);
+    console.error('   Please check your MongoDB connection and try again.');
+    process.exit(1);
+  }
+}
+
+// Start the server
+startServer();
