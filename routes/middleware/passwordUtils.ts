@@ -38,6 +38,11 @@ export class PasswordUtils {
     }
   }
 
+  // Alias for verifyPassword (for consistency with usage)
+  static async comparePassword(password: string, hashedPassword: string): Promise<boolean> {
+    return await this.verifyPassword(password, hashedPassword);
+  }
+
   // Generate JWT token
   static generateToken(userId: string): string {
     const jwt = require('jsonwebtoken');

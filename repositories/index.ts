@@ -4,3 +4,5 @@ export { PersonalInfoRepository, ResumeRepository, InterviewRepository } from '.
 export { SkillMasterRepository } from './SkillMasterRepository';
 export { JobRepository } from './JobRepository';
 export { UserRepository } from './UserRepository';
+export { AuditLogRepository } from './AuditLogRepository';
+export { TokenBlacklistRepository } from './TokenBlacklistRepository';

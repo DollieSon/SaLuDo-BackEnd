@@ -9,6 +9,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UserRepository } from '../../repositories/UserRepository';
 import { UserService } from '../../services/UserService';
+import { TokenBlacklistRepository } from '../../repositories/TokenBlacklistRepository';
 import { connectDB } from '../../mongo_db';
 import { User, UserRole } from '../../Models/User';
 
@@ -29,11 +30,13 @@ if (!process.env.JWT_SECRET || JWT_SECRET === 'your-jwt-secret-change-in-product
 
 export class AuthMiddleware {
   private static userService: UserService | null = null;
+  private static tokenBlacklistRepository: TokenBlacklistRepository | null = null;
 
   // Initialize service (called once at startup)
   static async initialize(): Promise<void> {
     const db = await connectDB();
     const userRepository = new UserRepository(db);
+    this.tokenBlacklistRepository = new TokenBlacklistRepository(db);
     this.userService = new UserService(userRepository);
   }
 
@@ -44,6 +47,13 @@ export class AuthMiddleware {
       
       if (!token) {
         res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
+        return;
+      }
+
+      // Check if token is blacklisted
+      const isBlacklisted = await this.tokenBlacklistRepository!.isTokenBlacklisted(token);
+      if (isBlacklisted) {
+        res.status(401).json({ success: false, message: 'Token has been revoked.' });
         return;
       }
 
@@ -61,6 +71,11 @@ export class AuthMiddleware {
     } catch (error) {
       res.status(401).json({ success: false, message: 'Invalid token.' });
     }
+  };
+
+  // Blacklist a token (for logout)
+  static blacklistToken = async (token: string, userId: string, expiresAt: Date): Promise<void> => {
+    await this.tokenBlacklistRepository!.blacklistToken(token, userId, expiresAt);
   };
 
   // Check if user has required role

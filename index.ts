@@ -13,6 +13,7 @@ import videosRouter from "./routes/videos";
 import filesRouter from "./routes/files";
 import dotenv from "dotenv";
 import { connectDB } from "./mongo_db";
+import { TokenBlacklistRepository } from "./repositories/TokenBlacklistRepository";
 
 dotenv.config();
 
@@ -114,8 +115,30 @@ async function startServer() {
   try {
     // Test database connection during startup
     console.log(' Testing database connection...');
-    await connectDB();
+    const db = await connectDB();
     console.log(' Database connection successful!');
+    
+    // Initialize token blacklist cleanup
+    console.log(' Setting up token blacklist cleanup...');
+    const tokenBlacklistRepo = new TokenBlacklistRepository(db);
+    
+    // Run cleanup every hour (3600000 ms)
+    setInterval(async () => {
+      try {
+        const cleaned = await tokenBlacklistRepo.cleanupExpiredTokens();
+        if (cleaned > 0) {
+          console.log(`Cleaned up ${cleaned} expired tokens`);
+        }
+      } catch (error) {
+        console.error('Token cleanup error:', error);
+      }
+    }, 3600000);
+    
+    // Run initial cleanup
+    const initialCleanup = await tokenBlacklistRepo.cleanupExpiredTokens();
+    if (initialCleanup > 0) {
+      console.log(`Initial cleanup: removed ${initialCleanup} expired tokens`);
+    }
     
     // Start the server
     app.listen(PORT, () => {

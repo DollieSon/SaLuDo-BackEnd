@@ -8,21 +8,27 @@
 import { Router, Request, Response } from 'express';
 import { UserService } from '../services/UserService';
 import { UserRepository } from '../repositories/UserRepository';
+import { AuditLogService } from '../services/AuditLogService';
+import { AuditLogRepository, AuditEventType } from '../repositories/AuditLogRepository';
 import { connectDB } from '../mongo_db';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
 import { UserValidation } from './middleware/userValidation';
 import { PasswordUtils } from './middleware/passwordUtils';
+import { authRateLimit, userOperationRateLimit, passwordChangeRateLimit, accountCreationRateLimit } from './middleware/rateLimiter';
 import { UserRole, User } from '../Models/User';
 
 const router = Router();
 let userService: UserService;
+let auditLogService: AuditLogService;
 
-// Initialize service
+// Initialize services
 const initializeService = async () => {
   const db = await connectDB();
   const userRepository = new UserRepository(db);
+  const auditLogRepository = new AuditLogRepository(db);
   userService = new UserService(userRepository);
+  auditLogService = new AuditLogService(auditLogRepository);
   await AuthMiddleware.initialize();
 };
 
@@ -35,6 +41,7 @@ initializeService().catch(console.error);
 
 // User login
 router.post('/auth/login',
+  authRateLimit, // Apply strict rate limiting to login attempts
   asyncHandler(async (req: Request, res: Response) => {
     const { email, password } = req.body;
     
@@ -91,6 +98,22 @@ router.post('/auth/login',
         isActive: user.isActive
       });
 
+      // Log failed login attempt
+      const auditContext = AuditLogService.createAuditContext(req, undefined);
+      await auditLogService.logAuthenticationEvent(
+        AuditEventType.LOGIN_FAILURE,
+        { ...auditContext, userEmail: email, userId: user.userId },
+        {
+          action: 'Failed login attempt',
+          error: 'Invalid password',
+          metadata: { 
+            email, 
+            attemptedAt: new Date().toISOString(),
+            failedAttempts: user.failedLoginAttempts 
+          }
+        }
+      );
+
       res.status(401).json({
         success: false,
         message: 'Invalid email or password'
@@ -116,6 +139,20 @@ router.post('/auth/login',
     // Generate JWT token
     const token = PasswordUtils.generateToken(user.userId);
 
+    // Log successful login
+    const auditContext = AuditLogService.createAuditContext(req, user);
+    await auditLogService.logAuthenticationEvent(
+      AuditEventType.LOGIN_SUCCESS,
+      auditContext,
+      {
+        action: 'Successful login',
+        metadata: { 
+          loginAt: new Date().toISOString(),
+          resetFailedAttempts: user.failedLoginAttempts > 0
+        }
+      }
+    );
+
     res.json({
       success: true,
       message: 'Login successful',
@@ -134,6 +171,7 @@ router.post('/auth/login',
 
 // Create new user (Admin only)
 router.post('/',
+  accountCreationRateLimit, // Prevent excessive account creation
   AuthMiddleware.authenticate,
   AuthMiddleware.requireRole(UserRole.ADMIN),
   UserValidation.validateCreateUser,
@@ -172,6 +210,7 @@ router.post('/',
 
 // Reset user password (Admin only)
 router.put('/:userId/reset-password',
+  passwordChangeRateLimit, // Apply password change rate limiting
   AuthMiddleware.authenticate,
   AuthMiddleware.requireRole(UserRole.ADMIN),
   UserValidation.validateUserId,
@@ -262,6 +301,7 @@ router.get('/:userId',
 
 // Update user profile (Self or Admin)
 router.put('/:userId/profile',
+  userOperationRateLimit, // Rate limit profile updates
   AuthMiddleware.authenticate,
   UserValidation.validateUserId,
   UserValidation.validateUpdateProfile,
@@ -371,6 +411,135 @@ router.delete('/:userId',
     res.json({
       success: true,
       message: 'User deleted successfully'
+    });
+  })
+);
+
+// Logout (blacklist current token)
+router.post('/auth/logout', 
+  authRateLimit, // Prevent logout abuse
+  AuthMiddleware.authenticate, 
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      res.status(400).json({
+        success: false,
+        message: 'No token provided'
+      });
+      return;
+    }
+
+    // Decode token to get expiration
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-change-in-production';
+    
+    try {
+      const decoded = jwt.decode(token) as { userId: string; exp: number };
+      const expiresAt = new Date(decoded.exp * 1000); // Convert Unix timestamp to Date
+      
+      // Blacklist the token
+      await AuthMiddleware.blacklistToken(token, req.userId!, expiresAt);
+      
+      // Log logout event
+      const auditContext = AuditLogService.createAuditContext(req, req.user);
+      await auditLogService.logAuthenticationEvent(
+        AuditEventType.LOGOUT,
+        auditContext,
+        {
+          action: 'User logout',
+          metadata: { 
+            logoutAt: new Date().toISOString(),
+            tokenExpiry: expiresAt.toISOString()
+          }
+        }
+      );
+      
+      res.json({
+        success: true,
+        message: 'Logged out successfully'
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to logout'
+      });
+    }
+  })
+);
+
+// Change password (authenticated users)
+router.post('/auth/change-password',
+  passwordChangeRateLimit, // Strict rate limiting for password changes
+  AuthMiddleware.authenticate,
+  UserValidation.validatePasswordChange,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user!.userId;
+    
+    // Get user from database to verify current password
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    const user = await userRepository.getUserById(userId);
+    
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+      return;
+    }
+    
+    // Verify current password
+    const isCurrentPasswordValid = await PasswordUtils.comparePassword(currentPassword, user.passwordHash);
+    if (!isCurrentPasswordValid) {
+      res.status(400).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+      return;
+    }
+    
+    // Check if new password is different from current
+    const isSamePassword = await PasswordUtils.comparePassword(newPassword, user.passwordHash);
+    if (isSamePassword) {
+      res.status(400).json({
+        success: false,
+        message: 'New password must be different from current password'
+      });
+      return;
+    }
+    
+    // Hash new password
+    const newPasswordHash = await PasswordUtils.hashPassword(newPassword);
+    
+    // Update password in database
+    await userRepository.updateUser(userId, {
+      passwordHash: newPasswordHash,
+      mustChangePassword: false,
+      passwordChangedAt: new Date(),
+      failedLoginAttempts: 0 // Reset failed attempts on successful password change
+    });
+    
+    // Log password change event
+    const auditContext = AuditLogService.createAuditContext(req, req.user);
+    await auditLogService.logPasswordEvent(
+      AuditEventType.PASSWORD_CHANGED,
+      auditContext,
+      true,
+      {
+        action: 'Password changed by user',
+        metadata: { 
+          changedAt: new Date().toISOString(),
+          resetFailedAttempts: true
+        }
+      }
+    );
+    
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
     });
   })
 );

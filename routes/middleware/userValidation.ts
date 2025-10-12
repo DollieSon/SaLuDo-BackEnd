@@ -109,6 +109,43 @@ export class UserValidation {
     next();
   };
 
+  // Validate password change data
+  static validatePasswordChange = (req: Request, res: Response, next: NextFunction): void => {
+    const { currentPassword, newPassword } = req.body;
+    
+    const missingFields = [];
+    if (!currentPassword) missingFields.push('currentPassword');
+    if (!newPassword) missingFields.push('newPassword');
+    
+    if (missingFields.length > 0) {
+      res.status(400).json({
+        success: false,
+        message: `Missing required fields: ${missingFields.join(', ')}`
+      });
+      return;
+    }
+
+    // Validate new password strength
+    if (!validation.validatePasswordStrength(newPassword)) {
+      res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character'
+      });
+      return;
+    }
+
+    // Ensure passwords are strings
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+      res.status(400).json({
+        success: false,
+        message: 'Passwords must be strings'
+      });
+      return;
+    }
+
+    next();
+  };
+
   // Validate user ID parameter
   static validateUserId = (req: Request, res: Response, next: NextFunction): void => {
     const { userId } = req.params;
