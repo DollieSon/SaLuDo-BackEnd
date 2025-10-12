@@ -54,6 +54,10 @@ ${textContent}`
   };
 
   // 3. Call Gemini API
+  if (!process.env.GOOGLE_API_KEY) {
+    throw new Error('GOOGLE_API_KEY environment variable is not set. AI resume parsing will fail.');
+  }
+  
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${process.env.GOOGLE_API_KEY}`,
     {

@@ -21,6 +21,12 @@ export interface AuthenticatedRequest extends Request {
 // JWT secret (should be in environment variables)
 const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-change-in-production';
 
+// Security warning for default JWT secret
+if (!process.env.JWT_SECRET || JWT_SECRET === 'your-jwt-secret-change-in-production') {
+  console.warn('SECURITY WARNING: Using default JWT secret! Set JWT_SECRET environment variable in production.');
+  console.warn('   Generate a secure secret: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"');
+}
+
 export class AuthMiddleware {
   private static userService: UserService | null = null;
 

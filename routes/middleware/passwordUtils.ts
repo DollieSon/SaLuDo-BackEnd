@@ -43,6 +43,11 @@ export class PasswordUtils {
     const jwt = require('jsonwebtoken');
     const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-change-in-production';
     
+    // Security warning for default JWT secret
+    if (!process.env.JWT_SECRET || JWT_SECRET === 'your-jwt-secret-change-in-production') {
+      console.warn('SECURITY WARNING: Using default JWT secret! Set JWT_SECRET environment variable.');
+    }
+    
     return jwt.sign(
       { userId }, 
       JWT_SECRET, 

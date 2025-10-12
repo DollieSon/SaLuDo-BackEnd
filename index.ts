@@ -18,6 +18,60 @@ dotenv.config();
 
 // Environment and MongoDB URI logging
 const nodeEnv = process.env.NODE_ENV || 'development';
+
+// Environment Variables Validation
+console.log('Checking environment variables...');
+const missingVars = [];
+const warnings = [];
+
+// Critical variables that must be set
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'your-jwt-secret-change-in-production') {
+  missingVars.push('JWT_SECRET');
+  console.error('CRITICAL: JWT_SECRET not set or using default value');
+  console.error('   Generate: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"');
+}
+
+if (!process.env.MONGO_URI) {
+  missingVars.push('MONGO_URI');
+  console.error('CRITICAL: MONGO_URI not set - database connection will fail');
+  console.error('   Example: mongodb://localhost:27017/saludo or MongoDB Atlas connection string');
+}
+
+if (!process.env.GOOGLE_API_KEY) {
+  missingVars.push('GOOGLE_API_KEY');
+  console.error('CRITICAL: GOOGLE_API_KEY not set - AI services will fail');
+  console.error('   Get key from: https://console.cloud.google.com/apis/credentials');
+}
+
+// Optional variables with defaults
+if (!process.env.PORT) {
+  warnings.push('PORT not set, using default: 3000');
+}
+
+if (!process.env.NODE_ENV) {
+  warnings.push('NODE_ENV not set, using default: development');
+}
+
+// Display warnings
+if (warnings.length > 0) {
+  console.warn('Environment warnings:');
+  warnings.forEach(warning => console.warn('   ' + warning));
+}
+
+// Handle critical missing variables
+if (missingVars.length > 0) {
+  console.error(`Missing critical environment variables: ${missingVars.join(', ')}`);
+  console.error('Set these in your .env file or environment variables before starting.');
+  
+  if (nodeEnv === 'production') {
+    console.error('REFUSING TO START IN PRODUCTION WITH MISSING CRITICAL VARIABLES');
+    process.exit(1);
+  } else {
+    console.warn('Continuing in development mode - some features may not work');
+  }
+} else {
+  console.log('All critical environment variables are set.');
+}
 const mongoUri = process.env.MONGO_URI;
 const isLocal = mongoUri?.includes('localhost') || mongoUri?.includes('127.0.0.1');
 

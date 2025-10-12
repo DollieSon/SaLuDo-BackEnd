@@ -4,6 +4,10 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const URI = process.env.MONGO_URI as string;
+if (!URI) {
+  console.error('MONGO_URI environment variable is not set. Database connection will fail.');
+  console.error('Set MONGO_URI in your .env file with your MongoDB connection string.');
+}
 const isLocal = URI?.includes('localhost') || URI?.includes('127.0.0.1');
 
 // Configure client options based on connection type
