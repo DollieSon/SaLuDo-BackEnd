@@ -8,6 +8,7 @@
 import { Db, Collection } from 'mongodb';
 
 export interface BlacklistedToken {
+  _id?: any; // MongoDB ObjectId
   token: string;
   userId: string;
   blacklistedAt: Date;
@@ -99,6 +100,22 @@ export class TokenBlacklistRepository {
       .sort({ blacklistedAt: -1 })
       .toArray();
     return results;
+  }
+
+  // Find expired tokens that are past their retention period
+  async findExpiredTokens(cutoffDate: Date): Promise<BlacklistedToken[]> {
+    const results = await this.collection
+      .find({ expiresAt: { $lte: cutoffDate } })
+      .toArray();
+    return results;
+  }
+
+  // Remove specific expired tokens by their IDs
+  async removeExpiredTokens(tokenIds: any[]): Promise<number> {
+    const result = await this.collection.deleteMany({
+      _id: { $in: tokenIds }
+    });
+    return result.deletedCount;
   }
 
   // Cleanup expired tokens (manual cleanup if TTL index isn't working)

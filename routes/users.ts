@@ -10,6 +10,7 @@ import { UserService } from '../services/UserService';
 import { UserRepository } from '../repositories/UserRepository';
 import { AuditLogService } from '../services/AuditLogService';
 import { AuditLogRepository, AuditEventType } from '../repositories/AuditLogRepository';
+import { TokenBlacklistRepository } from '../repositories/TokenBlacklistRepository';
 import { connectDB } from '../mongo_db';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
@@ -136,8 +137,16 @@ router.post('/auth/login',
       lastLogin: user.lastLogin
     });
 
-    // Generate JWT token
-    const token = PasswordUtils.generateToken(user.userId);
+    // Generate access and refresh tokens
+    const accessToken = PasswordUtils.generateAccessToken(user.userId);
+    const refreshToken = PasswordUtils.generateRefreshToken(user.userId);
+    
+    // Store refresh token in database
+    await userRepository.updateRefreshToken(user.userId, refreshToken);
+
+    // Calculate token expiry times
+    const accessTokenExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+    const refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     // Log successful login
     const auditContext = AuditLogService.createAuditContext(req, user);
@@ -148,7 +157,9 @@ router.post('/auth/login',
         action: 'Successful login',
         metadata: { 
           loginAt: new Date().toISOString(),
-          resetFailedAttempts: user.failedLoginAttempts > 0
+          resetFailedAttempts: user.failedLoginAttempts > 0,
+          accessTokenExpiry: accessTokenExpiry.toISOString(),
+          refreshTokenExpiry: refreshTokenExpiry.toISOString()
         }
       }
     );
@@ -158,10 +169,80 @@ router.post('/auth/login',
       message: 'Login successful',
       data: {
         user: user.getProfile(),
-        token,
-        mustChangePassword: user.mustChangePassword
+        accessToken,
+        refreshToken,
+        accessTokenExpiry,
+        refreshTokenExpiry,
+        mustChangePassword: user.mustChangePassword,
+        // Legacy field for backward compatibility
+        token: accessToken
       }
     });
+  })
+);
+
+// Token refresh endpoint
+router.post('/auth/refresh',
+  authRateLimit, // Apply rate limiting for security
+  asyncHandler(async (req: Request, res: Response) => {
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken) {
+      res.status(400).json({
+        success: false,
+        message: 'Refresh token is required'
+      });
+      return;
+    }
+
+    try {
+      // Initialize RefreshTokenService
+      const db = await connectDB();
+      const userRepository = new UserRepository(db);
+      const auditLogRepository = new AuditLogRepository(db);
+      const tokenBlacklistRepository = new TokenBlacklistRepository(db);
+      const auditLogService = new AuditLogService(auditLogRepository);
+      const { RefreshTokenService } = await import('../services/RefreshTokenService');
+      
+      const refreshTokenService = new RefreshTokenService(
+        userRepository,
+        auditLogService,
+        tokenBlacklistRepository
+      );
+
+      // Refresh the access token
+      const sessionContext = {
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      };
+
+      const newTokenPair = await refreshTokenService.refreshAccessToken(refreshToken, sessionContext);
+
+      if (!newTokenPair) {
+        res.status(401).json({
+          success: false,
+          message: 'Invalid or expired refresh token'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Token refreshed successfully',
+        data: {
+          accessToken: newTokenPair.accessToken,
+          refreshToken: newTokenPair.refreshToken,
+          accessTokenExpiry: newTokenPair.accessTokenExpiry,
+          refreshTokenExpiry: newTokenPair.refreshTokenExpiry
+        }
+      });
+    } catch (error) {
+      console.error('Token refresh error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to refresh token'
+      });
+    }
   })
 );
 
@@ -415,12 +496,14 @@ router.delete('/:userId',
   })
 );
 
-// Logout (blacklist current token)
+// Logout (blacklist current token and revoke refresh tokens)
 router.post('/auth/logout', 
   authRateLimit, // Prevent logout abuse
   AuthMiddleware.authenticate, 
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
+    const { refreshToken, revokeAllSessions = false } = req.body;
+    const userId = req.userId!;
     
     if (!token) {
       res.status(400).json({
@@ -432,17 +515,57 @@ router.post('/auth/logout',
 
     // Decode token to get expiration
     const jwt = require('jsonwebtoken');
-    const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-change-in-production';
     
     try {
       const decoded = jwt.decode(token) as { userId: string; exp: number };
       const expiresAt = new Date(decoded.exp * 1000); // Convert Unix timestamp to Date
       
-      // Blacklist the token
-      await AuthMiddleware.blacklistToken(token, req.userId!, expiresAt);
+      // Blacklist the access token
+      await AuthMiddleware.blacklistToken(token, userId, expiresAt);
+      
+      // Handle refresh token revocation
+      const auditContext = AuditLogService.createAuditContext(req, req.user);
+      
+      if (revokeAllSessions) {
+        // Revoke all refresh tokens for this user (logout from all devices)
+        const db = await connectDB();
+        const userRepository = new UserRepository(db);
+        const auditLogRepository = new AuditLogRepository(db);
+        const tokenBlacklistRepository = new TokenBlacklistRepository(db);
+        const auditLogService = new AuditLogService(auditLogRepository);
+        const { RefreshTokenService } = await import('../services/RefreshTokenService');
+        
+        const refreshTokenService = new RefreshTokenService(
+          userRepository,
+          auditLogService,
+          tokenBlacklistRepository
+        );
+        
+        await refreshTokenService.revokeAllUserTokens(userId, 'User logout from all devices');
+      } else if (refreshToken) {
+        // Revoke the specific refresh token if provided
+        try {
+          const db = await connectDB();
+          const userRepository = new UserRepository(db);
+          const auditLogRepository = new AuditLogRepository(db);
+          const tokenBlacklistRepository = new TokenBlacklistRepository(db);
+          const auditLogService = new AuditLogService(auditLogRepository);
+          const { RefreshTokenService } = await import('../services/RefreshTokenService');
+          
+          const refreshTokenService = new RefreshTokenService(
+            userRepository,
+            auditLogService,
+            tokenBlacklistRepository
+          );
+          
+          await refreshTokenService.revokeRefreshToken(refreshToken, 'User logout');
+        } catch (refreshError) {
+          // Don't fail logout if refresh token revocation fails
+          console.warn('Failed to revoke refresh token during logout:', refreshError);
+        }
+      }
       
       // Log logout event
-      const auditContext = AuditLogService.createAuditContext(req, req.user);
       await auditLogService.logAuthenticationEvent(
         AuditEventType.LOGOUT,
         auditContext,
@@ -450,17 +573,40 @@ router.post('/auth/logout',
           action: 'User logout',
           metadata: { 
             logoutAt: new Date().toISOString(),
-            tokenExpiry: expiresAt.toISOString()
+            tokenExpiry: expiresAt.toISOString(),
+            revokeAllSessions,
+            refreshTokenProvided: !!refreshToken
           }
         }
       );
       
       res.json({
         success: true,
-        message: 'Logged out successfully'
+        message: revokeAllSessions ? 
+          'Logged out from all devices successfully' : 
+          'Logged out successfully'
       });
     } catch (error) {
       console.error('Logout error:', error);
+      
+      // Log failed logout attempt
+      try {
+        const auditContext = AuditLogService.createAuditContext(req, req.user);
+        await auditLogService.logAuthenticationEvent(
+          AuditEventType.LOGOUT,
+          auditContext,
+          {
+            action: 'User logout failed',
+            metadata: { 
+              error: error instanceof Error ? error.message : 'Unknown error',
+              logoutAt: new Date().toISOString()
+            }
+          }
+        );
+      } catch (auditError) {
+        console.error('Failed to log failed logout:', auditError);
+      }
+      
       res.status(500).json({
         success: false,
         message: 'Failed to logout'
@@ -541,6 +687,59 @@ router.post('/auth/change-password',
       success: true,
       message: 'Password changed successfully'
     });
+  })
+);
+
+// Token cleanup management endpoints (admin only)
+router.get('/auth/cleanup/status',
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { TokenCleanupService } = await import('../services/TokenCleanupService');
+    const status = TokenCleanupService.getServiceStatus();
+    
+    res.json({
+      success: true,
+      data: status
+    });
+  })
+);
+
+router.post('/auth/cleanup/force',
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { TokenCleanupService } = await import('../services/TokenCleanupService');
+    
+    try {
+      const results = await TokenCleanupService.forceCleanup();
+      
+      // Log admin action
+      const auditContext = AuditLogService.createAuditContext(req, req.user);
+      await auditLogService.logSecurityEvent(
+        'ADMIN_ACTION' as AuditEventType,
+        auditContext,
+        {
+          action: 'Force token cleanup executed',
+          metadata: {
+            refreshTokensRemoved: results.refreshTokensRemoved,
+            blacklistedTokensRemoved: results.blacklistedTokensRemoved
+          }
+        }
+      );
+      
+      res.json({
+        success: true,
+        message: 'Token cleanup completed successfully',
+        data: results
+      });
+    } catch (error) {
+      console.error('Force cleanup error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to execute token cleanup'
+      });
+    }
   })
 );
 

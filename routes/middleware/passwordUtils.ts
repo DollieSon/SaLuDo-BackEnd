@@ -43,8 +43,8 @@ export class PasswordUtils {
     return await this.verifyPassword(password, hashedPassword);
   }
 
-  // Generate JWT token
-  static generateToken(userId: string): string {
+  // Generate JWT access token (short-lived)
+  static generateAccessToken(userId: string): string {
     const jwt = require('jsonwebtoken');
     const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-change-in-production';
     
@@ -54,22 +54,93 @@ export class PasswordUtils {
     }
     
     return jwt.sign(
-      { userId }, 
+      { 
+        userId,
+        type: 'access',
+        iat: Math.floor(Date.now() / 1000)
+      }, 
       JWT_SECRET, 
-      { expiresIn: '24h' }
+      { expiresIn: '30m' } // 30 minutes for access tokens
     );
   }
 
-  // Verify JWT token
-  static verifyToken(token: string): { userId: string } | null {
+  // Generate JWT refresh token (long-lived)
+  static generateRefreshToken(userId: string): string {
+    const jwt = require('jsonwebtoken');
+    const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'your-jwt-refresh-secret-change-in-production';
+    
+    // Security warning for default secrets
+    if (!process.env.JWT_REFRESH_SECRET || JWT_REFRESH_SECRET === 'your-jwt-refresh-secret-change-in-production') {
+      console.warn('SECURITY WARNING: Using default JWT refresh secret! Set JWT_REFRESH_SECRET environment variable.');
+    }
+    
+    return jwt.sign(
+      { 
+        userId,
+        type: 'refresh',
+        iat: Math.floor(Date.now() / 1000),
+        jti: crypto.randomUUID() // Unique token ID for tracking
+      }, 
+      JWT_REFRESH_SECRET, 
+      { expiresIn: '7d' } // 7 days for refresh tokens
+    );
+  }
+
+  // Legacy method - now generates access token for backward compatibility
+  static generateToken(userId: string): string {
+    return this.generateAccessToken(userId);
+  }
+
+  // Verify JWT access token
+  static verifyAccessToken(token: string): { userId: string; type: string; iat: number } | null {
     try {
       const jwt = require('jsonwebtoken');
       const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-change-in-production';
       
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-      return { userId: decoded.userId };
+      const decoded = jwt.verify(token, JWT_SECRET) as { 
+        userId: string; 
+        type: string; 
+        iat: number;
+      };
+      
+      // Ensure this is an access token
+      if (decoded.type !== 'access') {
+        return null;
+      }
+      
+      return decoded;
     } catch (error) {
       return null;
     }
+  }
+
+  // Verify JWT refresh token
+  static verifyRefreshToken(token: string): { userId: string; type: string; iat: number; jti: string } | null {
+    try {
+      const jwt = require('jsonwebtoken');
+      const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'your-jwt-refresh-secret-change-in-production';
+      
+      const decoded = jwt.verify(token, JWT_REFRESH_SECRET) as { 
+        userId: string; 
+        type: string; 
+        iat: number;
+        jti: string;
+      };
+      
+      // Ensure this is a refresh token
+      if (decoded.type !== 'refresh') {
+        return null;
+      }
+      
+      return decoded;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // Legacy method - now verifies access token for backward compatibility
+  static verifyToken(token: string): { userId: string } | null {
+    const result = this.verifyAccessToken(token);
+    return result ? { userId: result.userId } : null;
   }
 }
