@@ -3,3 +3,4 @@ export { BaseRepository } from './BaseRepository';
 export { PersonalInfoRepository, ResumeRepository, InterviewRepository } from './CandidateRepository';
 export { SkillMasterRepository } from './SkillMasterRepository';
 export { JobRepository } from './JobRepository';
+export { UserRepository } from './UserRepository';
