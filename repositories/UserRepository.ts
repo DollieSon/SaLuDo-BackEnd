@@ -20,6 +20,10 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
     return await this.findById(userId);
   }
 
+  async getUserByEmail(email: string): Promise<UserData | null> {
+    return await this.findByEmail(email);
+  }
+
   // Create indexes for performance and uniqueness
   private async ensureIndexes(): Promise<void> {
     try {
@@ -102,6 +106,62 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
       .sort({ createdAt: -1 })
       .toArray();
     return results as unknown as UserData[];
+  }
+
+  async findAllPaginated(options: {
+    page?: number;
+    limit?: number;
+    role?: UserRole;
+    isActive?: boolean;
+    search?: string;
+  } = {}): Promise<{
+    users: UserData[];
+    totalCount: number;
+    page: number;
+    totalPages: number;
+  }> {
+    const { page = 1, limit = 10, role, isActive, search } = options;
+    const skip = (page - 1) * limit;
+
+    // Build filter query
+    const filter: any = { isDeleted: { $ne: true } };
+    
+    if (role !== undefined) {
+      filter.role = role;
+    }
+    
+    if (isActive !== undefined) {
+      filter.isActive = isActive;
+    }
+    
+    if (search) {
+      filter.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { title: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Get total count for pagination
+    const totalCount = await this.getCollection().countDocuments(filter);
+    
+    // Get paginated results
+    const results = await this.getCollection()
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      users: results as unknown as UserData[],
+      totalCount,
+      page,
+      totalPages
+    };
   }
 
   // =======================

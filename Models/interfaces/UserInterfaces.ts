@@ -62,6 +62,9 @@ export interface UpdateUserData {
   passwordHash?: string; // For password updates
   mustChangePassword?: boolean; // For enforcing password change
   passwordChangedAt?: Date; // For recording password change timestamp
+  failedLoginAttempts?: number; // For tracking login attempts
+  accountLockedUntil?: Date; // For account lockout
+  lastLogin?: Date; // For recording login timestamp
 }
 
 // =======================

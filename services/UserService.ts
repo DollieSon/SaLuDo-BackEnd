@@ -51,6 +51,26 @@ export class UserService {
     return userObj ? User.fromObject(userObj) : null;
   }
 
+  // Get all users with pagination and filtering (Admin only)
+  async getAllUsers(options: {
+    page?: number;
+    limit?: number;
+    role?: any;
+    isActive?: boolean;
+    search?: string;
+  } = {}): Promise<{
+    users: User[];
+    totalCount: number;
+    page: number;
+    totalPages: number;
+  }> {
+    const result = await this.userRepository.findAllPaginated(options);
+    return {
+      ...result,
+      users: result.users.map(userData => User.fromObject(userData))
+    };
+  }
+
   // Activate/deactivate user
   async setUserActiveStatus(userId: string, isActive: boolean): Promise<void> {
     await this.userRepository.updateUser(userId, { isActive });

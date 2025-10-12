@@ -1,0 +1,95 @@
+// =======================
+// AUTHENTICATION MIDDLEWARE
+// =======================
+// Purpose: JWT authentication and user context for protected routes
+// Related: UserService, User model
+// =======================
+
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import { UserRepository } from '../../repositories/UserRepository';
+import { UserService } from '../../services/UserService';
+import { connectDB } from '../../mongo_db';
+import { User, UserRole } from '../../Models/User';
+
+// Extend Request type to include user context
+export interface AuthenticatedRequest extends Request {
+  user?: User;
+  userId?: string;
+}
+
+// JWT secret (should be in environment variables)
+const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-change-in-production';
+
+export class AuthMiddleware {
+  private static userService: UserService | null = null;
+
+  // Initialize service (called once at startup)
+  static async initialize(): Promise<void> {
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    this.userService = new UserService(userRepository);
+  }
+
+  // Authenticate JWT token and attach user to request
+  static authenticate = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const token = req.header('Authorization')?.replace('Bearer ', '');
+      
+      if (!token) {
+        res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
+        return;
+      }
+
+      const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+      const user = await this.userService!.getUserProfile(decoded.userId);
+      
+      if (!user || !user.isActive || user.isDeleted) {
+        res.status(401).json({ success: false, message: 'Invalid or inactive user.' });
+        return;
+      }
+
+      req.user = user;
+      req.userId = user.userId;
+      next();
+    } catch (error) {
+      res.status(401).json({ success: false, message: 'Invalid token.' });
+    }
+  };
+
+  // Check if user has required role
+  static requireRole = (requiredRole: UserRole) => {
+    return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Authentication required.' });
+        return;
+      }
+
+      if (!req.user.hasPermission(requiredRole)) {
+        res.status(403).json({ success: false, message: 'Insufficient permissions.' });
+        return;
+      }
+
+      next();
+    };
+  };
+
+  // Check if user can access resource (self or admin)
+  static requireOwnershipOrAdmin = (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: 'Authentication required.' });
+      return;
+    }
+
+    const targetUserId = req.params.userId;
+    const isOwner = req.user.userId === targetUserId;
+    const isAdmin = req.user.isAdmin();
+
+    if (!isOwner && !isAdmin) {
+      res.status(403).json({ success: false, message: 'Access denied. Can only access own resources or admin required.' });
+      return;
+    }
+
+    next();
+  };
+}
