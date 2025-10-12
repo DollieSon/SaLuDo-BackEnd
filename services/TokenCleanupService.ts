@@ -11,6 +11,7 @@ import { UserRepository } from '../repositories/UserRepository';
 import { AuditLogService } from './AuditLogService';
 import { AuditLogRepository } from '../repositories/AuditLogRepository';
 import { connectDB } from '../mongo_db';
+import { CleanupResults, CleanupServiceStatus } from './types/AuthenticationTypes';
 
 export class TokenCleanupService {
   private static cleanupIntervalId: NodeJS.Timeout | null = null;
@@ -59,10 +60,7 @@ export class TokenCleanupService {
   /**
    * Perform a manual cleanup of expired tokens
    */
-  static async performCleanup(): Promise<{
-    refreshTokensRemoved: number;
-    blacklistedTokensRemoved: number;
-  }> {
+  static async performCleanup(): Promise<CleanupResults> {
     console.log('Starting token cleanup process...');
     
     const startTime = Date.now();
@@ -133,12 +131,7 @@ export class TokenCleanupService {
   /**
    * Get cleanup service status and statistics
    */
-  static getServiceStatus(): {
-    isRunning: boolean;
-    cleanupInterval: number;
-    retentionDays: number;
-    nextCleanup?: Date;
-  } {
+  static getServiceStatus(): CleanupServiceStatus {
     const isRunning = this.cleanupIntervalId !== null;
     const status = {
       isRunning,
@@ -158,10 +151,7 @@ export class TokenCleanupService {
   /**
    * Force immediate cleanup (useful for testing or manual maintenance)
    */
-  static async forceCleanup(): Promise<{
-    refreshTokensRemoved: number;
-    blacklistedTokensRemoved: number;
-  }> {
+  static async forceCleanup(): Promise<CleanupResults> {
     console.log('Force cleanup requested...');
     return await this.performCleanup();
   }

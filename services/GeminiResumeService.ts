@@ -1,19 +1,6 @@
 import pdfParse from 'pdf-parse';
 import { Buffer } from 'buffer';
-
-interface ParsedData {
-  skills: {
-    skillName: string;
-    score: number;
-    evidence: string;
-    addedBy: string;
-  }[];
-  education: any[];
-  experience: any[];
-  certifications: any[];
-  strengths: any[];
-  weaknesses: any[];
-}
+import { ParsedResumeData, GeminiResponse } from './types/GeminiTypes';
 
 // Helper to clean Gemini's ```json\n...\n``` wrapping
 function cleanGeminiJson(raw: string): string {
@@ -24,7 +11,7 @@ function cleanGeminiJson(raw: string): string {
     .trim();
 }
 
-export async function parseResumeWithGemini(buffer: Buffer): Promise<ParsedData> {
+export async function parseResumeWithGemini(buffer: Buffer): Promise<ParsedResumeData> {
   // 1. Convert resume file to plain text
   const textContent = await pdfParse(buffer).then(data => data.text);
 

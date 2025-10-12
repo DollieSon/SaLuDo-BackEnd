@@ -10,29 +10,7 @@ import { AuditLogService } from './AuditLogService';
 import { AuditEventType } from '../repositories/AuditLogRepository';
 import { PasswordUtils } from '../routes/middleware/passwordUtils';
 import { TokenBlacklistRepository } from '../repositories/TokenBlacklistRepository';
-
-export interface TokenPair {
-  accessToken: string;
-  refreshToken: string;
-  accessTokenExpiry: Date;
-  refreshTokenExpiry: Date;
-}
-
-export interface RefreshTokenValidation {
-  isValid: boolean;
-  userId?: string;
-  tokenId?: string;
-  reason?: string;
-}
-
-export interface SessionInfo {
-  userId: string;
-  tokenId: string;
-  createdAt: Date;
-  lastUsed: Date;
-  ipAddress?: string;
-  userAgent?: string;
-}
+import { TokenPair, RefreshTokenValidation, SessionInfo, AuditContext } from './types/AuthenticationTypes';
 
 export class RefreshTokenService {
   private userRepository: UserRepository;

@@ -7,27 +7,7 @@
 
 import { AuditLogRepository, AuditEventType, AuditSeverity, AuditLogEntry, AuditLogFilter } from '../repositories/AuditLogRepository';
 import { User, UserRole } from '../Models/User';
-
-export interface AuditContext {
-  userId?: string;
-  userEmail?: string;
-  userRole?: UserRole;
-  sessionId?: string;
-  ipAddress: string;
-  userAgent?: string;
-  requestId?: string;
-}
-
-export interface SecurityAlert {
-  id: string;
-  type: AuditEventType;
-  severity: AuditSeverity;
-  message: string;
-  timestamp: Date;
-  userId?: string;
-  ipAddress: string;
-  details: any;
-}
+import { AuditContext, SecurityAlert } from './types/AuthenticationTypes';
 
 export class AuditLogService {
   private auditLogRepository: AuditLogRepository;
