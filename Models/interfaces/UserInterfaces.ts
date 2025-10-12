@@ -59,6 +59,9 @@ export interface UpdateUserData {
   role?: UserRole;
   isActive?: boolean;
   isVerified?: boolean;
+  passwordHash?: string; // For password updates
+  mustChangePassword?: boolean; // For enforcing password change
+  passwordChangedAt?: Date; // For recording password change timestamp
 }
 
 // =======================

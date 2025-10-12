@@ -7,6 +7,18 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
     super(db, 'users');
     this.ensureIndexes();
   }
+  // Service layer compatibility wrappers
+  async createUser(data: CreateUserData): Promise<UserData> {
+    return await this.create(data);
+  }
+
+  async updateUser(userId: string, data: Partial<UpdateUserData>): Promise<void> {
+    await this.update(userId, data);
+  }
+
+  async getUserById(userId: string): Promise<UserData | null> {
+    return await this.findById(userId);
+  }
 
   // Create indexes for performance and uniqueness
   private async ensureIndexes(): Promise<void> {
