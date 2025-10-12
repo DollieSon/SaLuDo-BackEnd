@@ -12,3 +12,5 @@ yarn-error.log*
 Thumbs.db
 .env.local
 .env.production
+Secrets/*
+_SRC_*.md

@@ -24,6 +24,21 @@ export const validation = {
   validateSkillLevel: (level: number): boolean => {
     return Number.isInteger(level) && level >= 1 && level <= 10;
   },
+  validatePasswordStrength: (password: string): boolean => {
+    // Password must be at least 8 characters and contain:
+    // - At least one uppercase letter
+    // - At least one lowercase letter  
+    // - At least one number
+    // - At least one special character
+    if (password.length < 8) return false;
+    
+    const hasUppercase = /[A-Z]/.test(password);
+    const hasLowercase = /[a-z]/.test(password);
+    const hasNumber = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+    
+    return hasUppercase && hasLowercase && hasNumber && hasSpecialChar;
+  },
   validateEmailMiddleware: (
     req: Request,
     res: Response,

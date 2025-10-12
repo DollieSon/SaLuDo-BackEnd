@@ -1,19 +1,6 @@
 import { Buffer } from "buffer";
 import fetch from "node-fetch";
-
-export interface InferredJobSkill {
-  skillName: string;
-  requiredLevel: number; // Between 0.0 and 10.0
-  evidence: string;
-}
-
-interface GeminiCandidateResponse {
-  candidates?: {
-    content?: {
-      parts?: { text: string }[];
-    };
-  }[];
-}
+import { InferredJobSkill, GeminiResponse } from './types/GeminiTypes';
 
 export async function parseJobWithGemini(
   jobName: string,
@@ -45,6 +32,10 @@ ${jobDescription}`;
     ],
   };
 
+  if (!process.env.GOOGLE_API_KEY) {
+    throw new Error('GOOGLE_API_KEY environment variable is not set. AI job analysis will fail.');
+  }
+
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`,
     {
@@ -54,7 +45,7 @@ ${jobDescription}`;
     }
   );
 
-  const result = (await response.json()) as GeminiCandidateResponse;
+  const result = (await response.json()) as GeminiResponse;
 
   const contentText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
 
