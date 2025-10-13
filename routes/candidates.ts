@@ -8,8 +8,11 @@ import { CertificationService } from "../services/CertificationService";
 import { StrengthWeaknessService } from "../services/StrengthWeaknessService";
 import { asyncHandler, errorHandler } from "./middleware/errorHandler";
 import { validation } from "./middleware/validation";
+import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
+import { CandidateAccessMiddleware } from "./middleware/candidateAccess";
 import { parseResumeWithGemini } from "../services/GeminiResumeService";
 import { AddedBy } from "../Models/Skill";
+import { UserRole } from "../Models/User";
 import multer from "multer";
 
 const router = Router({ mergeParams: true });
@@ -26,11 +29,25 @@ const strengthWeaknessService = new StrengthWeaknessService();
 // CANDIDATE CORE ENDPOINTS
 // ====================
 
-// Get all candidates
+// Get all candidates (filtered by role and assignments)
 router.get(
   "/",
-  asyncHandler(async (req: Request, res: Response) => {
-    const candidates = await candidateService.getAllCandidates();
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    let candidates;
+
+    if (user.role === UserRole.HR_USER) {
+      // HR_USER can only see candidates assigned to them
+      candidates = await candidateService.getCandidatesAssignedToHRUser(user.userId);
+    } else if (user.role === UserRole.HR_MANAGER || user.role === UserRole.ADMIN) {
+      // HR_MANAGER and ADMIN can see all candidates
+      candidates = await candidateService.getAllCandidates();
+    } else {
+      // Other roles can see all candidates (for now, can be restricted later)
+      candidates = await candidateService.getAllCandidates();
+    }
+
     res.json({
       success: true,
       data: candidates,
@@ -133,16 +150,12 @@ router.post(
 // Get a specific candidate
 router.get(
   "/:candidateId",
-  asyncHandler(async (req: Request, res: Response) => {
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
+    
     const candidate = await candidateService.getCandidate(candidateId);
-
-    if (!candidate) {
-      return res.status(404).json({
-        success: false,
-        message: "Candidate not found",
-      });
-    }
 
     res.json({
       success: true,
@@ -248,6 +261,131 @@ router.get(
       success: true,
       data: comparisonData,
       message: "Candidates compared successfully",
+    });
+  })
+);
+
+// ====================
+// HR ASSIGNMENT ENDPOINTS
+// ====================
+
+// Assign HR user to candidate (HR_MANAGER and ADMIN only)
+router.post(
+  "/:candidateId/assign/:hrUserId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.requireAssignmentPermissions,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, hrUserId } = req.params;
+    const user = req.user!;
+    const assignedBy = user.userId;
+
+    await candidateService.assignHRUserToCandidate(candidateId, hrUserId, assignedBy);
+
+    res.json({
+      success: true,
+      message: "HR user assigned to candidate successfully",
+    });
+  })
+);
+
+// Unassign HR user from candidate (HR_MANAGER and ADMIN only)
+router.delete(
+  "/:candidateId/unassign/:hrUserId",
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.HR_MANAGER),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, hrUserId } = req.params;
+
+    await candidateService.unassignHRUserFromCandidate(candidateId, hrUserId);
+
+    res.json({
+      success: true,
+      message: "HR user unassigned from candidate successfully",
+    });
+  })
+);
+
+// Get candidate assignments
+router.get(
+  "/:candidateId/assignments",
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+
+    const assignments = await candidateService.getCandidateAssignments(candidateId);
+
+    res.json({
+      success: true,
+      data: assignments,
+    });
+  })
+);
+
+// Get candidates assigned to HR user
+router.get(
+  "/assigned-to/:hrUserId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.validateHRUserAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { hrUserId } = req.params;
+
+    const candidates = await candidateService.getCandidatesAssignedToHRUser(hrUserId);
+
+    res.json({
+      success: true,
+      data: candidates,
+      count: candidates.length,
+    });
+  })
+);
+
+// Get unassigned candidates (HR_MANAGER and ADMIN only)
+router.get(
+  "/unassigned",
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.HR_MANAGER),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const candidates = await candidateService.getUnassignedCandidates();
+
+    res.json({
+      success: true,
+      data: candidates,
+      count: candidates.length,
+    });
+  })
+);
+
+// Assign multiple HR users to candidate (HR_MANAGER and ADMIN only)
+router.post(
+  "/:candidateId/assign-multiple",
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.HR_MANAGER),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const { hrUserIds } = req.body;
+    const user = req.user!;
+    const assignedBy = user.userId;
+
+    if (!hrUserIds || !Array.isArray(hrUserIds) || hrUserIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "hrUserIds array is required",
+      });
+    }
+
+    // Assign each HR user
+    for (const hrUserId of hrUserIds) {
+      try {
+        await candidateService.assignHRUserToCandidate(candidateId, hrUserId, assignedBy);
+      } catch (error) {
+        // Continue with other assignments even if one fails
+        console.warn(`Failed to assign HR user ${hrUserId} to candidate ${candidateId}:`, error);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `HR users assigned to candidate successfully`,
     });
   })
 );
