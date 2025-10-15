@@ -64,6 +64,10 @@ export class Candidate {
   public roleApplied: string | null; // Optional Job reference (job ID or null)
   public status: CandidateStatus;
   public isDeleted: boolean;
+  // HR Assignment Information
+  public assignedHRUserIds: string[]; // Array of HR user IDs assigned to this candidate
+  public lastAssignedAt: Date | null; // When last assignment was made
+  public lastAssignedBy: string | null; // Who made the last assignment
   // Resume Information (Resume Database)
   public resumeMetadata?: ResumeMetadata; // File metadata for GridFS storage
   public skills: Skill[];
@@ -88,7 +92,10 @@ export class Candidate {
     resumeMetadata?: ResumeMetadata,
     status: CandidateStatus = CandidateStatus.APPLIED,
     dateCreated?: Date,
-    dateUpdated?: Date
+    dateUpdated?: Date,
+    assignedHRUserIds?: string[],
+    lastAssignedAt?: Date | null,
+    lastAssignedBy?: string | null
   ) {
     this.candidateId = candidateId;
     this.name = name;
@@ -100,6 +107,10 @@ export class Candidate {
     this.isDeleted = false;
     this.dateCreated = dateCreated || new Date();
     this.dateUpdated = dateUpdated || new Date();
+    // Initialize assignment fields
+    this.assignedHRUserIds = assignedHRUserIds || [];
+    this.lastAssignedAt = lastAssignedAt || null;
+    this.lastAssignedBy = lastAssignedBy || null;
     // Initialize arrays
     this.skills = [];
     this.experience = [];
@@ -112,6 +123,46 @@ export class Candidate {
     this.introductionVideos = [];
     this.personality = new Personality(); // Create empty personality for new candidate
   }
+
+  // =======================
+  // STATIC FACTORY METHODS
+  // =======================
+
+  static fromObject(data: CandidateData): Candidate {
+    const candidate = new Candidate(
+      data.candidateId,
+      data.name,
+      data.email,
+      data.birthdate,
+      data.roleApplied,
+      data.resume,
+      data.status,
+      data.dateCreated,
+      data.dateUpdated,
+      data.assignedHRUserIds,
+      data.lastAssignedAt,
+      data.lastAssignedBy
+    );
+
+    candidate.isDeleted = data.isDeleted;
+    
+    // Populate complex objects
+    candidate.skills = data.skills?.map((s: any) => Skill.fromObject(s)) || [];
+    candidate.experience = data.experience?.map((e: any) => Experience.fromObject(e)) || [];
+    candidate.education = data.education?.map((e: any) => Education.fromObject(e)) || [];
+    candidate.certification = data.certification?.map((c: any) => Certification.fromObject(c)) || [];
+    candidate.strengths = data.strengths?.map((s: any) => StrengthWeakness.fromObject(s)) || [];
+    candidate.weaknesses = data.weaknesses?.map((w: any) => StrengthWeakness.fromObject(w)) || [];
+    candidate.transcripts = data.transcripts || [];
+    candidate.interviewVideos = data.interviewVideos || [];
+    candidate.introductionVideos = data.introductionVideos || [];
+    candidate.personality = data.personality ? Personality.fromObject(data.personality) : new Personality();
+    candidate.resumeAssessment = data.resumeAssessment;
+    candidate.interviewAssessment = data.interviewAssessment;
+
+    return candidate;
+  }
+
   // =======================
   // JOB REFERENCE METHODS
   // =======================
@@ -139,6 +190,44 @@ export class Candidate {
   }
 
   // =======================
+  // HR ASSIGNMENT METHODS
+  // =======================
+
+  assignHRUser(hrUserId: string, assignedBy: string): void {
+    if (!this.assignedHRUserIds.includes(hrUserId)) {
+      this.assignedHRUserIds.push(hrUserId);
+      this.lastAssignedAt = new Date();
+      this.lastAssignedBy = assignedBy;
+      this.dateUpdated = new Date();
+    }
+  }
+
+  unassignHRUser(hrUserId: string): void {
+    const index = this.assignedHRUserIds.indexOf(hrUserId);
+    if (index > -1) {
+      this.assignedHRUserIds.splice(index, 1);
+      this.dateUpdated = new Date();
+    }
+  }
+
+  isAssignedToHRUser(hrUserId: string): boolean {
+    return this.assignedHRUserIds.includes(hrUserId);
+  }
+
+  getAssignedHRUsers(): string[] {
+    return [...this.assignedHRUserIds]; // Return copy to prevent mutation
+  }
+
+  hasAssignedHRUsers(): boolean {
+    return this.assignedHRUserIds.length > 0;
+  }
+
+  clearAllAssignments(): void {
+    this.assignedHRUserIds = [];
+    this.dateUpdated = new Date();
+  }
+
+  // =======================
   // UTILITY METHODS
   // =======================
   toObject(): CandidateData {
@@ -153,6 +242,9 @@ export class Candidate {
       resume: this.resumeMetadata,
       status: this.status,
       isDeleted: this.isDeleted,
+      assignedHRUserIds: this.assignedHRUserIds,
+      lastAssignedAt: this.lastAssignedAt,
+      lastAssignedBy: this.lastAssignedBy,
       skills: this.skills.map((s) => s.toObject()),
       experience: this.experience.map((e) => e.toObject()),
       education: this.education.map((e) => e.toObject()),
@@ -178,6 +270,9 @@ export class Candidate {
       roleApplied: this.roleApplied,
       status: this.status,
       isDeleted: this.isDeleted,
+      assignedHRUserIds: this.assignedHRUserIds,
+      lastAssignedAt: this.lastAssignedAt,
+      lastAssignedBy: this.lastAssignedBy,
     };
   }
   getResumeData(): ResumeData {
@@ -437,6 +532,9 @@ export interface CandidateData {
   resume?: ResumeMetadata;
   status: CandidateStatus;
   isDeleted: boolean;
+  assignedHRUserIds: string[];
+  lastAssignedAt: Date | null;
+  lastAssignedBy: string | null;
   skills: SkillData[];
   experience: ExperienceData[];
   education: EducationData[];
@@ -460,6 +558,9 @@ export interface PersonalInfoData {
   roleApplied: string | null;
   status: CandidateStatus;
   isDeleted: boolean;
+  assignedHRUserIds: string[];
+  lastAssignedAt: Date | null;
+  lastAssignedBy: string | null;
 }
 export interface ResumeData {
   candidateId: string;
