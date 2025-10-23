@@ -5,6 +5,8 @@ import { validation } from "./middleware/validation";
 import { parseJobWithGemini } from "../services/GeminiJobService";
 import { SkillMasterRepository } from "../repositories/SkillMasterRepository";
 import { connectDB } from "../mongo_db";
+import { AuthMiddleware } from "./middleware/auth";
+import { UserRole } from "../Models/User";
 // import { JobSkillRequirement } from '../models/JobTypes';
 
 const router = Router();
@@ -144,9 +146,11 @@ router.get(
   })
 );
 
-// POST /api/jobs - Create a new job with AI-parsed skills
+// POST /api/jobs - Create a new job with AI-parsed skills (ADMIN only)
 router.post(
   "/",
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.ADMIN),
   validation.requireFields(["jobName", "jobDescription"]),
   asyncHandler(async (req: Request, res: Response) => {
     try {
@@ -391,7 +395,10 @@ router.delete(
   asyncHandler(async (req: Request, res: Response) => {
     const { id, skillId } = req.params;
     await jobService.removeSkillFromJob(id, skillId);
-    res.json({ success: true, message: "Skill soft deleted from job successfully" });
+    res.json({
+      success: true,
+      message: "Skill soft deleted from job successfully",
+    });
   })
 );
 

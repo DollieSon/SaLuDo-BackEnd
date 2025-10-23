@@ -1277,12 +1277,21 @@ export class CandidateService {
   // HR ASSIGNMENT METHODS
   // =======================
 
-  async assignHRUserToCandidate(candidateId: string, hrUserId: string, assignedBy: string): Promise<void> {
+  async assignHRUserToCandidate(
+    candidateId: string,
+    hrUserId: string,
+    assignedBy: string
+  ): Promise<void> {
     await this.init();
     try {
       const personalInfo = await this.personalInfoRepo.findById(candidateId);
       if (!personalInfo) {
         throw new Error("Candidate not found");
+      }
+
+      // Initialize assignedHRUserIds if it doesn't exist
+      if (!personalInfo.assignedHRUserIds) {
+        personalInfo.assignedHRUserIds = [];
       }
 
       // Check if HR user is already assigned
@@ -1303,12 +1312,20 @@ export class CandidateService {
     }
   }
 
-  async unassignHRUserFromCandidate(candidateId: string, hrUserId: string): Promise<void> {
+  async unassignHRUserFromCandidate(
+    candidateId: string,
+    hrUserId: string
+  ): Promise<void> {
     await this.init();
     try {
       const personalInfo = await this.personalInfoRepo.findById(candidateId);
       if (!personalInfo) {
         throw new Error("Candidate not found");
+      }
+
+      // Initialize assignedHRUserIds if it doesn't exist
+      if (!personalInfo.assignedHRUserIds) {
+        personalInfo.assignedHRUserIds = [];
       }
 
       // Remove HR user from assignment list
@@ -1334,7 +1351,7 @@ export class CandidateService {
       if (!personalInfo) {
         throw new Error("Candidate not found");
       }
-      return personalInfo.assignedHRUserIds;
+      return personalInfo.assignedHRUserIds || [];
     } catch (error) {
       console.error("Error getting candidate assignments:", error);
       throw error;
@@ -1346,16 +1363,19 @@ export class CandidateService {
     try {
       const personalInfos = await this.personalInfoRepo.findAll();
       const assignedCandidates: Candidate[] = [];
-      
+
       for (const personalInfo of personalInfos) {
-        if (personalInfo.assignedHRUserIds.includes(hrUserId)) {
+        if (
+          personalInfo.assignedHRUserIds &&
+          personalInfo.assignedHRUserIds.includes(hrUserId)
+        ) {
           const candidate = await this.getCandidate(personalInfo.candidateId);
           if (candidate) {
             assignedCandidates.push(candidate);
           }
         }
       }
-      
+
       return assignedCandidates;
     } catch (error) {
       console.error("Error getting candidates assigned to HR user:", error);
@@ -1368,7 +1388,7 @@ export class CandidateService {
     try {
       const personalInfos = await this.personalInfoRepo.findAll();
       const unassignedCandidates: Candidate[] = [];
-      
+
       for (const personalInfo of personalInfos) {
         if (personalInfo.assignedHRUserIds.length === 0) {
           const candidate = await this.getCandidate(personalInfo.candidateId);
@@ -1377,7 +1397,7 @@ export class CandidateService {
           }
         }
       }
-      
+
       return unassignedCandidates;
     } catch (error) {
       console.error("Error getting unassigned candidates:", error);
@@ -1385,14 +1405,20 @@ export class CandidateService {
     }
   }
 
-  async isHRUserAssignedToCandidate(candidateId: string, hrUserId: string): Promise<boolean> {
+  async isHRUserAssignedToCandidate(
+    candidateId: string,
+    hrUserId: string
+  ): Promise<boolean> {
     await this.init();
     try {
       const personalInfo = await this.personalInfoRepo.findById(candidateId);
       if (!personalInfo) {
         return false;
       }
-      return personalInfo.assignedHRUserIds.includes(hrUserId);
+      return (
+        personalInfo.assignedHRUserIds &&
+        personalInfo.assignedHRUserIds.includes(hrUserId)
+      );
     } catch (error) {
       console.error("Error checking HR user assignment:", error);
       return false;

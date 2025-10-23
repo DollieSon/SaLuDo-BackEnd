@@ -5,34 +5,33 @@
 // Related: AuthMiddleware, CandidateService, role-based access control
 // =======================
 
-import { Request, Response, NextFunction } from 'express';
-import { AuthenticatedRequest } from './auth';
-import { UserRole } from '../../Models/User';
-import { CandidateService } from '../../services/CandidateService';
+import { Request, Response, NextFunction } from "express";
+import { AuthenticatedRequest } from "./auth";
+import { UserRole } from "../../Models/User";
+import { CandidateService } from "../../services/CandidateService";
 
 const candidateService = new CandidateService();
 
 export class CandidateAccessMiddleware {
-  
   /**
    * Middleware to check if user has access to a specific candidate
-   * - HR_USER: Only assigned candidates
+   * - HR_USER / RECRUITER / INTERVIEWER: Only assigned candidates
    * - HR_MANAGER: All candidates
    * - ADMIN: All candidates
    */
   static checkCandidateAccess = async (
-    req: AuthenticatedRequest, 
-    res: Response, 
+    req: AuthenticatedRequest,
+    res: Response,
     next: NextFunction
   ): Promise<void> => {
     try {
       const { candidateId } = req.params;
       const user = req.user!;
-      
+
       if (!candidateId) {
         res.status(400).json({
           success: false,
-          message: 'Candidate ID is required',
+          message: "Candidate ID is required",
         });
         return;
       }
@@ -42,7 +41,7 @@ export class CandidateAccessMiddleware {
       if (!candidate) {
         res.status(404).json({
           success: false,
-          message: 'Candidate not found',
+          message: "Candidate not found",
         });
         return;
       }
@@ -53,13 +52,20 @@ export class CandidateAccessMiddleware {
         return;
       }
 
-      // HR_USER can only access assigned candidates
-      if (user.role === UserRole.HR_USER) {
-        const isAssigned = await candidateService.isHRUserAssignedToCandidate(candidateId, user.userId);
+      // HR_USER, RECRUITER, and INTERVIEWER can only access assigned candidates
+      if (
+        user.role === UserRole.HR_USER ||
+        user.role === UserRole.RECRUITER ||
+        user.role === UserRole.INTERVIEWER
+      ) {
+        const isAssigned = await candidateService.isHRUserAssignedToCandidate(
+          candidateId,
+          user.userId
+        );
         if (!isAssigned) {
           res.status(403).json({
             success: false,
-            message: 'Access denied. You are not assigned to this candidate.',
+            message: "Access denied. You are not assigned to this candidate.",
           });
           return;
         }
@@ -67,10 +73,10 @@ export class CandidateAccessMiddleware {
 
       next();
     } catch (error) {
-      console.error('Error in candidate access middleware:', error);
+      console.error("Error in candidate access middleware:", error);
       res.status(500).json({
         success: false,
-        message: 'Internal server error while checking candidate access',
+        message: "Internal server error while checking candidate access",
       });
     }
   };
@@ -84,15 +90,16 @@ export class CandidateAccessMiddleware {
     next: NextFunction
   ): void => {
     const user = req.user!;
-    
+
     if (user.role !== UserRole.HR_MANAGER && user.role !== UserRole.ADMIN) {
       res.status(403).json({
         success: false,
-        message: 'Access denied. HR Manager or Admin role required for assignment operations.',
+        message:
+          "Access denied. HR Manager or Admin role required for assignment operations.",
       });
       return;
     }
-    
+
     next();
   };
 
@@ -108,11 +115,11 @@ export class CandidateAccessMiddleware {
   ): void => {
     const { hrUserId } = req.params;
     const user = req.user!;
-    
+
     if (!hrUserId) {
       res.status(400).json({
         success: false,
-        message: 'HR User ID is required',
+        message: "HR User ID is required",
       });
       return;
     }
@@ -121,7 +128,8 @@ export class CandidateAccessMiddleware {
     if (user.role === UserRole.HR_USER && user.userId !== hrUserId) {
       res.status(403).json({
         success: false,
-        message: 'Access denied. You can only access your own candidate assignments.',
+        message:
+          "Access denied. You can only access your own candidate assignments.",
       });
       return;
     }

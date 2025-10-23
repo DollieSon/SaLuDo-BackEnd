@@ -35,17 +35,26 @@ router.get(
   AuthMiddleware.authenticate,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const user = req.user!;
-    let candidates;
+    let candidates: any[] = [];
 
-    if (user.role === UserRole.HR_USER) {
-      // HR_USER can only see candidates assigned to them
-      candidates = await candidateService.getCandidatesAssignedToHRUser(user.userId);
-    } else if (user.role === UserRole.HR_MANAGER || user.role === UserRole.ADMIN) {
+    if (
+      user.role === UserRole.HR_USER ||
+      user.role === UserRole.RECRUITER ||
+      user.role === UserRole.INTERVIEWER
+    ) {
+      // HR_USER, RECRUITER, and INTERVIEWER can only see candidates assigned to them
+      candidates = await candidateService.getCandidatesAssignedToHRUser(
+        user.userId
+      );
+    } else if (
+      user.role === UserRole.HR_MANAGER ||
+      user.role === UserRole.ADMIN
+    ) {
       // HR_MANAGER and ADMIN can see all candidates
       candidates = await candidateService.getAllCandidates();
     } else {
-      // Other roles can see all candidates (for now, can be restricted later)
-      candidates = await candidateService.getAllCandidates();
+      // Default: no access
+      candidates = [];
     }
 
     res.json({
@@ -78,22 +87,18 @@ router.post(
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ];
     if (!allowedTypes.includes(req.file.mimetype)) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Resume must be a PDF or Word document",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Resume must be a PDF or Word document",
+      });
     }
 
     const maxSize = 10 * 1024 * 1024; // 10MB
     if (req.file.size > maxSize) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Resume file size must not exceed 10MB",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Resume file size must not exceed 10MB",
+      });
     }
 
     const emailArray = Array.isArray(email) ? email : [email];
@@ -154,7 +159,7 @@ router.get(
   CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
-    
+
     const candidate = await candidateService.getCandidate(candidateId);
 
     res.json({
@@ -167,8 +172,10 @@ router.get(
 // Update candidate basic info
 router.put(
   "/:candidateId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
   upload.single("resume"),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const { name, email, birthdate, roleApplied } = req.body;
     const resumeFile = req.file;
@@ -279,7 +286,11 @@ router.post(
     const user = req.user!;
     const assignedBy = user.userId;
 
-    await candidateService.assignHRUserToCandidate(candidateId, hrUserId, assignedBy);
+    await candidateService.assignHRUserToCandidate(
+      candidateId,
+      hrUserId,
+      assignedBy
+    );
 
     res.json({
       success: true,
@@ -312,7 +323,9 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
 
-    const assignments = await candidateService.getCandidateAssignments(candidateId);
+    const assignments = await candidateService.getCandidateAssignments(
+      candidateId
+    );
 
     res.json({
       success: true,
@@ -329,7 +342,9 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { hrUserId } = req.params;
 
-    const candidates = await candidateService.getCandidatesAssignedToHRUser(hrUserId);
+    const candidates = await candidateService.getCandidatesAssignedToHRUser(
+      hrUserId
+    );
 
     res.json({
       success: true,
@@ -376,10 +391,17 @@ router.post(
     // Assign each HR user
     for (const hrUserId of hrUserIds) {
       try {
-        await candidateService.assignHRUserToCandidate(candidateId, hrUserId, assignedBy);
+        await candidateService.assignHRUserToCandidate(
+          candidateId,
+          hrUserId,
+          assignedBy
+        );
       } catch (error) {
         // Continue with other assignments even if one fails
-        console.warn(`Failed to assign HR user ${hrUserId} to candidate ${candidateId}:`, error);
+        console.warn(
+          `Failed to assign HR user ${hrUserId} to candidate ${candidateId}:`,
+          error
+        );
       }
     }
 
