@@ -37,7 +37,7 @@ ${jobDescription}`;
   }
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -47,10 +47,17 @@ ${jobDescription}`;
 
   const result = (await response.json()) as GeminiResponse;
 
+  // Log the full response for debugging
+  if (!response.ok) {
+    console.error('Gemini API Error Response:', JSON.stringify(result, null, 2));
+    throw new Error(`Gemini API returned status ${response.status}: ${JSON.stringify(result)}`);
+  }
+
   const contentText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!contentText) {
-    throw new Error("No content returned by Gemini");
+    console.error('Gemini Response Structure:', JSON.stringify(result, null, 2));
+    throw new Error("No content returned by Gemini. Full response logged above.");
   }
 
   try {

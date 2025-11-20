@@ -55,10 +55,18 @@ ${textContent}`
   );
 
   const result = await response.json();
+
+  // Log the full response for debugging
+  if (!response.ok) {
+    console.error('Gemini API Error Response:', JSON.stringify(result, null, 2));
+    throw new Error(`Gemini API returned status ${response.status}: ${JSON.stringify(result)}`);
+  }
+
   const contentText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!contentText) {
-    throw new Error('No content returned by Gemini');
+    console.error('Gemini Response Structure:', JSON.stringify(result, null, 2));
+    throw new Error('No content returned by Gemini. Full response logged above.');
   }
 
   try {
