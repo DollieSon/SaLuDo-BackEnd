@@ -1,0 +1,66 @@
+<div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 25px; border-radius: 8px; margin-bottom: 25px; text-align: center;">
+  <h2 style="margin: 0; color: #ffffff; font-size: 26px;">🔒 Security Alert</h2>
+  <p style="margin: 10px 0 0 0; color: #fee2e2; font-size: 14px;">
+    {{formatDate notification.createdAt}}
+  </p>
+</div>
+
+<div style="background-color: #fef2f2; padding: 25px; border-radius: 8px; border: 2px solid #fecaca; margin-bottom: 25px;">
+  <p style="font-size: 16px; line-height: 1.7; color: #991b1b; margin: 0; font-weight: 500;">
+    ⚠️ {{notification.message}}
+  </p>
+</div>
+
+{{#if notification.data}}
+<div style="background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 25px;">
+  <h3 style="margin: 0 0 15px 0; color: #1f2937; font-size: 16px;">Security Event Details:</h3>
+  
+  {{#if notification.data.ipAddress}}
+  <p style="margin: 8px 0; font-size: 14px; color: #374151;">
+    <strong>IP Address:</strong> <code style="background-color: #f3f4f6; padding: 2px 6px; border-radius: 3px;">{{notification.data.ipAddress}}</code>
+  </p>
+  {{/if}}
+  
+  {{#if notification.data.location}}
+  <p style="margin: 8px 0; font-size: 14px; color: #374151;">
+    <strong>Location:</strong> {{notification.data.location}}
+  </p>
+  {{/if}}
+  
+  {{#if notification.data.device}}
+  <p style="margin: 8px 0; font-size: 14px; color: #374151;">
+    <strong>Device:</strong> {{notification.data.device}}
+  </p>
+  {{/if}}
+  
+  {{#if notification.data.attemptCount}}
+  <p style="margin: 8px 0; font-size: 14px; color: #374151;">
+    <strong>Attempts:</strong> {{notification.data.attemptCount}}
+  </p>
+  {{/if}}
+</div>
+{{/if}}
+
+<div style="background-color: #f9fafb; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
+  <h3 style="margin: 0 0 15px 0; color: #1f2937; font-size: 16px;">Recommended Actions:</h3>
+  <ul style="margin: 0; padding-left: 20px; color: #374151; line-height: 1.8;">
+    <li>Review your recent account activity</li>
+    <li>Change your password if you don't recognize this activity</li>
+    <li>Enable two-factor authentication</li>
+    <li>Contact support if you need assistance</li>
+  </ul>
+</div>
+
+{{#if actionUrl}}
+<div style="text-align: center; margin-top: 25px;">
+  <a href="{{actionUrl}}" style="display: inline-block; padding: 14px 32px; background-color: #ef4444; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+    Review Security Activity →
+  </a>
+</div>
+{{/if}}
+
+<div style="margin-top: 25px; padding: 15px; background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 4px;">
+  <p style="font-size: 13px; color: #92400e; margin: 0;">
+    <strong>Note:</strong> If this was you, you can safely ignore this email. We're committed to keeping your account secure.
+  </p>
+</div>

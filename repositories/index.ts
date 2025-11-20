@@ -6,3 +6,5 @@ export { JobRepository } from './JobRepository';
 export { UserRepository } from './UserRepository';
 export { AuditLogRepository } from './AuditLogRepository';
 export { TokenBlacklistRepository } from './TokenBlacklistRepository';
+export { NotificationRepository } from './NotificationRepository';
+export { NotificationPreferencesRepository } from './NotificationPreferencesRepository';
