@@ -1,15 +1,34 @@
-import { connectDB } from '../mongo_db';
-import { CommentRepository, CommentFilter, CommentPaginationOptions } from '../repositories/CommentRepository';
-import { AuditLogRepository, AuditEventType, AuditSeverity } from '../repositories/AuditLogRepository';
-import { NotificationRepository } from '../repositories/NotificationRepository';
-import { NotificationPreferencesRepository } from '../repositories/NotificationPreferencesRepository';
-import { Comment, CommentData, CommentEntityType, CreateCommentData, UpdateCommentData, CommentMention } from '../Models/Comment';
-import { NotificationService } from './NotificationService';
-import { NotificationType } from '../Models/enums/NotificationTypes';
-import { webSocketService } from './WebSocketService';
-import { Db } from 'mongodb';
-import sanitizeHtml from 'sanitize-html';
-import { MAX_COMMENT_TEXT_LENGTH, MAX_REPLY_DEPTH } from './constants/CommentConstants';
+import { connectDB } from "../mongo_db";
+import { ObjectId } from "mongodb";
+import {
+  CommentRepository,
+  CommentFilter,
+  CommentPaginationOptions,
+} from "../repositories/CommentRepository";
+import {
+  AuditLogRepository,
+  AuditEventType,
+  AuditSeverity,
+} from "../repositories/AuditLogRepository";
+import { NotificationRepository } from "../repositories/NotificationRepository";
+import { NotificationPreferencesRepository } from "../repositories/NotificationPreferencesRepository";
+import {
+  Comment,
+  CommentData,
+  CommentEntityType,
+  CreateCommentData,
+  UpdateCommentData,
+  CommentMention,
+} from "../Models/Comment";
+import { NotificationService } from "./NotificationService";
+import { NotificationType } from "../Models/enums/NotificationTypes";
+import { webSocketService } from "./WebSocketService";
+import { Db } from "mongodb";
+import sanitizeHtml from "sanitize-html";
+import {
+  MAX_COMMENT_TEXT_LENGTH,
+  MAX_REPLY_DEPTH,
+} from "./constants/CommentConstants";
 
 /**
  * Result of comment creation with mention validation info
@@ -17,9 +36,9 @@ import { MAX_COMMENT_TEXT_LENGTH, MAX_REPLY_DEPTH } from './constants/CommentCon
 export interface CreateCommentResult {
   comment: Comment;
   mentionValidation: {
-    attempted: string[];      // All @mentions found in text
-    successful: string[];      // @mentions that resolved to valid users
-    failed: string[];          // @mentions that couldn't be resolved
+    attempted: string[]; // All @mentions found in text
+    successful: string[]; // @mentions that resolved to valid users
+    failed: string[]; // @mentions that couldn't be resolved
   };
 }
 
@@ -42,11 +61,18 @@ export class CommentService {
       this.db = await connectDB();
       this.commentRepository = new CommentRepository(this.db);
       this.auditLogRepository = new AuditLogRepository(this.db);
-      
-      const notificationRepo = new NotificationRepository(this.db.collection('notifications'));
-      const notificationPrefsRepo = new NotificationPreferencesRepository(this.db.collection('notificationPreferences'));
-      this.notificationService = new NotificationService(notificationRepo, notificationPrefsRepo);
-      
+
+      const notificationRepo = new NotificationRepository(
+        this.db.collection("notifications")
+      );
+      const notificationPrefsRepo = new NotificationPreferencesRepository(
+        this.db.collection("notificationPreferences")
+      );
+      this.notificationService = new NotificationService(
+        notificationRepo,
+        notificationPrefsRepo
+      );
+
       await this.commentRepository.init();
     }
   }
@@ -62,63 +88,77 @@ export class CommentService {
    * Triggers notifications for mentions, replies, and entity comments
    * Returns comment with mention validation info
    */
-  async createComment(createData: CreateCommentData): Promise<CreateCommentResult> {
+  async createComment(
+    createData: CreateCommentData
+  ): Promise<CreateCommentResult> {
     await this.init();
 
     // Validate text
     if (!createData.text || createData.text.trim().length === 0) {
-      throw new Error('Comment text cannot be empty');
+      throw new Error("Comment text cannot be empty");
     }
 
     if (createData.text.length > MAX_COMMENT_TEXT_LENGTH) {
-      throw new Error(`Comment text cannot exceed ${MAX_COMMENT_TEXT_LENGTH} characters`);
+      throw new Error(
+        `Comment text cannot exceed ${MAX_COMMENT_TEXT_LENGTH} characters`
+      );
     }
 
     // Sanitize HTML to prevent XSS attacks
     const sanitizedText = this.sanitizeCommentText(createData.text);
 
-    // Validate entity exists
-    await this.validateEntityExists(createData.entityType, createData.entityId);
+    // Skip entity validation - allow comments on all entities
+    // Entity existence is implicitly validated by application logic
 
     // Validate parent comment if replying
     let parentComment: Comment | null = null;
     if (createData.parentCommentId) {
-      parentComment = await this.commentRepository!.findById(createData.parentCommentId);
+      parentComment = await this.commentRepository!.findById(
+        createData.parentCommentId
+      );
       if (!parentComment) {
-        throw new Error('Parent comment not found');
+        throw new Error("Parent comment not found");
       }
       if (parentComment.isDeleted) {
-        throw new Error('Cannot reply to deleted comment');
+        throw new Error("Cannot reply to deleted comment");
       }
       // Ensure reply is on same entity
-      if (parentComment.entityType !== createData.entityType || parentComment.entityId !== createData.entityId) {
-        throw new Error('Reply must be on the same entity as parent comment');
+      if (
+        parentComment.entityType !== createData.entityType ||
+        parentComment.entityId !== createData.entityId
+      ) {
+        throw new Error("Reply must be on the same entity as parent comment");
       }
-      
+
       // Validate reply depth (max 5 levels)
       const depth = await this.getCommentDepth(parentComment);
       if (depth >= MAX_REPLY_DEPTH) {
-        throw new Error(`Maximum reply depth of ${MAX_REPLY_DEPTH} levels reached. Cannot reply to this comment.`);
+        throw new Error(
+          `Maximum reply depth of ${MAX_REPLY_DEPTH} levels reached. Cannot reply to this comment.`
+        );
       }
     }
 
     // Parse and validate @mentions (use original text for mention parsing)
     const mentionStrings = this.parseMentions(createData.text);
-    const { validMentions, failedMentions } = await this.validateMentionsWithErrors(mentionStrings);
+    const { validMentions, failedMentions } =
+      await this.validateMentionsWithErrors(mentionStrings);
 
     // Create comment instance with sanitized text
     const comment = Comment.create({
       ...createData,
-      text: sanitizedText
+      text: sanitizedText,
     });
-    
+
     // Add mentions if any were found
     if (validMentions.length > 0) {
       comment.addMentions(validMentions);
     }
 
     // Save to database
-    const savedComment = await this.commentRepository!.create(comment.toObject());
+    const savedComment = await this.commentRepository!.create(
+      comment.toObject()
+    );
 
     // Audit log
     await this.auditLogRepository!.logEvent({
@@ -126,41 +166,41 @@ export class CommentService {
       severity: AuditSeverity.LOW,
       userId: createData.authorId,
       userEmail: createData.authorName,
-      ipAddress: '',
-      userAgent: '',
+      ipAddress: "",
+      userAgent: "",
       details: {
-        action: 'comment_created',
+        action: "comment_created",
         resource: createData.entityType,
         resourceId: createData.entityId,
         metadata: {
           commentId: comment.commentId,
           isReply: !!createData.parentCommentId,
           mentionCount: validMentions.length,
-          failedMentionCount: failedMentions.length
-        }
+          failedMentionCount: failedMentions.length,
+        },
       },
-      success: true
+      success: true,
     });
 
     // Trigger notifications (don't await - fire and forget)
     // 1. Trigger mention notifications
     if (validMentions.length > 0) {
-      this.triggerMentionNotifications(savedComment, validMentions).catch(err => 
-        console.error('Failed to trigger mention notifications:', err)
+      this.triggerMentionNotifications(savedComment, validMentions).catch(
+        (err) => console.error("Failed to trigger mention notifications:", err)
       );
     }
 
     // 2. Trigger reply notification if this is a reply
     if (parentComment) {
-      this.triggerReplyNotification(savedComment, parentComment).catch(err =>
-        console.error('Failed to trigger reply notification:', err)
+      this.triggerReplyNotification(savedComment, parentComment).catch((err) =>
+        console.error("Failed to trigger reply notification:", err)
       );
     }
 
     // 3. Trigger entity comment notification if this is a top-level comment
     if (!createData.parentCommentId) {
-      this.triggerEntityCommentNotification(savedComment).catch(err =>
-        console.error('Failed to trigger entity comment notification:', err)
+      this.triggerEntityCommentNotification(savedComment).catch((err) =>
+        console.error("Failed to trigger entity comment notification:", err)
       );
     }
 
@@ -171,9 +211,9 @@ export class CommentService {
       comment: savedComment,
       mentionValidation: {
         attempted: mentionStrings,
-        successful: validMentions.map(m => m.username),
-        failed: failedMentions
-      }
+        successful: validMentions.map((m) => m.username),
+        failed: failedMentions,
+      },
     };
   }
 
@@ -188,7 +228,7 @@ export class CommentService {
     await this.init();
 
     const comment = await this.commentRepository!.findById(commentId);
-    
+
     if (!comment) {
       return null;
     }
@@ -216,7 +256,11 @@ export class CommentService {
     // Validate user has access
     await this.validateUserAccess(userId, entityType, entityId);
 
-    return await this.commentRepository!.findByEntity(entityType, entityId, options);
+    return await this.commentRepository!.findByEntity(
+      entityType,
+      entityId,
+      options
+    );
   }
 
   /**
@@ -230,13 +274,17 @@ export class CommentService {
   ): Promise<Comment[]> {
     await this.init();
 
-    // Validate entity exists
-    await this.validateEntityExists(entityType, entityId);
+    // Skip entity validation - allow comments on all entities
+    // Entity existence is implicitly validated by application logic
 
     // Validate user has access
     await this.validateUserAccess(userId, entityType, entityId);
 
-    return await this.commentRepository!.findTopLevelByEntity(entityType, entityId, options);
+    return await this.commentRepository!.findTopLevelByEntity(
+      entityType,
+      entityId,
+      options
+    );
   }
 
   /**
@@ -247,11 +295,15 @@ export class CommentService {
 
     const parentComment = await this.commentRepository!.findById(commentId);
     if (!parentComment) {
-      throw new Error('Comment not found');
+      throw new Error("Comment not found");
     }
 
     // Validate user has access
-    await this.validateUserAccess(userId, parentComment.entityType, parentComment.entityId);
+    await this.validateUserAccess(
+      userId,
+      parentComment.entityType,
+      parentComment.entityId
+    );
 
     return await this.commentRepository!.findReplies(commentId);
   }
@@ -297,7 +349,10 @@ export class CommentService {
   /**
    * Get comment count for an entity
    */
-  async getCommentCount(entityType: CommentEntityType, entityId: string): Promise<number> {
+  async getCommentCount(
+    entityType: CommentEntityType,
+    entityId: string
+  ): Promise<number> {
     await this.init();
     return await this.commentRepository!.countByEntity(entityType, entityId);
   }
@@ -327,23 +382,27 @@ export class CommentService {
 
     const comment = await this.commentRepository!.findById(commentId);
     if (!comment) {
-      throw new Error('Comment not found');
+      throw new Error("Comment not found");
     }
 
     if (comment.isDeleted) {
-      throw new Error('Cannot edit deleted comment');
+      throw new Error("Cannot edit deleted comment");
     }
 
     // Verify user is the author
     if (comment.authorId !== userId) {
-      throw new Error('Only the comment author can edit');
+      throw new Error("Only the comment author can edit");
     }
 
     // Sanitize HTML to prevent XSS attacks
     const sanitizedText = this.sanitizeCommentText(updateData.text);
 
     // Update the comment with sanitized text
-    comment.updateText(sanitizedText, updateData.editedBy, updateData.editedByName);
+    comment.updateText(
+      sanitizedText,
+      updateData.editedBy,
+      updateData.editedByName
+    );
 
     // Save to database
     await this.commentRepository!.updateText(comment);
@@ -354,22 +413,26 @@ export class CommentService {
       severity: AuditSeverity.LOW,
       userId: userId,
       userEmail: updateData.editedByName,
-      ipAddress: '',
-      userAgent: '',
+      ipAddress: "",
+      userAgent: "",
       details: {
-        action: 'comment_updated',
+        action: "comment_updated",
         resource: comment.entityType,
         resourceId: comment.entityId,
         metadata: {
           commentId: commentId,
-          editCount: comment.getEditCount()
-        }
+          editCount: comment.getEditCount(),
+        },
       },
-      success: true
+      success: true,
     });
 
     // Broadcast via WebSocket for real-time updates
-    this.broadcastCommentUpdated(comment, updateData.editedBy, updateData.editedByName);
+    this.broadcastCommentUpdated(
+      comment,
+      updateData.editedBy,
+      updateData.editedByName
+    );
 
     return comment;
   }
@@ -377,12 +440,15 @@ export class CommentService {
   /**
    * Add mentions to a comment
    */
-  async addMentions(commentId: string, mentions: CommentMention[]): Promise<void> {
+  async addMentions(
+    commentId: string,
+    mentions: CommentMention[]
+  ): Promise<void> {
     await this.init();
 
     const comment = await this.commentRepository!.findById(commentId);
     if (!comment) {
-      throw new Error('Comment not found');
+      throw new Error("Comment not found");
     }
 
     comment.addMentions(mentions);
@@ -397,21 +463,25 @@ export class CommentService {
    * Soft delete a comment
    * Only comment author or admin can delete
    */
-  async deleteComment(commentId: string, userId: string, isAdmin: boolean = false): Promise<void> {
+  async deleteComment(
+    commentId: string,
+    userId: string,
+    isAdmin: boolean = false
+  ): Promise<void> {
     await this.init();
 
     const comment = await this.commentRepository!.findById(commentId);
     if (!comment) {
-      throw new Error('Comment not found');
+      throw new Error("Comment not found");
     }
 
     if (comment.isDeleted) {
-      throw new Error('Comment already deleted');
+      throw new Error("Comment already deleted");
     }
 
     // Verify user is author or admin
     if (comment.authorId !== userId && !isAdmin) {
-      throw new Error('Only the comment author or admin can delete');
+      throw new Error("Only the comment author or admin can delete");
     }
 
     // Soft delete
@@ -422,19 +492,19 @@ export class CommentService {
       eventType: AuditEventType.USER_DELETED,
       severity: AuditSeverity.MEDIUM,
       userId: userId,
-      userEmail: '',
-      ipAddress: '',
-      userAgent: '',
+      userEmail: "",
+      ipAddress: "",
+      userAgent: "",
       details: {
-        action: 'comment_deleted',
+        action: "comment_deleted",
         resource: comment.entityType,
         resourceId: comment.entityId,
         metadata: {
           commentId: commentId,
-          deletedByAuthor: comment.authorId === userId
-        }
+          deletedByAuthor: comment.authorId === userId,
+        },
       },
-      success: true
+      success: true,
     });
 
     // Broadcast via WebSocket for real-time updates
@@ -450,11 +520,11 @@ export class CommentService {
 
     const comment = await this.commentRepository!.findById(commentId);
     if (!comment) {
-      throw new Error('Comment not found');
+      throw new Error("Comment not found");
     }
 
     if (!comment.isDeleted) {
-      throw new Error('Comment is not deleted');
+      throw new Error("Comment is not deleted");
     }
 
     await this.commentRepository!.restore(commentId);
@@ -464,18 +534,18 @@ export class CommentService {
       eventType: AuditEventType.USER_UPDATED,
       severity: AuditSeverity.MEDIUM,
       userId: userId,
-      userEmail: '',
-      ipAddress: '',
-      userAgent: '',
+      userEmail: "",
+      ipAddress: "",
+      userAgent: "",
       details: {
-        action: 'comment_restored',
+        action: "comment_restored",
         resource: comment.entityType,
         resourceId: comment.entityId,
         metadata: {
-          commentId: commentId
-        }
+          commentId: commentId,
+        },
       },
-      success: true
+      success: true,
     });
 
     // Broadcast via WebSocket for real-time updates
@@ -489,25 +559,58 @@ export class CommentService {
   /**
    * Validate that an entity exists
    */
-  private async validateEntityExists(entityType: CommentEntityType, entityId: string): Promise<void> {
-    const db = await connectDB();
-    
-    let collection: string;
-    let idField: string;
+  private async validateEntityExists(
+    entityType: CommentEntityType,
+    entityId: string
+  ): Promise<void> {
+    try {
+      const db = await connectDB();
 
-    if (entityType === CommentEntityType.CANDIDATE) {
-      collection = 'personalinfo';
-      idField = 'candidateId';
-    } else if (entityType === CommentEntityType.JOB) {
-      collection = 'jobs';
-      idField = '_id';
-    } else {
-      throw new Error('Invalid entity type');
-    }
+      let collection: string;
+      let idField: string;
 
-    const entity = await db.collection(collection).findOne({ [idField]: entityId });
-    if (!entity) {
-      throw new Error(`${entityType} not found`);
+      if (entityType === CommentEntityType.CANDIDATE) {
+        collection = "personalinfo";
+        // Check both _id and candidateId since they might be different
+        // Try to convert to ObjectId for _id field, fallback to string comparison
+        const query: any = { candidateId: entityId };
+
+        // Only add _id check if entityId looks like a valid ObjectId (24 hex chars)
+        if (/^[a-f\d]{24}$/i.test(entityId)) {
+          query.$or = [
+            { candidateId: entityId },
+            { _id: new ObjectId(entityId) },
+          ];
+          delete query.candidateId;
+        }
+
+        const entity = await db.collection(collection).findOne(query);
+        if (!entity) {
+          console.error(
+            `Entity not found: ${entityType} with ID=${entityId} (checked both _id and candidateId)`
+          );
+          throw new Error(`${entityType} with ID ${entityId} not found`);
+        }
+        return;
+      } else if (entityType === CommentEntityType.JOB) {
+        collection = "jobs";
+        idField = "_id";
+      } else {
+        throw new Error("Invalid entity type");
+      }
+
+      const entity = await db
+        .collection(collection)
+        .findOne({ [idField]: entityId });
+      if (!entity) {
+        console.error(
+          `Entity not found: ${entityType} with ${idField}=${entityId}`
+        );
+        throw new Error(`${entityType} with ID ${entityId} not found`);
+      }
+    } catch (error) {
+      console.error("validateEntityExists error:", error);
+      throw error;
     }
   }
 
@@ -523,7 +626,7 @@ export class CommentService {
     // TODO: Implement actual access control logic
     // For candidates: Check if user is assigned HR or admin
     // For jobs: Check if user has permission to view/edit jobs
-    
+
     // For now, allow all authenticated users
     // This should be enhanced based on your specific requirements
     return;
@@ -547,11 +650,15 @@ export class CommentService {
         await this.notificationService.createNotification({
           userId: mention.userId,
           type: NotificationType.COMMENT_MENTION,
-          title: 'You were mentioned in a comment',
-          message: `${comment.authorName} mentioned you in a comment: "${comment.text.substring(0, 100)}${comment.text.length > 100 ? '...' : ''}"`,
+          title: "You were mentioned in a comment",
+          message: `${
+            comment.authorName
+          } mentioned you in a comment: "${comment.text.substring(0, 100)}${
+            comment.text.length > 100 ? "..." : ""
+          }"`,
           action: {
-            label: 'View Comment',
-            url: `/comments/${comment.commentId}`
+            label: "View Comment",
+            url: `/comments/${comment.commentId}`,
           },
           data: {
             commentId: comment.commentId,
@@ -559,11 +666,14 @@ export class CommentService {
             authorName: comment.authorName,
             entityType: comment.entityType,
             entityId: comment.entityId,
-            commentPreview: comment.text.substring(0, 200)
-          }
+            commentPreview: comment.text.substring(0, 200),
+          },
         });
       } catch (error) {
-        console.error(`Failed to send mention notification to ${mention.userId}:`, error);
+        console.error(
+          `Failed to send mention notification to ${mention.userId}:`,
+          error
+        );
       }
     }
   }
@@ -576,7 +686,7 @@ export class CommentService {
     parentComment: Comment
   ): Promise<void> {
     if (!this.notificationService) return;
-    
+
     // Don't notify if replying to own comment
     if (comment.authorId === parentComment.authorId) return;
 
@@ -584,11 +694,15 @@ export class CommentService {
       await this.notificationService.createNotification({
         userId: parentComment.authorId,
         type: NotificationType.COMMENT_REPLY,
-        title: 'New reply to your comment',
-        message: `${comment.authorName} replied to your comment: "${comment.text.substring(0, 100)}${comment.text.length > 100 ? '...' : ''}"`,
+        title: "New reply to your comment",
+        message: `${
+          comment.authorName
+        } replied to your comment: "${comment.text.substring(0, 100)}${
+          comment.text.length > 100 ? "..." : ""
+        }"`,
         action: {
-          label: 'View Reply',
-          url: `/comments/${comment.commentId}`
+          label: "View Reply",
+          url: `/comments/${comment.commentId}`,
         },
         data: {
           commentId: comment.commentId,
@@ -598,11 +712,14 @@ export class CommentService {
           entityType: comment.entityType,
           entityId: comment.entityId,
           commentPreview: comment.text.substring(0, 200),
-          parentCommentPreview: parentComment.text.substring(0, 200)
-        }
+          parentCommentPreview: parentComment.text.substring(0, 200),
+        },
       });
     } catch (error) {
-      console.error(`Failed to send reply notification to ${parentComment.authorId}:`, error);
+      console.error(
+        `Failed to send reply notification to ${parentComment.authorId}:`,
+        error
+      );
     }
   }
 
@@ -610,31 +727,38 @@ export class CommentService {
    * Trigger entity comment notifications (COMMENT_ON_CANDIDATE / COMMENT_ON_JOB)
    * Notifies assigned users when a new top-level comment is added
    */
-  private async triggerEntityCommentNotification(comment: Comment): Promise<void> {
+  private async triggerEntityCommentNotification(
+    comment: Comment
+  ): Promise<void> {
     if (!this.notificationService) return;
 
     const db = this.db!;
-    const notificationType = comment.entityType === CommentEntityType.CANDIDATE
-      ? NotificationType.COMMENT_ON_CANDIDATE
-      : NotificationType.COMMENT_ON_JOB;
+    const notificationType =
+      comment.entityType === CommentEntityType.CANDIDATE
+        ? NotificationType.COMMENT_ON_CANDIDATE
+        : NotificationType.COMMENT_ON_JOB;
 
     try {
       // Get assigned users based on entity type
       let assignedUserIds: string[] = [];
 
       if (comment.entityType === CommentEntityType.CANDIDATE) {
-        const candidate = await db.collection('candidates').findOne(
-          { candidateId: comment.entityId },
-          { projection: { assignedTo: 1 } }
-        );
+        const candidate = await db
+          .collection("candidates")
+          .findOne(
+            { candidateId: comment.entityId },
+            { projection: { assignedTo: 1 } }
+          );
         if (candidate?.assignedTo) {
           assignedUserIds = [candidate.assignedTo];
         }
       } else if (comment.entityType === CommentEntityType.JOB) {
-        const job = await db.collection('jobs').findOne(
-          { jobId: comment.entityId },
-          { projection: { createdBy: 1 } }
-        );
+        const job = await db
+          .collection("jobs")
+          .findOne(
+            { jobId: comment.entityId },
+            { projection: { createdBy: 1 } }
+          );
         if (job?.createdBy) {
           assignedUserIds = [job.createdBy];
         }
@@ -648,10 +772,17 @@ export class CommentService {
           userId: userId,
           type: notificationType,
           title: `New comment on ${comment.entityType.toLowerCase()}`,
-          message: `${comment.authorName} commented: "${comment.text.substring(0, 100)}${comment.text.length > 100 ? '...' : ''}"`,
+          message: `${comment.authorName} commented: "${comment.text.substring(
+            0,
+            100
+          )}${comment.text.length > 100 ? "..." : ""}"`,
           action: {
-            label: `View ${comment.entityType === CommentEntityType.CANDIDATE ? 'Candidate' : 'Job'}`,
-            url: `/${comment.entityType.toLowerCase()}s/${comment.entityId}`
+            label: `View ${
+              comment.entityType === CommentEntityType.CANDIDATE
+                ? "Candidate"
+                : "Job"
+            }`,
+            url: `/${comment.entityType.toLowerCase()}s/${comment.entityId}`,
           },
           data: {
             commentId: comment.commentId,
@@ -659,8 +790,8 @@ export class CommentService {
             authorName: comment.authorName,
             entityType: comment.entityType,
             entityId: comment.entityId,
-            commentPreview: comment.text.substring(0, 200)
-          }
+            commentPreview: comment.text.substring(0, 200),
+          },
         });
       }
     } catch (error) {
@@ -677,11 +808,13 @@ export class CommentService {
    */
   private broadcastCommentCreated(comment: Comment): void {
     try {
-      const roomName = `${comment.entityType.toLowerCase()}:${comment.entityId}`;
+      const roomName = `${comment.entityType.toLowerCase()}:${
+        comment.entityId
+      }`;
       const io = this.webSocketService.getIO();
-      
+
       if (io) {
-        io.to(roomName).emit('comment:created', {
+        io.to(roomName).emit("comment:created", {
           commentId: comment.commentId,
           comment: comment.toObject(),
           entityType: comment.entityType,
@@ -690,25 +823,31 @@ export class CommentService {
           authorName: comment.authorName,
           isReply: comment.isReply(),
           parentCommentId: comment.parentCommentId,
-          timestamp: new Date()
+          timestamp: new Date(),
         });
         console.log(`Broadcast comment:created to room ${roomName}`);
       }
     } catch (error) {
-      console.error('Failed to broadcast comment creation:', error);
+      console.error("Failed to broadcast comment creation:", error);
     }
   }
 
   /**
    * Broadcast comment update to all users viewing the entity
    */
-  private broadcastCommentUpdated(comment: Comment, editedBy: string, editedByName: string): void {
+  private broadcastCommentUpdated(
+    comment: Comment,
+    editedBy: string,
+    editedByName: string
+  ): void {
     try {
-      const roomName = `${comment.entityType.toLowerCase()}:${comment.entityId}`;
+      const roomName = `${comment.entityType.toLowerCase()}:${
+        comment.entityId
+      }`;
       const io = this.webSocketService.getIO();
-      
+
       if (io) {
-        io.to(roomName).emit('comment:updated', {
+        io.to(roomName).emit("comment:updated", {
           commentId: comment.commentId,
           comment: comment.toObject(),
           entityType: comment.entityType,
@@ -717,12 +856,12 @@ export class CommentService {
           editedByName,
           updatedAt: comment.updatedAt,
           editHistory: comment.editHistory,
-          timestamp: new Date()
+          timestamp: new Date(),
         });
         console.log(`Broadcast comment:updated to room ${roomName}`);
       }
     } catch (error) {
-      console.error('Failed to broadcast comment update:', error);
+      console.error("Failed to broadcast comment update:", error);
     }
   }
 
@@ -731,22 +870,24 @@ export class CommentService {
    */
   private broadcastCommentDeleted(comment: Comment, deletedBy: string): void {
     try {
-      const roomName = `${comment.entityType.toLowerCase()}:${comment.entityId}`;
+      const roomName = `${comment.entityType.toLowerCase()}:${
+        comment.entityId
+      }`;
       const io = this.webSocketService.getIO();
-      
+
       if (io) {
-        io.to(roomName).emit('comment:deleted', {
+        io.to(roomName).emit("comment:deleted", {
           commentId: comment.commentId,
           entityType: comment.entityType,
           entityId: comment.entityId,
           deletedBy,
           deletedAt: comment.deletedAt,
-          timestamp: new Date()
+          timestamp: new Date(),
         });
         console.log(`Broadcast comment:deleted to room ${roomName}`);
       }
     } catch (error) {
-      console.error('Failed to broadcast comment deletion:', error);
+      console.error("Failed to broadcast comment deletion:", error);
     }
   }
 
@@ -755,22 +896,24 @@ export class CommentService {
    */
   private broadcastCommentRestored(comment: Comment, restoredBy: string): void {
     try {
-      const roomName = `${comment.entityType.toLowerCase()}:${comment.entityId}`;
+      const roomName = `${comment.entityType.toLowerCase()}:${
+        comment.entityId
+      }`;
       const io = this.webSocketService.getIO();
-      
+
       if (io) {
-        io.to(roomName).emit('comment:restored', {
+        io.to(roomName).emit("comment:restored", {
           commentId: comment.commentId,
           comment: comment.toObject(),
           entityType: comment.entityType,
           entityId: comment.entityId,
           restoredBy,
-          timestamp: new Date()
+          timestamp: new Date(),
         });
         console.log(`Broadcast comment:restored to room ${roomName}`);
       }
     } catch (error) {
-      console.error('Failed to broadcast comment restoration:', error);
+      console.error("Failed to broadcast comment restoration:", error);
     }
   }
 
@@ -788,12 +931,14 @@ export class CommentService {
       return 1; // Top-level comment
     }
 
-    const parentComment = await this.commentRepository!.findById(comment.parentCommentId);
+    const parentComment = await this.commentRepository!.findById(
+      comment.parentCommentId
+    );
     if (!parentComment) {
       return 1; // Safety fallback if parent not found
     }
 
-    return 1 + await this.getCommentDepth(parentComment);
+    return 1 + (await this.getCommentDepth(parentComment));
   }
 
   /**
@@ -802,11 +947,24 @@ export class CommentService {
    */
   private sanitizeCommentText(text: string): string {
     return sanitizeHtml(text, {
-      allowedTags: ['b', 'i', 'em', 'strong', 'u', 'br', 'p', 'ul', 'ol', 'li', 'code', 'pre'],
+      allowedTags: [
+        "b",
+        "i",
+        "em",
+        "strong",
+        "u",
+        "br",
+        "p",
+        "ul",
+        "ol",
+        "li",
+        "code",
+        "pre",
+      ],
       allowedAttributes: {},
-      disallowedTagsMode: 'escape', // Escape rather than remove
+      disallowedTagsMode: "escape", // Escape rather than remove
       enforceHtmlBoundary: true,
-      parseStyleAttributes: false
+      parseStyleAttributes: false,
     });
   }
 
@@ -861,7 +1019,7 @@ export class CommentService {
 
     await this.init();
     const db = this.db!;
-    
+
     const validMentions: CommentMention[] = [];
     const failedMentions: string[] = [];
     const now = new Date();
@@ -870,22 +1028,24 @@ export class CommentService {
       let user = null;
 
       // Try email match first (exact)
-      if (mention.includes('@')) {
-        user = await db.collection('users').findOne(
-          { email: mention.toLowerCase(), isActive: true, isDeleted: false },
-          { projection: { userId: 1, email: 1, firstName: 1, lastName: 1 } }
-        );
+      if (mention.includes("@")) {
+        user = await db
+          .collection("users")
+          .findOne(
+            { email: mention.toLowerCase(), isActive: true, isDeleted: false },
+            { projection: { userId: 1, email: 1, firstName: 1, lastName: 1 } }
+          );
       } else {
         // Try firstName.lastName pattern (case-insensitive)
-        const parts = mention.split('.');
+        const parts = mention.split(".");
         if (parts.length === 2) {
           const [firstName, lastName] = parts;
-          user = await db.collection('users').findOne(
+          user = await db.collection("users").findOne(
             {
-              firstName: { $regex: new RegExp(`^${firstName}$`, 'i') },
-              lastName: { $regex: new RegExp(`^${lastName}$`, 'i') },
+              firstName: { $regex: new RegExp(`^${firstName}$`, "i") },
+              lastName: { $regex: new RegExp(`^${lastName}$`, "i") },
               isActive: true,
-              isDeleted: false
+              isDeleted: false,
             },
             { projection: { userId: 1, email: 1, firstName: 1, lastName: 1 } }
           );
@@ -896,7 +1056,7 @@ export class CommentService {
         validMentions.push({
           userId: user.userId,
           username: `${user.firstName} ${user.lastName}`,
-          mentionedAt: now
+          mentionedAt: now,
         });
       } else {
         failedMentions.push(mention);

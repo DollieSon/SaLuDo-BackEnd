@@ -1,23 +1,27 @@
-import { Router, Request, Response } from 'express';
-import rateLimit from 'express-rate-limit';
-import { CommentService } from '../services/CommentService';
-import { CommentEntityType, CreateCommentData, UpdateCommentData } from '../Models/Comment';
-import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
-import { asyncHandler } from './middleware/errorHandler';
-import { UserRole } from '../Models/User';
-import { 
-  DEFAULT_PAGE_SIZE, 
-  DEFAULT_USER_PAGE_SIZE, 
+import { Router, Request, Response } from "express";
+import rateLimit from "express-rate-limit";
+import { CommentService } from "../services/CommentService";
+import {
+  CommentEntityType,
+  CreateCommentData,
+  UpdateCommentData,
+} from "../Models/Comment";
+import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
+import { asyncHandler } from "./middleware/errorHandler";
+import { UserRole } from "../Models/User";
+import {
+  DEFAULT_PAGE_SIZE,
+  DEFAULT_USER_PAGE_SIZE,
   MIN_AUTOCOMPLETE_QUERY_LENGTH,
-  MAX_AUTOCOMPLETE_RESULTS
-} from '../services/constants/CommentConstants';
-import { 
-  OK, 
-  CREATED, 
-  BAD_REQUEST, 
-  FORBIDDEN, 
-  NOT_FOUND 
-} from '../constants/HttpStatusCodes';
+  MAX_AUTOCOMPLETE_RESULTS,
+} from "../services/constants/CommentConstants";
+import {
+  OK,
+  CREATED,
+  BAD_REQUEST,
+  FORBIDDEN,
+  NOT_FOUND,
+} from "../constants/HttpStatusCodes";
 
 const router = Router();
 const commentService = new CommentService();
@@ -42,13 +46,13 @@ const AUTOCOMPLETE_RATE_LIMIT_MAX = 20; // Requests per window for autocomplete 
 const standardCommentLimiter = rateLimit({
   windowMs: RATE_LIMIT_WINDOW_MS,
   max: STANDARD_RATE_LIMIT_MAX,
-  message: 'Too many comment requests, please try again later.',
+  message: "Too many comment requests, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: AuthenticatedRequest) => {
     // Rate limit per user
-    return req.user?.userId || req.ip || 'anonymous';
-  }
+    return req.user?.userId || req.ip || "anonymous";
+  },
 });
 
 /**
@@ -58,12 +62,12 @@ const standardCommentLimiter = rateLimit({
 const realtimeCommentLimiter = rateLimit({
   windowMs: RATE_LIMIT_WINDOW_MS,
   max: REALTIME_RATE_LIMIT_MAX,
-  message: 'Too many real-time requests, please slow down.',
+  message: "Too many real-time requests, please slow down.",
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: AuthenticatedRequest) => {
-    return req.user?.userId || req.ip || 'anonymous';
-  }
+    return req.user?.userId || req.ip || "anonymous";
+  },
 });
 
 /**
@@ -73,12 +77,12 @@ const realtimeCommentLimiter = rateLimit({
 const autocompleteLimiter = rateLimit({
   windowMs: RATE_LIMIT_WINDOW_MS,
   max: AUTOCOMPLETE_RATE_LIMIT_MAX,
-  message: 'Too many autocomplete requests, please try again later.',
+  message: "Too many autocomplete requests, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: AuthenticatedRequest) => {
-    return req.user?.userId || req.ip || 'anonymous';
-  }
+    return req.user?.userId || req.ip || "anonymous";
+  },
 });
 
 // ====================
@@ -91,7 +95,7 @@ const autocompleteLimiter = rateLimit({
  * Body: { text, entityType, entityId, parentCommentId? }
  */
 router.post(
-  '/',
+  "/",
   AuthMiddleware.authenticate,
   standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -103,7 +107,7 @@ router.post(
     if (!text || !entityType || !entityId) {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: 'Text, entityType, and entityId are required'
+        message: "Text, entityType, and entityId are required",
       });
       return;
     }
@@ -112,7 +116,7 @@ router.post(
     if (!Object.values(CommentEntityType).includes(entityType)) {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: 'Invalid entity type. Must be CANDIDATE or JOB'
+        message: "Invalid entity type. Must be CANDIDATE or JOB",
       });
       return;
     }
@@ -123,21 +127,48 @@ router.post(
       authorName: username,
       entityType,
       entityId,
-      parentCommentId: parentCommentId || null
+      parentCommentId: parentCommentId || null,
     };
 
     const result = await commentService.createComment(createData);
 
     res.status(CREATED).json({
       success: true,
-      message: 'Comment created successfully',
+      message: "Comment created successfully",
       data: {
         comment: result.comment.toObject(),
-        mentionValidation: result.mentionValidation
+        mentionValidation: result.mentionValidation,
       },
-      warnings: result.mentionValidation.failed.length > 0 
-        ? [`Failed to resolve ${result.mentionValidation.failed.length} @mention(s): ${result.mentionValidation.failed.join(', ')}`]
-        : undefined
+      warnings:
+        result.mentionValidation.failed.length > 0
+          ? [
+              `Failed to resolve ${
+                result.mentionValidation.failed.length
+              } @mention(s): ${result.mentionValidation.failed.join(", ")}`,
+            ]
+          : undefined,
+    });
+  })
+);
+
+/**
+ * GET /api/comments/:commentId/replies
+ * Get all replies to a comment
+ * NOTE: This must come before /:entityType/:entityId to avoid route conflicts
+ */
+router.get(
+  "/:commentId/replies",
+  AuthMiddleware.authenticate,
+  standardCommentLimiter,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { commentId } = req.params;
+    const userId = req.user!.userId;
+
+    const replies = await commentService.getReplies(commentId, userId);
+
+    res.status(OK).json({
+      success: true,
+      data: replies.map((r) => r.toObject()),
     });
   })
 );
@@ -148,7 +179,7 @@ router.post(
  * Query: ?page=1&limit=20&sortBy=createdAt&sortOrder=desc
  */
 router.get(
-  '/:entityType/:entityId',
+  "/:entityType/:entityId",
   AuthMiddleware.authenticate,
   standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -157,10 +188,14 @@ router.get(
     const { page, limit, sortBy, sortOrder } = req.query;
 
     // Validate entity type
-    if (!Object.values(CommentEntityType).includes(entityType as CommentEntityType)) {
+    if (
+      !Object.values(CommentEntityType).includes(
+        entityType as CommentEntityType
+      )
+    ) {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: 'Invalid entity type. Must be CANDIDATE or JOB'
+        message: "Invalid entity type. Must be CANDIDATE or JOB",
       });
       return;
     }
@@ -168,8 +203,8 @@ router.get(
     const options = {
       page: page ? parseInt(page as string) : 1,
       limit: limit ? parseInt(limit as string) : DEFAULT_PAGE_SIZE,
-      sortBy: (sortBy as 'createdAt' | 'updatedAt') || 'createdAt',
-      sortOrder: (sortOrder as 'asc' | 'desc') || 'desc'
+      sortBy: (sortBy as "createdAt" | "updatedAt") || "createdAt",
+      sortOrder: (sortOrder as "asc" | "desc") || "desc",
     };
 
     const comments = await commentService.getCommentsForEntity(
@@ -191,16 +226,16 @@ router.get(
     res.status(OK).json({
       success: true,
       data: {
-        comments: comments.map(c => c.toObject()),
+        comments: comments.map((c) => c.toObject()),
         pagination: {
           currentPage: options.page,
           totalPages,
           totalCount: count,
           pageSize: options.limit,
           hasNextPage,
-          hasPreviousPage
-        }
-      }
+          hasPreviousPage,
+        },
+      },
     });
   })
 );
@@ -210,7 +245,7 @@ router.get(
  * Get top-level comments only (no replies)
  */
 router.get(
-  '/:entityType/:entityId/top-level',
+  "/:entityType/:entityId/top-level",
   AuthMiddleware.authenticate,
   standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -219,10 +254,14 @@ router.get(
     const { page, limit, sortBy, sortOrder } = req.query;
 
     // Validate entity type
-    if (!Object.values(CommentEntityType).includes(entityType as CommentEntityType)) {
+    if (
+      !Object.values(CommentEntityType).includes(
+        entityType as CommentEntityType
+      )
+    ) {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: 'Invalid entity type. Must be CANDIDATE or JOB'
+        message: "Invalid entity type. Must be CANDIDATE or JOB",
       });
       return;
     }
@@ -230,8 +269,8 @@ router.get(
     const options = {
       page: page ? parseInt(page as string) : 1,
       limit: limit ? parseInt(limit as string) : DEFAULT_PAGE_SIZE,
-      sortBy: (sortBy as 'createdAt' | 'updatedAt') || 'createdAt',
-      sortOrder: (sortOrder as 'asc' | 'desc') || 'desc'
+      sortBy: (sortBy as "createdAt" | "updatedAt") || "createdAt",
+      sortOrder: (sortOrder as "asc" | "desc") || "desc",
     };
 
     const comments = await commentService.getTopLevelCommentsForEntity(
@@ -253,16 +292,16 @@ router.get(
     res.status(OK).json({
       success: true,
       data: {
-        comments: comments.map(c => c.toObject()),
+        comments: comments.map((c) => c.toObject()),
         pagination: {
           currentPage: options.page,
           totalPages,
           totalCount: count,
           pageSize: options.limit,
           hasNextPage,
-          hasPreviousPage
-        }
-      }
+          hasPreviousPage,
+        },
+      },
     });
   })
 );
@@ -272,7 +311,7 @@ router.get(
  * Get a single comment by ID
  */
 router.get(
-  '/single/:commentId',
+  "/single/:commentId",
   AuthMiddleware.authenticate,
   standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -284,35 +323,14 @@ router.get(
     if (!comment) {
       res.status(NOT_FOUND).json({
         success: false,
-        message: 'Comment not found'
+        message: "Comment not found",
       });
       return;
     }
 
     res.status(OK).json({
       success: true,
-      data: comment.toObject()
-    });
-  })
-);
-
-/**
- * GET /api/comments/:commentId/replies
- * Get all replies to a comment
- */
-router.get(
-  '/:commentId/replies',
-  AuthMiddleware.authenticate,
-  standardCommentLimiter,
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { commentId } = req.params;
-    const userId = req.user!.userId;
-
-    const replies = await commentService.getReplies(commentId, userId);
-
-    res.status(OK).json({
-      success: true,
-      data: replies.map(r => r.toObject())
+      data: comment.toObject(),
     });
   })
 );
@@ -323,7 +341,7 @@ router.get(
  * Body: { text }
  */
 router.put(
-  '/:commentId',
+  "/:commentId",
   AuthMiddleware.authenticate,
   standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -335,7 +353,7 @@ router.put(
     if (!text) {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: 'Text is required'
+        message: "Text is required",
       });
       return;
     }
@@ -343,7 +361,7 @@ router.put(
     const updateData: UpdateCommentData = {
       text,
       editedBy: userId,
-      editedByName: username
+      editedByName: username,
     };
 
     try {
@@ -355,14 +373,17 @@ router.put(
 
       res.status(OK).json({
         success: true,
-        message: 'Comment updated successfully',
-        data: updatedComment.toObject()
+        message: "Comment updated successfully",
+        data: updatedComment.toObject(),
       });
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Only the comment author')) {
+      if (
+        error instanceof Error &&
+        error.message.includes("Only the comment author")
+      ) {
         res.status(FORBIDDEN).json({
           success: false,
-          message: error.message
+          message: error.message,
         });
         return;
       }
@@ -376,7 +397,7 @@ router.put(
  * Soft delete a comment
  */
 router.delete(
-  '/:commentId',
+  "/:commentId",
   AuthMiddleware.authenticate,
   standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -389,13 +410,16 @@ router.delete(
 
       res.status(OK).json({
         success: true,
-        message: 'Comment deleted successfully'
+        message: "Comment deleted successfully",
       });
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Only the comment author')) {
+      if (
+        error instanceof Error &&
+        error.message.includes("Only the comment author")
+      ) {
         res.status(FORBIDDEN).json({
           success: false,
-          message: error.message
+          message: error.message,
         });
         return;
       }
@@ -409,7 +433,7 @@ router.delete(
  * Restore a soft-deleted comment (admin only)
  */
 router.post(
-  '/:commentId/restore',
+  "/:commentId/restore",
   AuthMiddleware.authenticate,
   AuthMiddleware.requireRole(UserRole.ADMIN),
   standardCommentLimiter,
@@ -421,7 +445,7 @@ router.post(
 
     res.status(OK).json({
       success: true,
-      message: 'Comment restored successfully'
+      message: "Comment restored successfully",
     });
   })
 );
@@ -431,17 +455,21 @@ router.post(
  * Get comment statistics for an entity
  */
 router.get(
-  '/stats/:entityType/:entityId',
+  "/stats/:entityType/:entityId",
   AuthMiddleware.authenticate,
   standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { entityType, entityId } = req.params;
 
     // Validate entity type
-    if (!Object.values(CommentEntityType).includes(entityType as CommentEntityType)) {
+    if (
+      !Object.values(CommentEntityType).includes(
+        entityType as CommentEntityType
+      )
+    ) {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: 'Invalid entity type. Must be CANDIDATE or JOB'
+        message: "Invalid entity type. Must be CANDIDATE or JOB",
       });
       return;
     }
@@ -453,7 +481,7 @@ router.get(
 
     res.status(OK).json({
       success: true,
-      data: stats
+      data: stats,
     });
   })
 );
@@ -464,7 +492,7 @@ router.get(
  * Query: ?page=1&limit=20
  */
 router.get(
-  '/user/mentions',
+  "/user/mentions",
   AuthMiddleware.authenticate,
   standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -473,12 +501,17 @@ router.get(
 
     const options = {
       page: page ? parseInt(page as string) : 1,
-      limit: limit ? parseInt(limit as string) : DEFAULT_USER_PAGE_SIZE
+      limit: limit ? parseInt(limit as string) : DEFAULT_USER_PAGE_SIZE,
     };
 
-    const comments = await commentService.getCommentsMentioningUser(userId, options);
+    const comments = await commentService.getCommentsMentioningUser(
+      userId,
+      options
+    );
 
-    const totalCount = await commentService.getCommentsMentioningUserCount(userId);
+    const totalCount = await commentService.getCommentsMentioningUserCount(
+      userId
+    );
     const totalPages = Math.ceil(totalCount / options.limit);
     const hasNextPage = options.page < totalPages;
     const hasPreviousPage = options.page > 1;
@@ -486,16 +519,16 @@ router.get(
     res.status(OK).json({
       success: true,
       data: {
-        comments: comments.map(c => c.toObject()),
+        comments: comments.map((c) => c.toObject()),
         pagination: {
           currentPage: options.page,
           totalPages,
           totalCount,
           pageSize: options.limit,
           hasNextPage,
-          hasPreviousPage
-        }
-      }
+          hasPreviousPage,
+        },
+      },
     });
   })
 );
@@ -506,7 +539,7 @@ router.get(
  * Query: ?page=1&limit=20
  */
 router.get(
-  '/user/authored',
+  "/user/authored",
   AuthMiddleware.authenticate,
   standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -515,7 +548,7 @@ router.get(
 
     const options = {
       page: page ? parseInt(page as string) : 1,
-      limit: limit ? parseInt(limit as string) : DEFAULT_USER_PAGE_SIZE
+      limit: limit ? parseInt(limit as string) : DEFAULT_USER_PAGE_SIZE,
     };
 
     const comments = await commentService.getCommentsByAuthor(userId, options);
@@ -528,16 +561,16 @@ router.get(
     res.status(OK).json({
       success: true,
       data: {
-        comments: comments.map(c => c.toObject()),
+        comments: comments.map((c) => c.toObject()),
         pagination: {
           currentPage: options.page,
           totalPages,
           totalCount,
           pageSize: options.limit,
           hasNextPage,
-          hasPreviousPage
-        }
-      }
+          hasPreviousPage,
+        },
+      },
     });
   })
 );
@@ -552,7 +585,7 @@ router.get(
  * Body: { entityType, entityId, isTyping }
  */
 router.post(
-  '/typing',
+  "/typing",
   AuthMiddleware.authenticate,
   realtimeCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -560,33 +593,33 @@ router.post(
     const userId = req.user!.userId;
     const username = `${req.user!.firstName} ${req.user!.lastName}`.trim();
 
-    if (!entityType || !entityId || typeof isTyping !== 'boolean') {
+    if (!entityType || !entityId || typeof isTyping !== "boolean") {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: 'entityType, entityId, and isTyping are required'
+        message: "entityType, entityId, and isTyping are required",
       });
       return;
     }
 
     // Broadcast typing indicator via WebSocket
-    const { webSocketService } = await import('../services/WebSocketService');
+    const { webSocketService } = await import("../services/WebSocketService");
     const io = webSocketService.getIO();
-    
+
     if (io) {
       const roomName = `${entityType.toLowerCase()}:${entityId}`;
-      io.to(roomName).emit('comment:typing', {
+      io.to(roomName).emit("comment:typing", {
         userId,
         username,
         entityType,
         entityId,
         isTyping,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
     }
 
     res.status(OK).json({
       success: true,
-      message: 'Typing indicator broadcast'
+      message: "Typing indicator broadcast",
     });
   })
 );
@@ -597,7 +630,7 @@ router.post(
  * Body: { entityType, entityId }
  */
 router.post(
-  '/presence/join',
+  "/presence/join",
   AuthMiddleware.authenticate,
   realtimeCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -608,29 +641,29 @@ router.post(
     if (!entityType || !entityId) {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: 'entityType and entityId are required'
+        message: "entityType and entityId are required",
       });
       return;
     }
 
     // Broadcast presence join via WebSocket
-    const { webSocketService } = await import('../services/WebSocketService');
+    const { webSocketService } = await import("../services/WebSocketService");
     const io = webSocketService.getIO();
-    
+
     if (io) {
       const roomName = `${entityType.toLowerCase()}:${entityId}`;
-      io.to(roomName).emit('comment:presence:join', {
+      io.to(roomName).emit("comment:presence:join", {
         userId,
         username,
         entityType,
         entityId,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
     }
 
     res.status(OK).json({
       success: true,
-      message: 'Joined entity room'
+      message: "Joined entity room",
     });
   })
 );
@@ -641,7 +674,7 @@ router.post(
  * Body: { entityType, entityId }
  */
 router.post(
-  '/presence/leave',
+  "/presence/leave",
   AuthMiddleware.authenticate,
   realtimeCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -652,29 +685,29 @@ router.post(
     if (!entityType || !entityId) {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: 'entityType and entityId are required'
+        message: "entityType and entityId are required",
       });
       return;
     }
 
     // Broadcast presence leave via WebSocket
-    const { webSocketService } = await import('../services/WebSocketService');
+    const { webSocketService } = await import("../services/WebSocketService");
     const io = webSocketService.getIO();
-    
+
     if (io) {
       const roomName = `${entityType.toLowerCase()}:${entityId}`;
-      io.to(roomName).emit('comment:presence:leave', {
+      io.to(roomName).emit("comment:presence:leave", {
         userId,
         username,
         entityType,
         entityId,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
     }
 
     res.status(OK).json({
       success: true,
-      message: 'Left entity room'
+      message: "Left entity room",
     });
   })
 );
@@ -685,16 +718,16 @@ router.post(
  * Query: ?query=john
  */
 router.get(
-  '/autocomplete/users',
+  "/autocomplete/users",
   AuthMiddleware.authenticate,
   autocompleteLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { query } = req.query;
 
-    if (!query || typeof query !== 'string') {
+    if (!query || typeof query !== "string") {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: 'Query parameter is required'
+        message: "Query parameter is required",
       });
       return;
     }
@@ -703,27 +736,28 @@ router.get(
     if (searchQuery.length < MIN_AUTOCOMPLETE_QUERY_LENGTH) {
       res.status(BAD_REQUEST).json({
         success: false,
-        message: `Query must be at least ${MIN_AUTOCOMPLETE_QUERY_LENGTH} characters`
+        message: `Query must be at least ${MIN_AUTOCOMPLETE_QUERY_LENGTH} characters`,
       });
       return;
     }
 
     // Search users by firstName, lastName, or email
-    const { connectDB } = await import('../mongo_db');
+    const { connectDB } = await import("../mongo_db");
     const db = await connectDB();
-    
-    const users = await db.collection('users')
+
+    const users = await db
+      .collection("users")
       .find({
         $and: [
           { isActive: true, isDeleted: false },
           {
             $or: [
-              { firstName: { $regex: searchQuery, $options: 'i' } },
-              { lastName: { $regex: searchQuery, $options: 'i' } },
-              { email: { $regex: searchQuery, $options: 'i' } }
-            ]
-          }
-        ]
+              { firstName: { $regex: searchQuery, $options: "i" } },
+              { lastName: { $regex: searchQuery, $options: "i" } },
+              { email: { $regex: searchQuery, $options: "i" } },
+            ],
+          },
+        ],
       })
       .project({
         userId: 1,
@@ -731,13 +765,13 @@ router.get(
         lastName: 1,
         email: 1,
         title: 1,
-        role: 1
+        role: 1,
       })
       .limit(MAX_AUTOCOMPLETE_RESULTS)
       .toArray();
 
     // Format results for autocomplete
-    const results = users.map(user => ({
+    const results = users.map((user) => ({
       userId: user.userId,
       username: `${user.firstName} ${user.lastName}`,
       email: user.email,
@@ -746,13 +780,13 @@ router.get(
       // Suggest both name and email formats
       mentionFormats: [
         `@${user.firstName}.${user.lastName}`.toLowerCase(),
-        `@${user.email}`
-      ]
+        `@${user.email}`,
+      ],
     }));
 
     res.status(OK).json({
       success: true,
-      data: results
+      data: results,
     });
   })
 );
