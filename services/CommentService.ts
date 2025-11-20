@@ -8,6 +8,19 @@ import { NotificationService } from './NotificationService';
 import { NotificationType } from '../Models/enums/NotificationTypes';
 import { webSocketService } from './WebSocketService';
 import { Db } from 'mongodb';
+import sanitizeHtml from 'sanitize-html';
+
+/**
+ * Result of comment creation with mention validation info
+ */
+export interface CreateCommentResult {
+  comment: Comment;
+  mentionValidation: {
+    attempted: string[];      // All @mentions found in text
+    successful: string[];      // @mentions that resolved to valid users
+    failed: string[];          // @mentions that couldn't be resolved
+  };
+}
 
 /**
  * Service for managing comments with business logic and access control
@@ -46,8 +59,9 @@ export class CommentService {
    * Validates entity exists and user has access
    * Auto-parses @mentions and stores them
    * Triggers notifications for mentions, replies, and entity comments
+   * Returns comment with mention validation info
    */
-  async createComment(createData: CreateCommentData): Promise<Comment> {
+  async createComment(createData: CreateCommentData): Promise<CreateCommentResult> {
     await this.init();
 
     // Validate text
@@ -58,6 +72,9 @@ export class CommentService {
     if (createData.text.length > 5000) {
       throw new Error('Comment text cannot exceed 5000 characters');
     }
+
+    // Sanitize HTML to prevent XSS attacks
+    const sanitizedText = this.sanitizeCommentText(createData.text);
 
     // Validate entity exists
     await this.validateEntityExists(createData.entityType, createData.entityId);
@@ -76,14 +93,23 @@ export class CommentService {
       if (parentComment.entityType !== createData.entityType || parentComment.entityId !== createData.entityId) {
         throw new Error('Reply must be on the same entity as parent comment');
       }
+      
+      // Validate reply depth (max 5 levels)
+      const depth = await this.getCommentDepth(parentComment);
+      if (depth >= 5) {
+        throw new Error('Maximum reply depth of 5 levels reached. Cannot reply to this comment.');
+      }
     }
 
-    // Parse and validate @mentions
+    // Parse and validate @mentions (use original text for mention parsing)
     const mentionStrings = this.parseMentions(createData.text);
-    const validMentions = await this.validateMentions(mentionStrings);
+    const { validMentions, failedMentions } = await this.validateMentionsWithErrors(mentionStrings);
 
-    // Create comment instance
-    const comment = Comment.create(createData);
+    // Create comment instance with sanitized text
+    const comment = Comment.create({
+      ...createData,
+      text: sanitizedText
+    });
     
     // Add mentions if any were found
     if (validMentions.length > 0) {
@@ -108,7 +134,8 @@ export class CommentService {
         metadata: {
           commentId: comment.commentId,
           isReply: !!createData.parentCommentId,
-          mentionCount: validMentions.length
+          mentionCount: validMentions.length,
+          failedMentionCount: failedMentions.length
         }
       },
       success: true
@@ -139,7 +166,14 @@ export class CommentService {
     // 4. Broadcast via WebSocket for real-time updates
     this.broadcastCommentCreated(savedComment);
 
-    return savedComment;
+    return {
+      comment: savedComment,
+      mentionValidation: {
+        attempted: mentionStrings,
+        successful: validMentions.map(m => m.username),
+        failed: failedMentions
+      }
+    };
   }
 
   // =======================
@@ -244,6 +278,22 @@ export class CommentService {
   }
 
   /**
+   * Count comments where user is mentioned
+   */
+  async getCommentsMentioningUserCount(userId: string): Promise<number> {
+    await this.init();
+    return await this.commentRepository!.countByMention(userId);
+  }
+
+  /**
+   * Count comments by author
+   */
+  async getCommentsByAuthorCount(authorId: string): Promise<number> {
+    await this.init();
+    return await this.commentRepository!.countByAuthor(authorId);
+  }
+
+  /**
    * Get comment count for an entity
    */
   async getCommentCount(entityType: CommentEntityType, entityId: string): Promise<number> {
@@ -288,8 +338,11 @@ export class CommentService {
       throw new Error('Only the comment author can edit');
     }
 
-    // Update the comment
-    comment.updateText(updateData.text, updateData.editedBy, updateData.editedByName);
+    // Sanitize HTML to prevent XSS attacks
+    const sanitizedText = this.sanitizeCommentText(updateData.text);
+
+    // Update the comment with sanitized text
+    comment.updateText(sanitizedText, updateData.editedBy, updateData.editedByName);
 
     // Save to database
     await this.commentRepository!.updateText(comment);
@@ -725,6 +778,38 @@ export class CommentService {
   // =======================
 
   /**
+   * Get the depth of a comment in the reply chain
+   * Recursively traverses up to the top-level comment
+   * Returns 1 for top-level comments, 2 for first-level replies, etc.
+   */
+  private async getCommentDepth(comment: Comment): Promise<number> {
+    if (!comment.parentCommentId) {
+      return 1; // Top-level comment
+    }
+
+    const parentComment = await this.commentRepository!.findById(comment.parentCommentId);
+    if (!parentComment) {
+      return 1; // Safety fallback if parent not found
+    }
+
+    return 1 + await this.getCommentDepth(parentComment);
+  }
+
+  /**
+   * Sanitize HTML in comment text to prevent XSS attacks
+   * Allows basic formatting but strips dangerous tags/attributes
+   */
+  private sanitizeCommentText(text: string): string {
+    return sanitizeHtml(text, {
+      allowedTags: ['b', 'i', 'em', 'strong', 'u', 'br', 'p', 'ul', 'ol', 'li', 'code', 'pre'],
+      allowedAttributes: {},
+      disallowedTagsMode: 'escape', // Escape rather than remove
+      enforceHtmlBoundary: true,
+      parseStyleAttributes: false
+    });
+  }
+
+  /**
    * Get recent comment activity
    */
   async getRecentActivity(limit: number = 10): Promise<Comment[]> {
@@ -757,12 +842,27 @@ export class CommentService {
    * Returns array of valid CommentMention objects
    */
   async validateMentions(mentions: string[]): Promise<CommentMention[]> {
-    if (mentions.length === 0) return [];
+    const result = await this.validateMentionsWithErrors(mentions);
+    return result.validMentions;
+  }
+
+  /**
+   * Validate mentions and return both valid and failed mentions
+   * Used by createComment to provide feedback to users
+   */
+  async validateMentionsWithErrors(mentions: string[]): Promise<{
+    validMentions: CommentMention[];
+    failedMentions: string[];
+  }> {
+    if (mentions.length === 0) {
+      return { validMentions: [], failedMentions: [] };
+    }
 
     await this.init();
     const db = this.db!;
     
     const validMentions: CommentMention[] = [];
+    const failedMentions: string[] = [];
     const now = new Date();
 
     for (const mention of mentions) {
@@ -797,9 +897,11 @@ export class CommentService {
           username: `${user.firstName} ${user.lastName}`,
           mentionedAt: now
         });
+      } else {
+        failedMentions.push(mention);
       }
     }
 
-    return validMentions;
+    return { validMentions, failedMentions };
   }
 }

@@ -8,9 +8,17 @@ interface UserSocket {
   connectedAt: Date;
 }
 
+interface RoomPresence {
+  userId: string;
+  username: string;
+  joinedAt: Date;
+}
+
 export class WebSocketService {
   private io: SocketIOServer | null = null;
   private userSockets: Map<string, Set<string>> = new Map(); // userId -> Set of socket IDs
+  private socketToUser: Map<string, string> = new Map(); // socketId -> userId
+  private socketRooms: Map<string, Set<string>> = new Map(); // socketId -> Set of room names (for comment rooms)
 
   /**
    * Initialize Socket.io server
@@ -43,15 +51,60 @@ export class WebSocketService {
       socket.on('authenticate', (userId: string) => {
         this.registerUserSocket(userId, socket.id);
         socket.join(`user:${userId}`);
+        this.socketToUser.set(socket.id, userId);
         console.log(`User ${userId} authenticated on socket ${socket.id}`);
         
         // Send confirmation
         socket.emit('authenticated', { userId, socketId: socket.id });
       });
 
+      // Handle comment room join
+      socket.on('comment:room:join', (data: { userId: string; username: string; roomName: string }) => {
+        socket.join(data.roomName);
+        
+        // Track room membership
+        if (!this.socketRooms.has(socket.id)) {
+          this.socketRooms.set(socket.id, new Set());
+        }
+        this.socketRooms.get(socket.id)!.add(data.roomName);
+        
+        // Broadcast presence join to room
+        socket.to(data.roomName).emit('comment:presence:join', {
+          userId: data.userId,
+          username: data.username,
+          timestamp: new Date()
+        });
+        
+        console.log(`User ${data.userId} joined room ${data.roomName}`);
+      });
+
+      // Handle comment room leave
+      socket.on('comment:room:leave', (data: { userId: string; username: string; roomName: string }) => {
+        socket.leave(data.roomName);
+        
+        // Remove from tracking
+        if (this.socketRooms.has(socket.id)) {
+          this.socketRooms.get(socket.id)!.delete(data.roomName);
+        }
+        
+        // Broadcast presence leave to room
+        socket.to(data.roomName).emit('comment:presence:leave', {
+          userId: data.userId,
+          username: data.username,
+          timestamp: new Date()
+        });
+        
+        console.log(`User ${data.userId} left room ${data.roomName}`);
+      });
+
       // Handle disconnection
       socket.on('disconnect', () => {
+        // Clean up comment rooms (broadcast leave events)
+        this.cleanupSocketRooms(socket);
+        
+        // Clean up user socket tracking
         this.unregisterSocket(socket.id);
+        
         console.log(`Socket disconnected: ${socket.id}`);
       });
 
@@ -85,6 +138,34 @@ export class WebSocketService {
       this.userSockets.set(userId, new Set());
     }
     this.userSockets.get(userId)!.add(socketId);
+  }
+
+  /**
+   * Clean up comment rooms when socket disconnects
+   */
+  private cleanupSocketRooms(socket: Socket): void {
+    if (!this.io) return;
+    
+    const socketId = socket.id;
+    const userId = this.socketToUser.get(socketId);
+    const rooms = this.socketRooms.get(socketId);
+    
+    if (rooms && userId) {
+      // Broadcast presence:leave to all rooms the user was in
+      rooms.forEach(roomName => {
+        socket.to(roomName).emit('comment:presence:leave', {
+          userId,
+          username: 'Unknown', // We don't store username, frontend should handle
+          timestamp: new Date(),
+          reason: 'disconnect'
+        });
+      });
+      
+      // Clean up tracking
+      this.socketRooms.delete(socketId);
+    }
+    
+    this.socketToUser.delete(socketId);
   }
 
   /**

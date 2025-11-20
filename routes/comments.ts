@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { CommentService } from '../services/CommentService';
 import { CommentEntityType, CreateCommentData, UpdateCommentData } from '../Models/Comment';
 import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
@@ -7,6 +8,56 @@ import { UserRole } from '../Models/User';
 
 const router = Router();
 const commentService = new CommentService();
+
+// ====================
+// RATE LIMITERS
+// ====================
+
+/**
+ * Standard rate limit for CRUD operations
+ * 30 requests per minute per user
+ */
+const standardCommentLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,
+  message: 'Too many comment requests, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: AuthenticatedRequest) => {
+    // Rate limit per user
+    return req.user?.userId || req.ip || 'anonymous';
+  }
+});
+
+/**
+ * Strict rate limit for real-time endpoints (typing, presence)
+ * 60 requests per minute per user (1 per second average)
+ */
+const realtimeCommentLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60,
+  message: 'Too many real-time requests, please slow down.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: AuthenticatedRequest) => {
+    return req.user?.userId || req.ip || 'anonymous';
+  }
+});
+
+/**
+ * Very strict rate limit for autocomplete (prevent user enumeration)
+ * 20 requests per minute per user
+ */
+const autocompleteLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 20,
+  message: 'Too many autocomplete requests, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: AuthenticatedRequest) => {
+    return req.user?.userId || req.ip || 'anonymous';
+  }
+});
 
 // ====================
 // COMMENT ENDPOINTS
@@ -20,6 +71,7 @@ const commentService = new CommentService();
 router.post(
   '/',
   AuthMiddleware.authenticate,
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { text, entityType, entityId, parentCommentId } = req.body;
     const userId = req.user!.userId;
@@ -52,12 +104,18 @@ router.post(
       parentCommentId: parentCommentId || null
     };
 
-    const comment = await commentService.createComment(createData);
+    const result = await commentService.createComment(createData);
 
     res.status(201).json({
       success: true,
       message: 'Comment created successfully',
-      data: comment.toObject()
+      data: {
+        comment: result.comment.toObject(),
+        mentionValidation: result.mentionValidation
+      },
+      warnings: result.mentionValidation.failed.length > 0 
+        ? [`Failed to resolve ${result.mentionValidation.failed.length} @mention(s): ${result.mentionValidation.failed.join(', ')}`]
+        : undefined
     });
   })
 );
@@ -70,6 +128,7 @@ router.post(
 router.get(
   '/:entityType/:entityId',
   AuthMiddleware.authenticate,
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { entityType, entityId } = req.params;
     const userId = req.user!.userId;
@@ -103,13 +162,22 @@ router.get(
       entityId
     );
 
+    const totalPages = Math.ceil(count / options.limit);
+    const hasNextPage = options.page < totalPages;
+    const hasPreviousPage = options.page > 1;
+
     res.status(200).json({
       success: true,
       data: {
         comments: comments.map(c => c.toObject()),
-        total: count,
-        page: options.page,
-        limit: options.limit
+        pagination: {
+          currentPage: options.page,
+          totalPages,
+          totalCount: count,
+          pageSize: options.limit,
+          hasNextPage,
+          hasPreviousPage
+        }
       }
     });
   })
@@ -122,6 +190,7 @@ router.get(
 router.get(
   '/:entityType/:entityId/top-level',
   AuthMiddleware.authenticate,
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { entityType, entityId } = req.params;
     const userId = req.user!.userId;
@@ -150,9 +219,28 @@ router.get(
       options
     );
 
+    const count = await commentService.getCommentCount(
+      entityType as CommentEntityType,
+      entityId
+    );
+
+    const totalPages = Math.ceil(count / options.limit);
+    const hasNextPage = options.page < totalPages;
+    const hasPreviousPage = options.page > 1;
+
     res.status(200).json({
       success: true,
-      data: comments.map(c => c.toObject())
+      data: {
+        comments: comments.map(c => c.toObject()),
+        pagination: {
+          currentPage: options.page,
+          totalPages,
+          totalCount: count,
+          pageSize: options.limit,
+          hasNextPage,
+          hasPreviousPage
+        }
+      }
     });
   })
 );
@@ -164,6 +252,7 @@ router.get(
 router.get(
   '/single/:commentId',
   AuthMiddleware.authenticate,
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { commentId } = req.params;
     const userId = req.user!.userId;
@@ -192,6 +281,7 @@ router.get(
 router.get(
   '/:commentId/replies',
   AuthMiddleware.authenticate,
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { commentId } = req.params;
     const userId = req.user!.userId;
@@ -213,6 +303,7 @@ router.get(
 router.put(
   '/:commentId',
   AuthMiddleware.authenticate,
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { commentId } = req.params;
     const { text } = req.body;
@@ -265,6 +356,7 @@ router.put(
 router.delete(
   '/:commentId',
   AuthMiddleware.authenticate,
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { commentId } = req.params;
     const userId = req.user!.userId;
@@ -298,6 +390,7 @@ router.post(
   '/:commentId/restore',
   AuthMiddleware.authenticate,
   AuthMiddleware.requireRole(UserRole.ADMIN),
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { commentId } = req.params;
     const userId = req.user!.userId;
@@ -318,6 +411,7 @@ router.post(
 router.get(
   '/stats/:entityType/:entityId',
   AuthMiddleware.authenticate,
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { entityType, entityId } = req.params;
 
@@ -350,6 +444,7 @@ router.get(
 router.get(
   '/user/mentions',
   AuthMiddleware.authenticate,
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.userId;
     const { page, limit } = req.query;
@@ -361,9 +456,24 @@ router.get(
 
     const comments = await commentService.getCommentsMentioningUser(userId, options);
 
+    const totalCount = await commentService.getCommentsMentioningUserCount(userId);
+    const totalPages = Math.ceil(totalCount / options.limit);
+    const hasNextPage = options.page < totalPages;
+    const hasPreviousPage = options.page > 1;
+
     res.status(200).json({
       success: true,
-      data: comments.map(c => c.toObject())
+      data: {
+        comments: comments.map(c => c.toObject()),
+        pagination: {
+          currentPage: options.page,
+          totalPages,
+          totalCount,
+          pageSize: options.limit,
+          hasNextPage,
+          hasPreviousPage
+        }
+      }
     });
   })
 );
@@ -376,6 +486,7 @@ router.get(
 router.get(
   '/user/authored',
   AuthMiddleware.authenticate,
+  standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.userId;
     const { page, limit } = req.query;
@@ -387,9 +498,24 @@ router.get(
 
     const comments = await commentService.getCommentsByAuthor(userId, options);
 
+    const totalCount = await commentService.getCommentsByAuthorCount(userId);
+    const totalPages = Math.ceil(totalCount / options.limit);
+    const hasNextPage = options.page < totalPages;
+    const hasPreviousPage = options.page > 1;
+
     res.status(200).json({
       success: true,
-      data: comments.map(c => c.toObject())
+      data: {
+        comments: comments.map(c => c.toObject()),
+        pagination: {
+          currentPage: options.page,
+          totalPages,
+          totalCount,
+          pageSize: options.limit,
+          hasNextPage,
+          hasPreviousPage
+        }
+      }
     });
   })
 );
@@ -406,6 +532,7 @@ router.get(
 router.post(
   '/typing',
   AuthMiddleware.authenticate,
+  realtimeCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { entityType, entityId, isTyping } = req.body;
     const userId = req.user!.userId;
@@ -450,6 +577,7 @@ router.post(
 router.post(
   '/presence/join',
   AuthMiddleware.authenticate,
+  realtimeCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { entityType, entityId } = req.body;
     const userId = req.user!.userId;
@@ -493,6 +621,7 @@ router.post(
 router.post(
   '/presence/leave',
   AuthMiddleware.authenticate,
+  realtimeCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { entityType, entityId } = req.body;
     const userId = req.user!.userId;
@@ -536,6 +665,7 @@ router.post(
 router.get(
   '/autocomplete/users',
   AuthMiddleware.authenticate,
+  autocompleteLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { query } = req.query;
 
@@ -548,10 +678,10 @@ router.get(
     }
 
     const searchQuery = query.trim();
-    if (searchQuery.length < 2) {
+    if (searchQuery.length < 3) {
       res.status(400).json({
         success: false,
-        message: 'Query must be at least 2 characters'
+        message: 'Query must be at least 3 characters'
       });
       return;
     }

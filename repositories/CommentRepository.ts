@@ -267,6 +267,26 @@ export class CommentRepository {
     });
   }
 
+  /**
+   * Count comments where a user is mentioned
+   */
+  async countByMention(userId: string): Promise<number> {
+    return await this.collection.countDocuments({
+      'mentions.userId': userId,
+      isDeleted: false
+    });
+  }
+
+  /**
+   * Count comments by author
+   */
+  async countByAuthor(authorId: string): Promise<number> {
+    return await this.collection.countDocuments({
+      authorId,
+      isDeleted: false
+    });
+  }
+
   // =======================
   // UPDATE OPERATIONS
   // =======================
