@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{appName}} - Weekly Digest</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          
+          <!-- Header -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px 40px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: bold;">{{appName}}</h1>
+              <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 16px; opacity: 0.9;">Your Weekly Digest</p>
+            </td>
+          </tr>
+
+          <!-- Summary -->
+          <tr>
+            <td style="padding: 30px 40px; border-bottom: 1px solid #e5e7eb;">
+              <h2 style="margin: 0 0 15px 0; color: #111827; font-size: 20px;">{{stats.total}} notifications from the past week</h2>
+              <p style="margin: 0; color: #6b7280; font-size: 14px;">
+                {{formatDate period.start}} - {{formatDate period.end}}
+              </p>
+            </td>
+          </tr>
+
+          <!-- Statistics -->
+          <tr>
+            <td style="padding: 20px 40px; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="50%" style="padding: 10px 0;">
+                    <p style="margin: 0 0 5px 0; color: #6b7280; font-size: 12px; text-transform: uppercase;">By Category</p>
+                    {{#each stats.byCategory}}
+                      <div style="margin: 5px 0;">
+                        <span style="color: #374151; font-size: 14px; font-weight: 500;">{{@key}}</span>
+                        <span style="color: #6b7280; font-size: 14px;">: {{this}}</span>
+                      </div>
+                    {{/each}}
+                  </td>
+                  <td width="50%" style="padding: 10px 0;">
+                    <p style="margin: 0 0 5px 0; color: #6b7280; font-size: 12px; text-transform: uppercase;">By Priority</p>
+                    {{#each stats.byPriority}}
+                      <div style="margin: 5px 0;">
+                        <span style="color: #374151; font-size: 14px; font-weight: 500;">{{@key}}</span>
+                        <span style="color: #6b7280; font-size: 14px;">: {{this}}</span>
+                      </div>
+                    {{/each}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Top Notifications (max 10) -->
+          <tr>
+            <td style="padding: 30px 40px; border-bottom: 1px solid #e5e7eb;">
+              <h3 style="margin: 0 0 20px 0; color: #111827; font-size: 18px;">Top Notifications This Week</h3>
+              
+              {{#each (limit notifications 10)}}
+                <div style="margin: 0 0 20px 0; padding: 15px; background-color: #f9fafb; border-left: 3px solid {{categoryColor category}}; border-radius: 4px;">
+                  <div style="margin-bottom: 8px;">
+                    {{{priorityBadge priority}}}
+                    <span style="color: #6b7280; font-size: 12px; margin-left: 10px;">{{formatDate createdAt}}</span>
+                  </div>
+                  <h4 style="margin: 0 0 8px 0; color: #111827; font-size: 16px; font-weight: 600;">{{title}}</h4>
+                  <p style="margin: 0; color: #4b5563; font-size: 14px; line-height: 1.5;">{{message}}</p>
+                  {{#if action}}
+                    <a href="{{../../appUrl}}{{action.url}}" style="display: inline-block; margin-top: 12px; padding: 8px 16px; background-color: #667eea; color: #ffffff; text-decoration: none; border-radius: 4px; font-size: 14px; font-weight: 500;">
+                      {{action.label}}
+                    </a>
+                  {{/if}}
+                </div>
+              {{/each}}
+
+              {{#if (gt notifications.length 10)}}
+                <p style="margin: 20px 0 0 0; text-align: center; color: #6b7280; font-size: 14px;">
+                  ... and {{subtract notifications.length 10}} more notifications
+                </p>
+              {{/if}}
+            </td>
+          </tr>
+
+          <!-- View All Button -->
+          <tr>
+            <td style="padding: 30px 40px; text-align: center; background-color: #f9fafb;">
+              <a href="{{appUrl}}/notifications" style="display: inline-block; padding: 14px 32px; background-color: #667eea; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 16px; font-weight: 600;">
+                View All Notifications
+              </a>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 30px 40px; text-align: center; background-color: #f9fafb; border-top: 1px solid #e5e7eb;">
+              <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 14px;">
+                You're receiving this because you have weekly digest enabled
+              </p>
+              <p style="margin: 0; color: #6b7280; font-size: 12px;">
+                <a href="{{appUrl}}/settings/notifications" style="color: #667eea; text-decoration: none;">Manage preferences</a>
+                &nbsp;•&nbsp;
+                <a href="{{appUrl}}/unsubscribe" style="color: #667eea; text-decoration: none;">Unsubscribe</a>
+              </p>
+              <p style="margin: 15px 0 0 0; color: #9ca3af; font-size: 12px;">
+                © 2025 {{appName}}. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -25,19 +25,20 @@ import {
   NotificationCategory,
   NotificationPriority,
   NotificationChannel,
-  DeliveryStatus
+  DeliveryStatus,
+  DigestFrequency
 } from '../Models/enums/NotificationTypes';
 
 export class NotificationService {
   private notificationRepository: NotificationRepository;
-  private preferencesRepository: NotificationPreferencesRepository;
+  private notificationPreferencesRepository: NotificationPreferencesRepository;
 
   constructor(
     notificationRepository: NotificationRepository,
-    preferencesRepository: NotificationPreferencesRepository
+    notificationPreferencesRepository: NotificationPreferencesRepository
   ) {
     this.notificationRepository = notificationRepository;
-    this.preferencesRepository = preferencesRepository;
+    this.notificationPreferencesRepository = notificationPreferencesRepository;
   }
 
   /**
@@ -46,7 +47,7 @@ export class NotificationService {
   async createNotification(data: CreateNotificationData): Promise<Notification | null> {
     try {
       // Evaluate user preferences
-      const evaluation = await this.preferencesRepository.evaluatePreferences(
+      const evaluation = await this.notificationPreferencesRepository.evaluatePreferences(
         data.userId,
         data.type,
         data.priority || NotificationPriority.MEDIUM
@@ -96,25 +97,45 @@ export class NotificationService {
             break;
 
           case NotificationChannel.EMAIL:
-            // Queue email for async delivery
-            try {
-              await emailQueueService.queueEmail({
-                notification,
-                recipientEmail: notification.userEmail || '',
-                recipientName: notification.data?.recipientName
-              });
-              await this.notificationRepository.updateDeliveryStatus(
-                notification.notificationId,
-                channel,
-                DeliveryStatus.SENT
-              );
-            } catch (emailError) {
-              console.error('Failed to queue email:', emailError);
+            // Check user's digest preferences before sending email
+            const preferences = await this.notificationPreferencesRepository.getByUserId(notification.userId);
+            
+            // Skip immediate email if digest is enabled (unless IMMEDIATE or CRITICAL priority)
+            const shouldSendImmediately = 
+              !preferences ||
+              !preferences.emailDigest.enabled ||
+              preferences.emailDigest.frequency === DigestFrequency.IMMEDIATE ||
+              notification.priority === NotificationPriority.CRITICAL;
+
+            if (shouldSendImmediately) {
+              // Queue email for async delivery
+              try {
+                await emailQueueService.queueEmail({
+                  notification,
+                  recipientEmail: notification.userEmail || '',
+                  recipientName: notification.data?.recipientName
+                });
+                await this.notificationRepository.updateDeliveryStatus(
+                  notification.notificationId,
+                  channel,
+                  DeliveryStatus.SENT
+                );
+              } catch (emailError) {
+                console.error('Failed to queue email:', emailError);
+                await this.notificationRepository.updateDeliveryStatus(
+                  notification.notificationId,
+                  channel,
+                  DeliveryStatus.PENDING
+                );
+              }
+            } else {
+              // Mark as pending for digest
               await this.notificationRepository.updateDeliveryStatus(
                 notification.notificationId,
                 channel,
                 DeliveryStatus.PENDING
               );
+              console.log(`Email for notification ${notification.notificationId} queued for ${preferences.emailDigest.frequency} digest`);
             }
             break;
 
@@ -189,7 +210,7 @@ export class NotificationService {
   ): Promise<number> {
     try {
       // Get all active users
-      const allPreferences = await this.preferencesRepository.getAllEnabledUsers();
+      const allPreferences = await this.notificationPreferencesRepository.getAllEnabledUsers();
 
       const userIds = allPreferences
         .map(pref => pref.userId)
@@ -324,14 +345,14 @@ export class NotificationService {
    * Get user preferences
    */
   async getPreferences(userId: string): Promise<NotificationPreferences> {
-    return await this.preferencesRepository.getOrCreate(userId);
+    return await this.notificationPreferencesRepository.getOrCreate(userId);
   }
 
   /**
    * Create user preferences
    */
   async createPreferences(data: CreateNotificationPreferencesData): Promise<NotificationPreferences> {
-    return await this.preferencesRepository.create(data);
+    return await this.notificationPreferencesRepository.create(data);
   }
 
   /**
@@ -341,7 +362,7 @@ export class NotificationService {
     userId: string,
     data: UpdateNotificationPreferencesData
   ): Promise<NotificationPreferences | null> {
-    return await this.preferencesRepository.update(userId, data);
+    return await this.notificationPreferencesRepository.update(userId, data);
   }
 
   /**
@@ -358,14 +379,14 @@ export class NotificationService {
     if (channels) updates.channels = channels;
     if (minPriority) updates.minPriority = minPriority;
 
-    return await this.preferencesRepository.updateCategoryPreferences(userId, category, updates);
+    return await this.notificationPreferencesRepository.updateCategoryPreferences(userId, category, updates);
   }
 
   /**
    * Toggle notifications globally for a user
    */
   async toggleNotifications(userId: string, enabled: boolean): Promise<boolean> {
-    const result = await this.preferencesRepository.update(userId, { enabled });
+    const result = await this.notificationPreferencesRepository.update(userId, { enabled });
     return result !== null;
   }
 
@@ -382,7 +403,7 @@ export class NotificationService {
     if (frequency) updates['emailDigest.frequency'] = frequency;
     if (time) updates['emailDigest.time'] = time;
 
-    const result = await this.preferencesRepository.update(userId, updates);
+    const result = await this.notificationPreferencesRepository.update(userId, updates);
     return result !== null;
   }
 
@@ -401,7 +422,7 @@ export class NotificationService {
     if (end) updates['quietHours.end'] = end;
     if (allowCritical !== undefined) updates['quietHours.allowCritical'] = allowCritical;
 
-    const result = await this.preferencesRepository.update(userId, updates);
+    const result = await this.notificationPreferencesRepository.update(userId, updates);
     return result !== null;
   }
 

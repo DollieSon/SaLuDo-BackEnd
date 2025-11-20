@@ -50,6 +50,17 @@ export class TemplateService {
     // Helper for conditional rendering
     Handlebars.registerHelper('eq', (a, b) => a === b);
     Handlebars.registerHelper('ne', (a, b) => a !== b);
+    Handlebars.registerHelper('gt', (a, b) => a > b);
+    Handlebars.registerHelper('lt', (a, b) => a < b);
+
+    // Helper to limit array
+    Handlebars.registerHelper('limit', (arr: any[], limit: number) => {
+      if (!Array.isArray(arr)) return [];
+      return arr.slice(0, limit);
+    });
+
+    // Helper for math operations
+    Handlebars.registerHelper('subtract', (a: number, b: number) => a - b);
 
     // Helper to capitalize text
     Handlebars.registerHelper('capitalize', (str: string) => {
@@ -73,10 +84,10 @@ export class TemplateService {
     // Helper to get priority badge
     Handlebars.registerHelper('priorityBadge', (priority: string) => {
       const badges: Record<string, string> = {
-        CRITICAL: '🔴 Critical',
-        HIGH: '🟠 High',
-        MEDIUM: '🟡 Medium',
-        LOW: '🟢 Low'
+        CRITICAL: 'Critical',
+        HIGH: 'High',
+        MEDIUM: 'Medium',
+        LOW: 'Low'
       };
       return badges[priority] || priority;
     });
@@ -195,6 +206,7 @@ export class TemplateService {
 
   /**
    * Create fallback template for when no specific template exists
+   * I know I sinned my lord
    */
   private createFallbackTemplate(): HandlebarsTemplateDelegate {
     return Handlebars.compile(`
@@ -241,6 +253,19 @@ export class TemplateService {
     }
 
     return lines.join('\n');
+  }
+
+  /**
+   * Render template by name with arbitrary data (for digest emails)
+   */
+  async renderTemplate(templateName: string, data: Record<string, any>): Promise<string> {
+    let template = this.loadTemplate(templateName);
+
+    if (!template) {
+      throw new Error(`Template not found: ${templateName}`);
+    }
+
+    return template(data);
   }
 
   /**

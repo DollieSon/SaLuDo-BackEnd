@@ -63,6 +63,7 @@ export class NotificationRepository {
       deliveryStatus: this.initializeDeliveryStatus(data.channels || [NotificationChannel.IN_APP]),
       isRead: false,
       isArchived: false,
+      includedInDigest: false,
       action: data.action,
       createdAt: now,
       updatedAt: now,
@@ -429,4 +430,78 @@ export class NotificationRepository {
       .limit(100)
       .toArray() as unknown as Notification[];
   }
+
+  /**
+   * Get undigested notifications for a user
+   * Used for collecting notifications for digest emails
+   */
+  async getUndigestedNotifications(
+    userId: string,
+    since?: Date,
+    until?: Date
+  ): Promise<Notification[]> {
+    const query: any = {
+      userId,
+      includedInDigest: { $ne: true },
+      channels: NotificationChannel.EMAIL,
+      isArchived: false
+    };
+
+    if (since) {
+      query.createdAt = { $gte: since };
+    }
+
+    if (until) {
+      query.createdAt = { ...query.createdAt, $lte: until };
+    }
+
+    return await this.collection
+      .find(query)
+      .sort({ createdAt: -1 })
+      .toArray() as unknown as Notification[];
+  }
+
+  /**
+   * Mark notifications as included in digest
+   */
+  async markAsDigested(notificationIds: string[]): Promise<number> {
+    const result = await this.collection.updateMany(
+      { notificationId: { $in: notificationIds } },
+      {
+        $set: {
+          includedInDigest: true,
+          digestSentAt: new Date(),
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    return result.modifiedCount;
+  }
+
+  /**
+   * Get digest statistics for a user
+   */
+  async getDigestStats(userId: string): Promise<{
+    totalUndigested: number;
+    byCategory: Record<string, number>;
+    byPriority: Record<string, number>;
+  }> {
+    const notifications = await this.getUndigestedNotifications(userId);
+
+    const byCategory: Record<string, number> = {};
+    const byPriority: Record<string, number> = {};
+
+    notifications.forEach(n => {
+      byCategory[n.category] = (byCategory[n.category] || 0) + 1;
+      byPriority[n.priority] = (byPriority[n.priority] || 0) + 1;
+    });
+
+    return {
+      totalUndigested: notifications.length,
+      byCategory,
+      byPriority
+    };
+  }
 }
+

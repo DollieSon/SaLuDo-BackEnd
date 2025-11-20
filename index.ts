@@ -137,6 +137,13 @@ async function startServer() {
     
     console.log(' Token cleanup service started successfully');
     
+    // Initialize digest scheduler for email digests
+    console.log(' Setting up digest scheduler...');
+    const { DigestScheduler } = await import('./DigestScheduler');
+    const digestScheduler = new DigestScheduler(db);
+    digestScheduler.start();
+    console.log(' Digest scheduler started successfully');
+    
     // Start the server
     httpServer.listen(PORT, () => {
       console.log(' Server Status:');
@@ -144,6 +151,7 @@ async function startServer() {
       console.log(`    Environment: ${nodeEnv}`);
       console.log(`    Database: ${isLocal ? 'LOCAL' : 'REMOTE'} MongoDB`);
       console.log(`    WebSocket: Enabled on same port`);
+      console.log(`    Digest Scheduler: Running`);
       console.log('─'.repeat(60));
     });
   } catch (error) {

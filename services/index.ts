@@ -11,6 +11,7 @@ export { WebSocketService, webSocketService } from './WebSocketService';
 export { EmailService, emailService } from './EmailService';
 export { TemplateService, templateService } from './TemplateService';
 export { EmailQueueService, emailQueueService } from './EmailQueueService';
+export { DigestService } from './DigestService';
 
 // Export all types and interfaces
 export * from './types';

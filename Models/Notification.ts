@@ -75,6 +75,10 @@ export interface Notification {
   isArchived: boolean;
   archivedAt?: Date;
   
+  // Digest tracking
+  includedInDigest: boolean;  // Whether this notification was included in an email digest
+  digestSentAt?: Date;        // When the digest containing this notification was sent
+  
   // Actions
   action?: NotificationAction;
   
