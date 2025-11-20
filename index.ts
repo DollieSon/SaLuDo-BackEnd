@@ -14,6 +14,7 @@ import videosRouter from "./routes/videos";
 import filesRouter from "./routes/files";
 import notificationsRouter from "./routes/notifications";
 import commentsRouter from "./routes/comments";
+import webhooksRouter from "./routes/webhooks";
 import dotenv from "dotenv";
 import { connectDB } from "./mongo_db";
 import { TokenBlacklistRepository } from "./repositories/TokenBlacklistRepository";
@@ -116,6 +117,7 @@ app.use("/api/candidates/:candidateId/videos", videosRouter); // Video routes
 app.use("/api/files", filesRouter); // File serving routes
 app.use("/api/notifications", notificationsRouter); // Notification routes
 app.use("/api/comments", commentsRouter); // Comment routes
+app.use("/api/webhooks", webhooksRouter); // Webhook configuration routes
 
 // Function to start the server with database connection
 async function startServer() {

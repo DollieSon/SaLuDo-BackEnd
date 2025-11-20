@@ -9,6 +9,7 @@ import { Router, Request, Response } from 'express';
 import { NotificationService } from '../services/NotificationService';
 import { NotificationRepository } from '../repositories/NotificationRepository';
 import { NotificationPreferencesRepository } from '../repositories/NotificationPreferencesRepository';
+import { WebhookRepository } from '../repositories/WebhookRepository';
 import { connectDB } from '../mongo_db';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
@@ -24,7 +25,8 @@ const initializeService = async () => {
   const db = await connectDB();
   const notificationRepository = new NotificationRepository(db.collection('notifications'));
   const preferencesRepository = new NotificationPreferencesRepository(db.collection('notificationPreferences'));
-  notificationService = new NotificationService(notificationRepository, preferencesRepository);
+  const webhookRepository = new WebhookRepository(db.collection('webhooks'));
+  notificationService = new NotificationService(notificationRepository, preferencesRepository, webhookRepository);
   await AuthMiddleware.initialize();
 };
 

@@ -90,6 +90,15 @@ async function createNotificationIndexes(database: Db): Promise<void> {
     await preferencesCollection.createIndex({ enabled: 1 });
     await preferencesCollection.createIndex({ 'emailDigest.enabled': 1, 'emailDigest.frequency': 1 });
 
+    // Webhook indexes
+    const webhooksCollection = database.collection('webhooks');
+    await webhooksCollection.createIndex({ webhookId: 1 }, { unique: true });
+    await webhooksCollection.createIndex({ userId: 1 });
+    await webhooksCollection.createIndex({ userId: 1, isActive: 1, status: 1 });
+    await webhooksCollection.createIndex({ events: 1 });
+    await webhooksCollection.createIndex({ consecutiveFailures: 1 });
+    await webhooksCollection.createIndex({ createdAt: -1 });
+
     console.log('✓ Notification system indexes created successfully');
   } catch (error) {
     console.error('Warning: Failed to create notification indexes:', error);

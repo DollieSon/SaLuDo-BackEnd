@@ -5,8 +5,10 @@
 
 import { NotificationRepository } from '../repositories/NotificationRepository';
 import { NotificationPreferencesRepository } from '../repositories/NotificationPreferencesRepository';
+import { WebhookRepository } from '../repositories/WebhookRepository';
 import { webSocketService } from './WebSocketService';
 import { emailQueueService } from './EmailQueueService';
+import { WebhookService } from './WebhookService';
 import {
   Notification,
   CreateNotificationData,
@@ -32,13 +34,20 @@ import {
 export class NotificationService {
   private notificationRepository: NotificationRepository;
   private notificationPreferencesRepository: NotificationPreferencesRepository;
+  private webhookService: WebhookService | null = null;
 
   constructor(
     notificationRepository: NotificationRepository,
-    notificationPreferencesRepository: NotificationPreferencesRepository
+    notificationPreferencesRepository: NotificationPreferencesRepository,
+    webhookRepository?: WebhookRepository
   ) {
     this.notificationRepository = notificationRepository;
     this.notificationPreferencesRepository = notificationPreferencesRepository;
+    
+    // Initialize webhook service if repository is provided
+    if (webhookRepository) {
+      this.webhookService = new WebhookService(webhookRepository);
+    }
   }
 
   /**
@@ -158,12 +167,33 @@ export class NotificationService {
             break;
 
           case NotificationChannel.WEBHOOK:
-            // TODO: Webhook delivery (Phase 3)
-            await this.notificationRepository.updateDeliveryStatus(
-              notification.notificationId,
-              channel,
-              DeliveryStatus.PENDING
-            );
+            // Deliver via webhook service
+            if (this.webhookService) {
+              try {
+                await this.webhookService.deliverNotification(notification);
+                await this.notificationRepository.updateDeliveryStatus(
+                  notification.notificationId,
+                  channel,
+                  DeliveryStatus.DELIVERED
+                );
+              } catch (webhookError) {
+                console.error('Webhook delivery error:', webhookError);
+                await this.notificationRepository.updateDeliveryStatus(
+                  notification.notificationId,
+                  channel,
+                  DeliveryStatus.FAILED,
+                  webhookError instanceof Error ? webhookError.message : 'Webhook delivery failed'
+                );
+              }
+            } else {
+              console.warn('Webhook service not initialized');
+              await this.notificationRepository.updateDeliveryStatus(
+                notification.notificationId,
+                channel,
+                DeliveryStatus.FAILED,
+                'Webhook service not available'
+              );
+            }
             break;
         }
       } catch (error) {
