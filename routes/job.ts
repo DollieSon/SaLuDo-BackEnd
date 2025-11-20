@@ -150,7 +150,7 @@ router.get(
 router.post(
   "/",
   AuthMiddleware.authenticate,
-  AuthMiddleware.requireRole(UserRole.ADMIN),
+  AuthMiddleware.requireRole(UserRole.HR_MANAGER),
   validation.requireFields(["jobName", "jobDescription"]),
   asyncHandler(async (req: Request, res: Response) => {
     try {
