@@ -979,9 +979,10 @@ export class CommentService {
   /**
    * Parse @mentions from comment text
    * Returns array of mentioned usernames/emails (without @ symbol)
-   * Examples: @john.doe, @jane@saludo.com
+   * Supports: @john.doe, @jane@saludo.com (email format)
    */
   parseMentions(text: string): string[] {
+    // Match @mentions - email format (no spaces)
     const mentionRegex = /@([a-zA-Z0-9._@-]+)/g;
     const mentions: string[] = [];
     let match;
@@ -1027,30 +1028,13 @@ export class CommentService {
     for (const mention of mentions) {
       let user = null;
 
-      // Try email match first (exact)
-      if (mention.includes("@")) {
-        user = await db
-          .collection("users")
-          .findOne(
-            { email: mention.toLowerCase(), isActive: true, isDeleted: false },
-            { projection: { userId: 1, email: 1, firstName: 1, lastName: 1 } }
-          );
-      } else {
-        // Try firstName.lastName pattern (case-insensitive)
-        const parts = mention.split(".");
-        if (parts.length === 2) {
-          const [firstName, lastName] = parts;
-          user = await db.collection("users").findOne(
-            {
-              firstName: { $regex: new RegExp(`^${firstName}$`, "i") },
-              lastName: { $regex: new RegExp(`^${lastName}$`, "i") },
-              isActive: true,
-              isDeleted: false,
-            },
-            { projection: { userId: 1, email: 1, firstName: 1, lastName: 1 } }
-          );
-        }
-      }
+      // Match by email (exact, case-insensitive)
+      user = await db
+        .collection("users")
+        .findOne(
+          { email: mention.toLowerCase(), isActive: true, isDeleted: false },
+          { projection: { userId: 1, email: 1, firstName: 1, lastName: 1 } }
+        );
 
       if (user) {
         validMentions.push({

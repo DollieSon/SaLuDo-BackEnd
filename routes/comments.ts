@@ -152,6 +152,86 @@ router.post(
 );
 
 /**
+ * GET /api/comments/autocomplete/users
+ * Search users for @mention autocomplete
+ * Query: ?query=john
+ * NOTE: This must come before /:entityType/:entityId to avoid route conflicts
+ */
+router.get(
+  "/autocomplete/users",
+  AuthMiddleware.authenticate,
+  autocompleteLimiter,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { query } = req.query;
+
+    if (!query || typeof query !== "string") {
+      res.status(BAD_REQUEST).json({
+        success: false,
+        message: "Query parameter is required",
+      });
+      return;
+    }
+
+    const searchQuery = query.trim();
+    if (searchQuery.length < MIN_AUTOCOMPLETE_QUERY_LENGTH) {
+      res.status(BAD_REQUEST).json({
+        success: false,
+        message: `Query must be at least ${MIN_AUTOCOMPLETE_QUERY_LENGTH} characters`,
+      });
+      return;
+    }
+
+    // Search users by firstName, lastName, or email
+    const { connectDB } = await import("../mongo_db");
+    const db = await connectDB();
+
+    const users = await db
+      .collection("users")
+      .find({
+        $and: [
+          { isActive: true, isDeleted: false },
+          {
+            $or: [
+              { firstName: { $regex: searchQuery, $options: "i" } },
+              { lastName: { $regex: searchQuery, $options: "i" } },
+              { email: { $regex: searchQuery, $options: "i" } },
+            ],
+          },
+        ],
+      })
+      .project({
+        userId: 1,
+        firstName: 1,
+        lastName: 1,
+        email: 1,
+        title: 1,
+        role: 1,
+      })
+      .limit(MAX_AUTOCOMPLETE_RESULTS)
+      .toArray();
+
+    // Format results for autocomplete
+    const results = users.map((user) => ({
+      userId: user.userId,
+      username: `${user.firstName} ${user.lastName}`,
+      email: user.email,
+      title: user.title,
+      role: user.role,
+      // Suggest both name and email formats
+      mentionFormats: [
+        `@${user.firstName}.${user.lastName}`.toLowerCase(),
+        `@${user.email}`,
+      ],
+    }));
+
+    res.status(OK).json({
+      success: true,
+      data: results,
+    });
+  })
+);
+
+/**
  * GET /api/comments/:commentId/replies
  * Get all replies to a comment
  * NOTE: This must come before /:entityType/:entityId to avoid route conflicts
@@ -708,85 +788,6 @@ router.post(
     res.status(OK).json({
       success: true,
       message: "Left entity room",
-    });
-  })
-);
-
-/**
- * GET /api/comments/autocomplete/users
- * Search users for @mention autocomplete
- * Query: ?query=john
- */
-router.get(
-  "/autocomplete/users",
-  AuthMiddleware.authenticate,
-  autocompleteLimiter,
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { query } = req.query;
-
-    if (!query || typeof query !== "string") {
-      res.status(BAD_REQUEST).json({
-        success: false,
-        message: "Query parameter is required",
-      });
-      return;
-    }
-
-    const searchQuery = query.trim();
-    if (searchQuery.length < MIN_AUTOCOMPLETE_QUERY_LENGTH) {
-      res.status(BAD_REQUEST).json({
-        success: false,
-        message: `Query must be at least ${MIN_AUTOCOMPLETE_QUERY_LENGTH} characters`,
-      });
-      return;
-    }
-
-    // Search users by firstName, lastName, or email
-    const { connectDB } = await import("../mongo_db");
-    const db = await connectDB();
-
-    const users = await db
-      .collection("users")
-      .find({
-        $and: [
-          { isActive: true, isDeleted: false },
-          {
-            $or: [
-              { firstName: { $regex: searchQuery, $options: "i" } },
-              { lastName: { $regex: searchQuery, $options: "i" } },
-              { email: { $regex: searchQuery, $options: "i" } },
-            ],
-          },
-        ],
-      })
-      .project({
-        userId: 1,
-        firstName: 1,
-        lastName: 1,
-        email: 1,
-        title: 1,
-        role: 1,
-      })
-      .limit(MAX_AUTOCOMPLETE_RESULTS)
-      .toArray();
-
-    // Format results for autocomplete
-    const results = users.map((user) => ({
-      userId: user.userId,
-      username: `${user.firstName} ${user.lastName}`,
-      email: user.email,
-      title: user.title,
-      role: user.role,
-      // Suggest both name and email formats
-      mentionFormats: [
-        `@${user.firstName}.${user.lastName}`.toLowerCase(),
-        `@${user.email}`,
-      ],
-    }));
-
-    res.status(OK).json({
-      success: true,
-      data: results,
     });
   })
 );
