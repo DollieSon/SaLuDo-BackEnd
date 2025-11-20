@@ -1,7 +1,12 @@
 import { connectDB } from '../mongo_db';
 import { CommentRepository, CommentFilter, CommentPaginationOptions } from '../repositories/CommentRepository';
 import { AuditLogRepository, AuditEventType, AuditSeverity } from '../repositories/AuditLogRepository';
+import { NotificationRepository } from '../repositories/NotificationRepository';
+import { NotificationPreferencesRepository } from '../repositories/NotificationPreferencesRepository';
 import { Comment, CommentData, CommentEntityType, CreateCommentData, UpdateCommentData, CommentMention } from '../Models/Comment';
+import { NotificationService } from './NotificationService';
+import { NotificationType } from '../Models/enums/NotificationTypes';
+import { webSocketService } from './WebSocketService';
 import { Db } from 'mongodb';
 
 /**
@@ -11,6 +16,8 @@ import { Db } from 'mongodb';
 export class CommentService {
   private commentRepository: CommentRepository | null = null;
   private auditLogRepository: AuditLogRepository | null = null;
+  private notificationService: NotificationService | null = null;
+  private webSocketService = webSocketService;
   private db: Db | null = null;
 
   /**
@@ -21,6 +28,11 @@ export class CommentService {
       this.db = await connectDB();
       this.commentRepository = new CommentRepository(this.db);
       this.auditLogRepository = new AuditLogRepository(this.db);
+      
+      const notificationRepo = new NotificationRepository(this.db.collection('notifications'));
+      const notificationPrefsRepo = new NotificationPreferencesRepository(this.db.collection('notificationPreferences'));
+      this.notificationService = new NotificationService(notificationRepo, notificationPrefsRepo);
+      
       await this.commentRepository.init();
     }
   }
@@ -32,6 +44,8 @@ export class CommentService {
   /**
    * Create a new comment
    * Validates entity exists and user has access
+   * Auto-parses @mentions and stores them
+   * Triggers notifications for mentions, replies, and entity comments
    */
   async createComment(createData: CreateCommentData): Promise<Comment> {
     await this.init();
@@ -49,8 +63,9 @@ export class CommentService {
     await this.validateEntityExists(createData.entityType, createData.entityId);
 
     // Validate parent comment if replying
+    let parentComment: Comment | null = null;
     if (createData.parentCommentId) {
-      const parentComment = await this.commentRepository!.findById(createData.parentCommentId);
+      parentComment = await this.commentRepository!.findById(createData.parentCommentId);
       if (!parentComment) {
         throw new Error('Parent comment not found');
       }
@@ -63,8 +78,17 @@ export class CommentService {
       }
     }
 
+    // Parse and validate @mentions
+    const mentionStrings = this.parseMentions(createData.text);
+    const validMentions = await this.validateMentions(mentionStrings);
+
     // Create comment instance
     const comment = Comment.create(createData);
+    
+    // Add mentions if any were found
+    if (validMentions.length > 0) {
+      comment.addMentions(validMentions);
+    }
 
     // Save to database
     const savedComment = await this.commentRepository!.create(comment.toObject());
@@ -83,11 +107,37 @@ export class CommentService {
         resourceId: createData.entityId,
         metadata: {
           commentId: comment.commentId,
-          isReply: !!createData.parentCommentId
+          isReply: !!createData.parentCommentId,
+          mentionCount: validMentions.length
         }
       },
       success: true
     });
+
+    // Trigger notifications (don't await - fire and forget)
+    // 1. Trigger mention notifications
+    if (validMentions.length > 0) {
+      this.triggerMentionNotifications(savedComment, validMentions).catch(err => 
+        console.error('Failed to trigger mention notifications:', err)
+      );
+    }
+
+    // 2. Trigger reply notification if this is a reply
+    if (parentComment) {
+      this.triggerReplyNotification(savedComment, parentComment).catch(err =>
+        console.error('Failed to trigger reply notification:', err)
+      );
+    }
+
+    // 3. Trigger entity comment notification if this is a top-level comment
+    if (!createData.parentCommentId) {
+      this.triggerEntityCommentNotification(savedComment).catch(err =>
+        console.error('Failed to trigger entity comment notification:', err)
+      );
+    }
+
+    // 4. Broadcast via WebSocket for real-time updates
+    this.broadcastCommentCreated(savedComment);
 
     return savedComment;
   }
@@ -264,6 +314,9 @@ export class CommentService {
       success: true
     });
 
+    // Broadcast via WebSocket for real-time updates
+    this.broadcastCommentUpdated(comment, updateData.editedBy, updateData.editedByName);
+
     return comment;
   }
 
@@ -329,6 +382,9 @@ export class CommentService {
       },
       success: true
     });
+
+    // Broadcast via WebSocket for real-time updates
+    this.broadcastCommentDeleted(comment, userId);
   }
 
   /**
@@ -367,6 +423,9 @@ export class CommentService {
       },
       success: true
     });
+
+    // Broadcast via WebSocket for real-time updates
+    this.broadcastCommentRestored(comment, userId);
   }
 
   // =======================
@@ -417,6 +476,251 @@ export class CommentService {
   }
 
   // =======================
+  // NOTIFICATION METHODS
+  // =======================
+
+  /**
+   * Trigger COMMENT_MENTION notifications for mentioned users
+   */
+  private async triggerMentionNotifications(
+    comment: Comment,
+    mentionedUsers: CommentMention[]
+  ): Promise<void> {
+    if (mentionedUsers.length === 0 || !this.notificationService) return;
+
+    for (const mention of mentionedUsers) {
+      try {
+        await this.notificationService.createNotification({
+          userId: mention.userId,
+          type: NotificationType.COMMENT_MENTION,
+          title: 'You were mentioned in a comment',
+          message: `${comment.authorName} mentioned you in a comment: "${comment.text.substring(0, 100)}${comment.text.length > 100 ? '...' : ''}"`,
+          action: {
+            label: 'View Comment',
+            url: `/comments/${comment.commentId}`
+          },
+          data: {
+            commentId: comment.commentId,
+            authorId: comment.authorId,
+            authorName: comment.authorName,
+            entityType: comment.entityType,
+            entityId: comment.entityId,
+            commentPreview: comment.text.substring(0, 200)
+          }
+        });
+      } catch (error) {
+        console.error(`Failed to send mention notification to ${mention.userId}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Trigger COMMENT_REPLY notification for parent comment author
+   */
+  private async triggerReplyNotification(
+    comment: Comment,
+    parentComment: Comment
+  ): Promise<void> {
+    if (!this.notificationService) return;
+    
+    // Don't notify if replying to own comment
+    if (comment.authorId === parentComment.authorId) return;
+
+    try {
+      await this.notificationService.createNotification({
+        userId: parentComment.authorId,
+        type: NotificationType.COMMENT_REPLY,
+        title: 'New reply to your comment',
+        message: `${comment.authorName} replied to your comment: "${comment.text.substring(0, 100)}${comment.text.length > 100 ? '...' : ''}"`,
+        action: {
+          label: 'View Reply',
+          url: `/comments/${comment.commentId}`
+        },
+        data: {
+          commentId: comment.commentId,
+          parentCommentId: parentComment.commentId,
+          authorId: comment.authorId,
+          authorName: comment.authorName,
+          entityType: comment.entityType,
+          entityId: comment.entityId,
+          commentPreview: comment.text.substring(0, 200),
+          parentCommentPreview: parentComment.text.substring(0, 200)
+        }
+      });
+    } catch (error) {
+      console.error(`Failed to send reply notification to ${parentComment.authorId}:`, error);
+    }
+  }
+
+  /**
+   * Trigger entity comment notifications (COMMENT_ON_CANDIDATE / COMMENT_ON_JOB)
+   * Notifies assigned users when a new top-level comment is added
+   */
+  private async triggerEntityCommentNotification(comment: Comment): Promise<void> {
+    if (!this.notificationService) return;
+
+    const db = this.db!;
+    const notificationType = comment.entityType === CommentEntityType.CANDIDATE
+      ? NotificationType.COMMENT_ON_CANDIDATE
+      : NotificationType.COMMENT_ON_JOB;
+
+    try {
+      // Get assigned users based on entity type
+      let assignedUserIds: string[] = [];
+
+      if (comment.entityType === CommentEntityType.CANDIDATE) {
+        const candidate = await db.collection('candidates').findOne(
+          { candidateId: comment.entityId },
+          { projection: { assignedTo: 1 } }
+        );
+        if (candidate?.assignedTo) {
+          assignedUserIds = [candidate.assignedTo];
+        }
+      } else if (comment.entityType === CommentEntityType.JOB) {
+        const job = await db.collection('jobs').findOne(
+          { jobId: comment.entityId },
+          { projection: { createdBy: 1 } }
+        );
+        if (job?.createdBy) {
+          assignedUserIds = [job.createdBy];
+        }
+      }
+
+      // Notify each assigned user (excluding the comment author)
+      for (const userId of assignedUserIds) {
+        if (userId === comment.authorId) continue; // Don't notify self
+
+        await this.notificationService.createNotification({
+          userId: userId,
+          type: notificationType,
+          title: `New comment on ${comment.entityType.toLowerCase()}`,
+          message: `${comment.authorName} commented: "${comment.text.substring(0, 100)}${comment.text.length > 100 ? '...' : ''}"`,
+          action: {
+            label: `View ${comment.entityType === CommentEntityType.CANDIDATE ? 'Candidate' : 'Job'}`,
+            url: `/${comment.entityType.toLowerCase()}s/${comment.entityId}`
+          },
+          data: {
+            commentId: comment.commentId,
+            authorId: comment.authorId,
+            authorName: comment.authorName,
+            entityType: comment.entityType,
+            entityId: comment.entityId,
+            commentPreview: comment.text.substring(0, 200)
+          }
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to send entity comment notification:`, error);
+    }
+  }
+
+  // =======================
+  // WEBSOCKET BROADCAST METHODS
+  // =======================
+
+  /**
+   * Broadcast comment creation to all users viewing the entity
+   */
+  private broadcastCommentCreated(comment: Comment): void {
+    try {
+      const roomName = `${comment.entityType.toLowerCase()}:${comment.entityId}`;
+      const io = this.webSocketService.getIO();
+      
+      if (io) {
+        io.to(roomName).emit('comment:created', {
+          commentId: comment.commentId,
+          comment: comment.toObject(),
+          entityType: comment.entityType,
+          entityId: comment.entityId,
+          authorId: comment.authorId,
+          authorName: comment.authorName,
+          isReply: comment.isReply(),
+          parentCommentId: comment.parentCommentId,
+          timestamp: new Date()
+        });
+        console.log(`Broadcast comment:created to room ${roomName}`);
+      }
+    } catch (error) {
+      console.error('Failed to broadcast comment creation:', error);
+    }
+  }
+
+  /**
+   * Broadcast comment update to all users viewing the entity
+   */
+  private broadcastCommentUpdated(comment: Comment, editedBy: string, editedByName: string): void {
+    try {
+      const roomName = `${comment.entityType.toLowerCase()}:${comment.entityId}`;
+      const io = this.webSocketService.getIO();
+      
+      if (io) {
+        io.to(roomName).emit('comment:updated', {
+          commentId: comment.commentId,
+          comment: comment.toObject(),
+          entityType: comment.entityType,
+          entityId: comment.entityId,
+          editedBy,
+          editedByName,
+          updatedAt: comment.updatedAt,
+          editHistory: comment.editHistory,
+          timestamp: new Date()
+        });
+        console.log(`Broadcast comment:updated to room ${roomName}`);
+      }
+    } catch (error) {
+      console.error('Failed to broadcast comment update:', error);
+    }
+  }
+
+  /**
+   * Broadcast comment deletion to all users viewing the entity
+   */
+  private broadcastCommentDeleted(comment: Comment, deletedBy: string): void {
+    try {
+      const roomName = `${comment.entityType.toLowerCase()}:${comment.entityId}`;
+      const io = this.webSocketService.getIO();
+      
+      if (io) {
+        io.to(roomName).emit('comment:deleted', {
+          commentId: comment.commentId,
+          entityType: comment.entityType,
+          entityId: comment.entityId,
+          deletedBy,
+          deletedAt: comment.deletedAt,
+          timestamp: new Date()
+        });
+        console.log(`Broadcast comment:deleted to room ${roomName}`);
+      }
+    } catch (error) {
+      console.error('Failed to broadcast comment deletion:', error);
+    }
+  }
+
+  /**
+   * Broadcast comment restoration to all users viewing the entity
+   */
+  private broadcastCommentRestored(comment: Comment, restoredBy: string): void {
+    try {
+      const roomName = `${comment.entityType.toLowerCase()}:${comment.entityId}`;
+      const io = this.webSocketService.getIO();
+      
+      if (io) {
+        io.to(roomName).emit('comment:restored', {
+          commentId: comment.commentId,
+          comment: comment.toObject(),
+          entityType: comment.entityType,
+          entityId: comment.entityId,
+          restoredBy,
+          timestamp: new Date()
+        });
+        console.log(`Broadcast comment:restored to room ${roomName}`);
+      }
+    } catch (error) {
+      console.error('Failed to broadcast comment restoration:', error);
+    }
+  }
+
+  // =======================
   // UTILITY METHODS
   // =======================
 
@@ -430,10 +734,11 @@ export class CommentService {
 
   /**
    * Parse @mentions from comment text
-   * Returns array of usernames mentioned
+   * Returns array of mentioned usernames/emails (without @ symbol)
+   * Examples: @john.doe, @jane@saludo.com
    */
   parseMentions(text: string): string[] {
-    const mentionRegex = /@([a-zA-Z0-9._-]+)/g;
+    const mentionRegex = /@([a-zA-Z0-9._@-]+)/g;
     const mentions: string[] = [];
     let match;
 
@@ -446,17 +751,55 @@ export class CommentService {
 
   /**
    * Validate that mentioned users exist
-   * Returns array of valid user IDs
+   * Searches by:
+   * - Email (exact match)
+   * - firstName.lastName pattern (case-insensitive)
+   * Returns array of valid CommentMention objects
    */
-  async validateMentions(usernames: string[]): Promise<{ userId: string; username: string }[]> {
-    if (usernames.length === 0) return [];
+  async validateMentions(mentions: string[]): Promise<CommentMention[]> {
+    if (mentions.length === 0) return [];
 
-    const db = await connectDB();
-    const users = await db.collection('users')
-      .find({ username: { $in: usernames } })
-      .project({ userId: 1, username: 1 })
-      .toArray();
+    await this.init();
+    const db = this.db!;
+    
+    const validMentions: CommentMention[] = [];
+    const now = new Date();
 
-    return users.map(u => ({ userId: u.userId, username: u.username }));
+    for (const mention of mentions) {
+      let user = null;
+
+      // Try email match first (exact)
+      if (mention.includes('@')) {
+        user = await db.collection('users').findOne(
+          { email: mention.toLowerCase(), isActive: true, isDeleted: false },
+          { projection: { userId: 1, email: 1, firstName: 1, lastName: 1 } }
+        );
+      } else {
+        // Try firstName.lastName pattern (case-insensitive)
+        const parts = mention.split('.');
+        if (parts.length === 2) {
+          const [firstName, lastName] = parts;
+          user = await db.collection('users').findOne(
+            {
+              firstName: { $regex: new RegExp(`^${firstName}$`, 'i') },
+              lastName: { $regex: new RegExp(`^${lastName}$`, 'i') },
+              isActive: true,
+              isDeleted: false
+            },
+            { projection: { userId: 1, email: 1, firstName: 1, lastName: 1 } }
+          );
+        }
+      }
+
+      if (user) {
+        validMentions.push({
+          userId: user.userId,
+          username: `${user.firstName} ${user.lastName}`,
+          mentionedAt: now
+        });
+      }
+    }
+
+    return validMentions;
   }
 }

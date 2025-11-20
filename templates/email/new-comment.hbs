@@ -1,0 +1,61 @@
+<div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 25px; border-radius: 8px; margin-bottom: 25px; text-align: center;">
+  <h2 style="margin: 0; color: #ffffff; font-size: 26px;">📝 New Comment Added</h2>
+  <p style="margin: 10px 0 0 0; color: #d1fae5; font-size: 14px;">
+    {{formatDate notification.createdAt}}
+  </p>
+</div>
+
+<div style="background-color: #ecfdf5; padding: 25px; border-radius: 8px; border: 2px solid #a7f3d0; margin-bottom: 25px;">
+  <p style="font-size: 16px; line-height: 1.7; color: #065f46; margin: 0; font-weight: 500;">
+    {{notification.message}}
+  </p>
+</div>
+
+{{#if notification.data}}
+<div style="background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 25px;">
+  <h3 style="margin: 0 0 15px 0; color: #1f2937; font-size: 16px;">Comment Details:</h3>
+  
+  {{#if notification.data.authorName}}
+  <p style="margin: 8px 0; font-size: 14px; color: #374151;">
+    <strong>Author:</strong> {{notification.data.authorName}}
+  </p>
+  {{/if}}
+  
+  {{#if notification.data.entityType}}
+  <p style="margin: 8px 0; font-size: 14px; color: #374151;">
+    <strong>{{#if (eq notification.data.entityType "CANDIDATE")}}Candidate{{else}}Job{{/if}} ID:</strong> 
+    <code style="background-color: #f3f4f6; padding: 2px 6px; border-radius: 3px;">{{notification.data.entityId}}</code>
+  </p>
+  {{/if}}
+  
+  {{#if notification.data.commentPreview}}
+  <div style="margin-top: 15px; padding: 15px; background-color: #f9fafb; border-left: 3px solid #10b981; border-radius: 4px;">
+    <p style="margin: 0; font-size: 14px; color: #1f2937; line-height: 1.6; font-style: italic;">
+      "{{notification.data.commentPreview}}"
+    </p>
+  </div>
+  {{/if}}
+</div>
+{{/if}}
+
+{{#if notification.action.url}}
+<div style="text-align: center; margin-top: 25px;">
+  <a href="{{appUrl}}{{notification.action.url}}" style="display: inline-block; padding: 14px 32px; background-color: #10b981; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+    {{#if notification.action.label}}
+      {{notification.action.label}} →
+    {{else}}
+      {{#if notification.data.entityType}}
+        View {{notification.data.entityType}} →
+      {{else}}
+        View Details →
+      {{/if}}
+    {{/if}}
+  </a>
+</div>
+{{/if}}
+
+<div style="margin-top: 25px; padding: 15px; background-color: #f3f4f6; border-left: 4px solid #6b7280; border-radius: 4px;">
+  <p style="font-size: 13px; color: #374151; margin: 0;">
+    <strong>Team Collaboration:</strong> This comment was added to a {{#if notification.data.entityType}}{{notification.data.entityType}}{{else}}record{{/if}} you're managing. Stay informed and respond when needed.
+  </p>
+</div>
