@@ -39,8 +39,8 @@ export class RefreshTokenService {
       const accessToken = PasswordUtils.generateAccessToken(userId);
       const refreshToken = PasswordUtils.generateRefreshToken(userId);
 
-      // Calculate expiry dates
-      const accessTokenExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+      // Calculate expiry dates (must match JWT expiry in passwordUtils.ts)
+      const accessTokenExpiry = new Date(Date.now() + 8 * 60 * 60 * 1000); // 8 hours
       const refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
       // Store refresh token in database
