@@ -137,10 +137,9 @@ function startStatsReporter(): void {
   setInterval(async () => {
     if (worker) {
       try {
-        const metrics = await worker.getMetrics();
         console.log(`\n--- Worker Stats [${new Date().toISOString()}] ---`);
-        console.log(`  Completed (1min): ${metrics.meta.count.completed}`);
-        console.log(`  Failed (1min): ${metrics.meta.count.failed}`);
+        console.log(`  Worker status: Running`);
+        console.log('  Waiting for jobs...');
         console.log('---\n');
       } catch (error) {
         // Ignore stats errors

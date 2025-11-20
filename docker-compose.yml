@@ -13,5 +13,16 @@ services:
       - mongodb_data:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d
 
+  redis:
+    image: redis:alpine
+    container_name: saludo-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
 volumes:
   mongodb_data:
+  redis_data:
