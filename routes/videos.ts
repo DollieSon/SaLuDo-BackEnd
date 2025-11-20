@@ -5,6 +5,7 @@ import { candidateExists } from "./middleware/candidateExists";
 import { validation } from "./middleware/validation";
 import { asyncHandler } from "./middleware/errorHandler";
 
+import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const router = express.Router({ mergeParams: true });
 const candidateService = new CandidateService();
 
@@ -63,7 +64,7 @@ router.post(
       metadata
     );
 
-    res.status(201).json({
+    res.status(CREATED).json({
       success: true,
       message: "Interview video uploaded successfully",
       data: videoMetadata,
@@ -147,7 +148,7 @@ router.get(
     );
 
     if (!metadata) {
-      return res.status(404).json({
+      return res.status(NOT_FOUND).json({
         success: false,
         message: "Interview video not found",
       });
@@ -240,7 +241,7 @@ router.post(
       metadata
     );
 
-    res.status(201).json({
+    res.status(CREATED).json({
       success: true,
       message: "Introduction video uploaded successfully",
       data: videoMetadata,
@@ -324,7 +325,7 @@ router.get(
     );
 
     if (!metadata) {
-      return res.status(404).json({
+      return res.status(NOT_FOUND).json({
         success: false,
         message: "Introduction video not found",
       });

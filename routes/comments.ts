@@ -5,9 +5,31 @@ import { CommentEntityType, CreateCommentData, UpdateCommentData } from '../Mode
 import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
 import { asyncHandler } from './middleware/errorHandler';
 import { UserRole } from '../Models/User';
+import { 
+  DEFAULT_PAGE_SIZE, 
+  DEFAULT_USER_PAGE_SIZE, 
+  MIN_AUTOCOMPLETE_QUERY_LENGTH,
+  MAX_AUTOCOMPLETE_RESULTS
+} from '../services/constants/CommentConstants';
+import { 
+  OK, 
+  CREATED, 
+  BAD_REQUEST, 
+  FORBIDDEN, 
+  NOT_FOUND 
+} from '../constants/HttpStatusCodes';
 
 const router = Router();
 const commentService = new CommentService();
+
+// ====================
+// RATE LIMIT CONSTANTS
+// ====================
+
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute in milliseconds
+const STANDARD_RATE_LIMIT_MAX = 30; // Requests per window for CRUD operations
+const REALTIME_RATE_LIMIT_MAX = 60; // Requests per window for typing/presence (1 per second avg)
+const AUTOCOMPLETE_RATE_LIMIT_MAX = 20; // Requests per window for autocomplete (prevent enumeration)
 
 // ====================
 // RATE LIMITERS
@@ -18,8 +40,8 @@ const commentService = new CommentService();
  * 30 requests per minute per user
  */
 const standardCommentLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 30,
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: STANDARD_RATE_LIMIT_MAX,
   message: 'Too many comment requests, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -34,8 +56,8 @@ const standardCommentLimiter = rateLimit({
  * 60 requests per minute per user (1 per second average)
  */
 const realtimeCommentLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 60,
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: REALTIME_RATE_LIMIT_MAX,
   message: 'Too many real-time requests, please slow down.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -49,8 +71,8 @@ const realtimeCommentLimiter = rateLimit({
  * 20 requests per minute per user
  */
 const autocompleteLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 20,
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: AUTOCOMPLETE_RATE_LIMIT_MAX,
   message: 'Too many autocomplete requests, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -79,7 +101,7 @@ router.post(
 
     // Validate required fields
     if (!text || !entityType || !entityId) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: 'Text, entityType, and entityId are required'
       });
@@ -88,7 +110,7 @@ router.post(
 
     // Validate entity type
     if (!Object.values(CommentEntityType).includes(entityType)) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: 'Invalid entity type. Must be CANDIDATE or JOB'
       });
@@ -106,7 +128,7 @@ router.post(
 
     const result = await commentService.createComment(createData);
 
-    res.status(201).json({
+    res.status(CREATED).json({
       success: true,
       message: 'Comment created successfully',
       data: {
@@ -136,7 +158,7 @@ router.get(
 
     // Validate entity type
     if (!Object.values(CommentEntityType).includes(entityType as CommentEntityType)) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: 'Invalid entity type. Must be CANDIDATE or JOB'
       });
@@ -145,7 +167,7 @@ router.get(
 
     const options = {
       page: page ? parseInt(page as string) : 1,
-      limit: limit ? parseInt(limit as string) : 50,
+      limit: limit ? parseInt(limit as string) : DEFAULT_PAGE_SIZE,
       sortBy: (sortBy as 'createdAt' | 'updatedAt') || 'createdAt',
       sortOrder: (sortOrder as 'asc' | 'desc') || 'desc'
     };
@@ -166,7 +188,7 @@ router.get(
     const hasNextPage = options.page < totalPages;
     const hasPreviousPage = options.page > 1;
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       data: {
         comments: comments.map(c => c.toObject()),
@@ -198,7 +220,7 @@ router.get(
 
     // Validate entity type
     if (!Object.values(CommentEntityType).includes(entityType as CommentEntityType)) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: 'Invalid entity type. Must be CANDIDATE or JOB'
       });
@@ -207,7 +229,7 @@ router.get(
 
     const options = {
       page: page ? parseInt(page as string) : 1,
-      limit: limit ? parseInt(limit as string) : 50,
+      limit: limit ? parseInt(limit as string) : DEFAULT_PAGE_SIZE,
       sortBy: (sortBy as 'createdAt' | 'updatedAt') || 'createdAt',
       sortOrder: (sortOrder as 'asc' | 'desc') || 'desc'
     };
@@ -228,7 +250,7 @@ router.get(
     const hasNextPage = options.page < totalPages;
     const hasPreviousPage = options.page > 1;
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       data: {
         comments: comments.map(c => c.toObject()),
@@ -260,14 +282,14 @@ router.get(
     const comment = await commentService.getComment(commentId, userId);
 
     if (!comment) {
-      res.status(404).json({
+      res.status(NOT_FOUND).json({
         success: false,
         message: 'Comment not found'
       });
       return;
     }
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       data: comment.toObject()
     });
@@ -288,7 +310,7 @@ router.get(
 
     const replies = await commentService.getReplies(commentId, userId);
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       data: replies.map(r => r.toObject())
     });
@@ -311,7 +333,7 @@ router.put(
     const username = `${req.user!.firstName} ${req.user!.lastName}`.trim();
 
     if (!text) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: 'Text is required'
       });
@@ -331,14 +353,14 @@ router.put(
         userId
       );
 
-      res.status(200).json({
+      res.status(OK).json({
         success: true,
         message: 'Comment updated successfully',
         data: updatedComment.toObject()
       });
     } catch (error) {
       if (error instanceof Error && error.message.includes('Only the comment author')) {
-        res.status(403).json({
+        res.status(FORBIDDEN).json({
           success: false,
           message: error.message
         });
@@ -365,13 +387,13 @@ router.delete(
     try {
       await commentService.deleteComment(commentId, userId, isAdmin);
 
-      res.status(200).json({
+      res.status(OK).json({
         success: true,
         message: 'Comment deleted successfully'
       });
     } catch (error) {
       if (error instanceof Error && error.message.includes('Only the comment author')) {
-        res.status(403).json({
+        res.status(FORBIDDEN).json({
           success: false,
           message: error.message
         });
@@ -397,7 +419,7 @@ router.post(
 
     await commentService.restoreComment(commentId, userId);
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       message: 'Comment restored successfully'
     });
@@ -417,7 +439,7 @@ router.get(
 
     // Validate entity type
     if (!Object.values(CommentEntityType).includes(entityType as CommentEntityType)) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: 'Invalid entity type. Must be CANDIDATE or JOB'
       });
@@ -429,7 +451,7 @@ router.get(
       entityId
     );
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       data: stats
     });
@@ -451,7 +473,7 @@ router.get(
 
     const options = {
       page: page ? parseInt(page as string) : 1,
-      limit: limit ? parseInt(limit as string) : 20
+      limit: limit ? parseInt(limit as string) : DEFAULT_USER_PAGE_SIZE
     };
 
     const comments = await commentService.getCommentsMentioningUser(userId, options);
@@ -461,7 +483,7 @@ router.get(
     const hasNextPage = options.page < totalPages;
     const hasPreviousPage = options.page > 1;
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       data: {
         comments: comments.map(c => c.toObject()),
@@ -493,7 +515,7 @@ router.get(
 
     const options = {
       page: page ? parseInt(page as string) : 1,
-      limit: limit ? parseInt(limit as string) : 20
+      limit: limit ? parseInt(limit as string) : DEFAULT_USER_PAGE_SIZE
     };
 
     const comments = await commentService.getCommentsByAuthor(userId, options);
@@ -503,7 +525,7 @@ router.get(
     const hasNextPage = options.page < totalPages;
     const hasPreviousPage = options.page > 1;
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       data: {
         comments: comments.map(c => c.toObject()),
@@ -539,7 +561,7 @@ router.post(
     const username = `${req.user!.firstName} ${req.user!.lastName}`.trim();
 
     if (!entityType || !entityId || typeof isTyping !== 'boolean') {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: 'entityType, entityId, and isTyping are required'
       });
@@ -562,7 +584,7 @@ router.post(
       });
     }
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       message: 'Typing indicator broadcast'
     });
@@ -584,7 +606,7 @@ router.post(
     const username = `${req.user!.firstName} ${req.user!.lastName}`.trim();
 
     if (!entityType || !entityId) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: 'entityType and entityId are required'
       });
@@ -606,7 +628,7 @@ router.post(
       });
     }
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       message: 'Joined entity room'
     });
@@ -628,7 +650,7 @@ router.post(
     const username = `${req.user!.firstName} ${req.user!.lastName}`.trim();
 
     if (!entityType || !entityId) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: 'entityType and entityId are required'
       });
@@ -650,7 +672,7 @@ router.post(
       });
     }
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       message: 'Left entity room'
     });
@@ -670,7 +692,7 @@ router.get(
     const { query } = req.query;
 
     if (!query || typeof query !== 'string') {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: 'Query parameter is required'
       });
@@ -678,10 +700,10 @@ router.get(
     }
 
     const searchQuery = query.trim();
-    if (searchQuery.length < 3) {
-      res.status(400).json({
+    if (searchQuery.length < MIN_AUTOCOMPLETE_QUERY_LENGTH) {
+      res.status(BAD_REQUEST).json({
         success: false,
-        message: 'Query must be at least 3 characters'
+        message: `Query must be at least ${MIN_AUTOCOMPLETE_QUERY_LENGTH} characters`
       });
       return;
     }
@@ -711,7 +733,7 @@ router.get(
         title: 1,
         role: 1
       })
-      .limit(10)
+      .limit(MAX_AUTOCOMPLETE_RESULTS)
       .toArray();
 
     // Format results for autocomplete
@@ -728,7 +750,7 @@ router.get(
       ]
     }));
 
-    res.status(200).json({
+    res.status(OK).json({
       success: true,
       data: results
     });

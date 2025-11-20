@@ -15,6 +15,7 @@ import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
 import { NotificationType, NotificationCategory, NotificationChannel, NotificationPriority } from '../Models/enums/NotificationTypes';
 import { CreateNotificationData, NotificationFilter } from '../Models/Notification';
 
+import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const router = Router();
 let notificationService: NotificationService;
 
@@ -43,7 +44,7 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     const filter: NotificationFilter = {
@@ -71,7 +72,7 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     const count = await notificationService.getUnreadCount(userId);
@@ -89,7 +90,7 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     const summary = await notificationService.getSummary(userId);
@@ -109,12 +110,12 @@ router.get(
     const { notificationId } = req.params;
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     const notification = await notificationService.getNotification(notificationId);
     if (!notification || notification.userId !== userId) {
-      return res.status(404).json({ error: 'Notification not found' });
+      return res.status(NOT_FOUND).json({ error: 'Notification not found' });
     }
 
     res.json({ notification });
@@ -133,11 +134,11 @@ router.post(
     const notificationData: CreateNotificationData = req.body;
 
     if (!notificationData.userId || !notificationData.type) {
-      return res.status(400).json({ error: 'Missing required fields: userId, type' });
+      return res.status(BAD_REQUEST).json({ error: 'Missing required fields: userId, type' });
     }
 
     const notification = await notificationService.createNotification(notificationData);
-    res.status(201).json({ notification });
+    res.status(CREATED).json({ notification });
   })
 );
 
@@ -153,13 +154,13 @@ router.put(
     const { notificationId } = req.params;
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     // Verify notification belongs to user
     const notification = await notificationService.getNotification(notificationId);
     if (!notification || notification.userId !== userId) {
-      return res.status(404).json({ error: 'Notification not found' });
+      return res.status(NOT_FOUND).json({ error: 'Notification not found' });
     }
 
     await notificationService.markAsRead(notificationId);
@@ -177,7 +178,7 @@ router.put(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     await notificationService.markAllAsRead(userId);
@@ -197,13 +198,13 @@ router.delete(
     const { notificationId } = req.params;
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     // Verify notification belongs to user
     const notification = await notificationService.getNotification(notificationId);
     if (!notification || notification.userId !== userId) {
-      return res.status(404).json({ error: 'Notification not found' });
+      return res.status(NOT_FOUND).json({ error: 'Notification not found' });
     }
 
     await notificationService.deleteNotification(notificationId);
@@ -223,11 +224,11 @@ router.delete(
     const { notificationIds } = req.body;
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     if (!Array.isArray(notificationIds)) {
-      return res.status(400).json({ error: 'notificationIds must be an array' });
+      return res.status(BAD_REQUEST).json({ error: 'notificationIds must be an array' });
     }
 
     // Verify all notifications belong to user
@@ -255,7 +256,7 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     const preferences = await notificationService.getPreferences(userId);
@@ -273,7 +274,7 @@ router.put(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     const preferences = await notificationService.updatePreferences(userId, req.body);
@@ -293,11 +294,11 @@ router.put(
     const { category, channels } = req.body;
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     if (!category || !channels) {
-      return res.status(400).json({ error: 'Missing required fields: category, channels' });
+      return res.status(BAD_REQUEST).json({ error: 'Missing required fields: category, channels' });
     }
 
     const preferences = await notificationService.updateCategoryPreferences(userId, category, channels);
@@ -315,7 +316,7 @@ router.post(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
     // Reset by deleting and recreating with defaults

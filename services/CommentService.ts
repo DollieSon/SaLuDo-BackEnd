@@ -9,6 +9,7 @@ import { NotificationType } from '../Models/enums/NotificationTypes';
 import { webSocketService } from './WebSocketService';
 import { Db } from 'mongodb';
 import sanitizeHtml from 'sanitize-html';
+import { MAX_COMMENT_TEXT_LENGTH, MAX_REPLY_DEPTH } from './constants/CommentConstants';
 
 /**
  * Result of comment creation with mention validation info
@@ -69,8 +70,8 @@ export class CommentService {
       throw new Error('Comment text cannot be empty');
     }
 
-    if (createData.text.length > 5000) {
-      throw new Error('Comment text cannot exceed 5000 characters');
+    if (createData.text.length > MAX_COMMENT_TEXT_LENGTH) {
+      throw new Error(`Comment text cannot exceed ${MAX_COMMENT_TEXT_LENGTH} characters`);
     }
 
     // Sanitize HTML to prevent XSS attacks
@@ -96,8 +97,8 @@ export class CommentService {
       
       // Validate reply depth (max 5 levels)
       const depth = await this.getCommentDepth(parentComment);
-      if (depth >= 5) {
-        throw new Error('Maximum reply depth of 5 levels reached. Cannot reply to this comment.');
+      if (depth >= MAX_REPLY_DEPTH) {
+        throw new Error(`Maximum reply depth of ${MAX_REPLY_DEPTH} levels reached. Cannot reply to this comment.`);
       }
     }
 

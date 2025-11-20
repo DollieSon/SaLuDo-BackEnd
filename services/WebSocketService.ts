@@ -2,6 +2,10 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { Notification } from '../Models/Notification';
 
+// WebSocket Configuration Constants
+const PING_TIMEOUT_MS = 60000;  // 60 seconds
+const PING_INTERVAL_MS = 25000; // 25 seconds
+
 interface UserSocket {
   userId: string;
   socketId: string;
@@ -30,8 +34,8 @@ export class WebSocketService {
         methods: ['GET', 'POST'],
         credentials: true
       },
-      pingTimeout: 60000,
-      pingInterval: 25000
+      pingTimeout: PING_TIMEOUT_MS,
+      pingInterval: PING_INTERVAL_MS
     });
 
     this.setupEventHandlers();

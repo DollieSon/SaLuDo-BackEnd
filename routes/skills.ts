@@ -5,6 +5,7 @@ import { asyncHandler, errorHandler } from "./middleware/errorHandler";
 import { candidateExists } from "./middleware/candidateExists";
 import { validation } from "./middleware/validation";
 const router = Router();
+import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const skillService = new SkillService();
 // ====================
 // SKILLS ENDPOINTS
@@ -36,13 +37,13 @@ router.post(
     };
     // Validate skill score
     if (skillData.score < 1 || skillData.score > 10) {
-      return res.status(400).json({
+      return res.status(BAD_REQUEST).json({
         success: false,
         message: "Skill score must be between 1 and 10",
       });
     }
     const result = await skillService.addSkill(candidateId, skillData);
-    res.status(201).json({
+    res.status(CREATED).json({
       success: true,
       message: "Skill added successfully",
       data: result,
@@ -57,7 +58,7 @@ router.post(
     const { candidateId } = req.params;
     const { skills } = req.body;
     if (!Array.isArray(skills) || skills.length === 0) {
-      return res.status(400).json({
+      return res.status(BAD_REQUEST).json({
         success: false,
         message: "Skills must be a non-empty array",
       });
@@ -65,20 +66,20 @@ router.post(
     // Validate each skill
     for (const skill of skills) {
       if (!skill.skillName) {
-        return res.status(400).json({
+        return res.status(BAD_REQUEST).json({
           success: false,
           message: "Each skill must have a skillName",
         });
       }
       if (skill.score && (skill.score < 1 || skill.score > 10)) {
-        return res.status(400).json({
+        return res.status(BAD_REQUEST).json({
           success: false,
           message: "Skill scores must be between 1 and 10",
         });
       }
     }
     const results = await skillService.addSkillsBulk(candidateId, skills);
-    res.status(201).json({
+    res.status(CREATED).json({
       success: true,
       message: `${results.length} skills added successfully`,
       data: results,
@@ -93,7 +94,7 @@ router.put(
     const updateData = req.body;
     // Validate skill score if provided
     if (updateData.score && (updateData.score < 1 || updateData.score > 10)) {
-      return res.status(400).json({
+      return res.status(BAD_REQUEST).json({
         success: false,
         message: "Skill score must be between 1 and 10",
       });
@@ -153,7 +154,7 @@ router.get(
     const includeUnaccepted = req.query.includeUnaccepted !== "false";
     const thresholdNum = parseInt(threshold);
     if (isNaN(thresholdNum) || thresholdNum < 1 || thresholdNum > 10) {
-      return res.status(400).json({
+      return res.status(BAD_REQUEST).json({
         success: false,
         message: "Threshold must be a number between 1 and 10",
       });
@@ -214,7 +215,7 @@ router.get(
     const { skillId } = req.params;
     const skillMaster = await skillService.getSkillMaster(skillId);
     if (!skillMaster) {
-      return res.status(404).json({
+      return res.status(NOT_FOUND).json({
         success: false,
         message: "Skill not found in master database",
       });
@@ -276,14 +277,14 @@ router.post(
 
     // Validate input
     if (!Array.isArray(sourceSkillIds) || sourceSkillIds.length === 0) {
-      return res.status(400).json({
+      return res.status(BAD_REQUEST).json({
         success: false,
         message: "sourceSkillIds must be a non-empty array",
       });
     }
 
     if (sourceSkillIds.includes(targetSkillId)) {
-      return res.status(400).json({
+      return res.status(BAD_REQUEST).json({
         success: false,
         message: "Target skill cannot be included in source skills",
       });

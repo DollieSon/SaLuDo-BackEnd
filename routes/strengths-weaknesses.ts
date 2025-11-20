@@ -4,6 +4,7 @@ import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { candidateExists } from './middleware/candidateExists';
 import { validation } from './middleware/validation';
 const router = Router();
+import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const strengthWeaknessService = new StrengthWeaknessService();
 // ====================
 // STRENGTHS & WEAKNESSES ENDPOINTS
@@ -26,7 +27,7 @@ router.post('/:candidateId/strengths-weaknesses',
         const { candidateId } = req.params;
         const data = req.body;
         if (!['strength', 'weakness'].includes(data.type)) {
-            return res.status(400).json({
+            return res.status(BAD_REQUEST).json({
                 success: false,
                 message: 'Invalid type. Must be either "strength" or "weakness"'
             });
@@ -36,7 +37,7 @@ router.post('/:candidateId/strengths-weaknesses',
         } else {
             await strengthWeaknessService.addWeakness(candidateId, data);
         }
-        res.status(201).json({
+        res.status(CREATED).json({
             success: true,
             message: `${data.type} added successfully`
         });
@@ -48,7 +49,7 @@ router.put('/:candidateId/strengths-weaknesses/:id',
         const { candidateId, id } = req.params;
         const updateData = req.body;
         if (!updateData.type || !['strength', 'weakness'].includes(updateData.type)) {
-            return res.status(400).json({
+            return res.status(BAD_REQUEST).json({
                 success: false,
                 message: 'Invalid type. Must be either "strength" or "weakness"'
             });
@@ -67,7 +68,7 @@ router.delete('/:candidateId/strengths-weaknesses/:id',
         const { candidateId, id } = req.params;
         const { type } = req.query;
         if (!type || !['strength', 'weakness'].includes(type as string)) {
-            return res.status(400).json({
+            return res.status(BAD_REQUEST).json({
                 success: false,
                 message: 'Query parameter "type" is required and must be either "strength" or "weakness"'
             });
