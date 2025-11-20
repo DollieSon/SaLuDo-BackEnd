@@ -16,6 +16,7 @@ import auditLogsRouter from "./routes/audit-logs";
 import notificationsRouter from "./routes/notifications";
 import commentsRouter from "./routes/comments";
 import webhooksRouter from "./routes/webhooks";
+import dashboardRouter from "./routes/dashboard";
 import dotenv from "dotenv";
 import { connectDB } from "./mongo_db";
 import { TokenBlacklistRepository } from "./repositories/TokenBlacklistRepository";
@@ -139,6 +140,7 @@ app.use("/api/audit-logs", auditLogsRouter); // Admin-only audit log access
 app.use("/api/notifications", notificationsRouter); // Notification routes
 app.use("/api/comments", commentsRouter); // Comment routes
 app.use("/api/webhooks", webhooksRouter); // Webhook configuration routes
+app.use("/api/dashboard", dashboardRouter); // Dashboard statistics routes (admin-only)
 
 // Function to start the server with database connection
 async function startServer() {
