@@ -31,10 +31,68 @@ export async function connectDB(): Promise<Db> {
       await client.connect();
       db = client.db('SaLuDoTesting');
       console.log('Successfully connected to MongoDB');
+      
+      // Create indexes for notification system
+      await createNotificationIndexes(db);
     } catch (error) {
       console.error('Failed to connect to MongoDB:', error);
       throw error;
     }
   }
   return db;
+}
+
+/**
+ * Create indexes for notification collections
+ */
+async function createNotificationIndexes(database: Db): Promise<void> {
+  try {
+    const notificationsCollection = database.collection('notifications');
+    const preferencesCollection = database.collection('notificationPreferences');
+
+    // Notifications collection indexes
+    await notificationsCollection.createIndex({ notificationId: 1 }, { unique: true });
+    await notificationsCollection.createIndex({ userId: 1, createdAt: -1 });
+    await notificationsCollection.createIndex({ userId: 1, isRead: 1 });
+    await notificationsCollection.createIndex({ userId: 1, isArchived: 1 });
+    await notificationsCollection.createIndex({ type: 1 });
+    await notificationsCollection.createIndex({ category: 1 });
+    await notificationsCollection.createIndex({ priority: 1 });
+    await notificationsCollection.createIndex({ expiresAt: 1 }, { sparse: true });
+    await notificationsCollection.createIndex({ groupKey: 1 }, { sparse: true });
+    await notificationsCollection.createIndex({ sourceId: 1, sourceType: 1 }, { sparse: true });
+    
+    // Composite indexes for common queries
+    await notificationsCollection.createIndex({ 
+      userId: 1, 
+      isRead: 1, 
+      isArchived: 1, 
+      createdAt: -1 
+    });
+    await notificationsCollection.createIndex({ 
+      userId: 1, 
+      category: 1, 
+      createdAt: -1 
+    });
+    
+    // Channel-specific delivery status indexes
+    await notificationsCollection.createIndex({ 
+      channels: 1, 
+      'deliveryStatus.inApp.status': 1 
+    });
+    await notificationsCollection.createIndex({ 
+      channels: 1, 
+      'deliveryStatus.email.status': 1 
+    });
+
+    // Notification preferences indexes
+    await preferencesCollection.createIndex({ userId: 1 }, { unique: true });
+    await preferencesCollection.createIndex({ enabled: 1 });
+    await preferencesCollection.createIndex({ 'emailDigest.enabled': 1, 'emailDigest.frequency': 1 });
+
+    console.log('✓ Notification system indexes created successfully');
+  } catch (error) {
+    console.error('Warning: Failed to create notification indexes:', error);
+    // Don't throw - allow app to continue even if index creation fails
+  }
 }

@@ -1,0 +1,56 @@
+<div style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); padding: 25px; border-radius: 8px; margin-bottom: 25px;">
+  <h2 style="margin: 0; color: #ffffff; font-size: 26px;">🎯 New Candidate Applied!</h2>
+</div>
+
+<div style="background-color: #f9fafb; padding: 25px; border-radius: 8px; margin-bottom: 25px;">
+  <p style="font-size: 16px; line-height: 1.7; color: #374151; margin: 0;">
+    {{#if recipientName}}
+    Hi {{recipientName}},<br><br>
+    {{/if}}
+    A new candidate has applied for a position. Here are the details:
+  </p>
+  
+  <div style="margin-top: 25px; background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">
+    {{#if notification.data.candidateName}}
+    <p style="margin: 8px 0; font-size: 15px;">
+      <strong style="color: #1f2937;">Candidate:</strong> 
+      <span style="color: #3b82f6; font-weight: 500;">{{notification.data.candidateName}}</span>
+    </p>
+    {{/if}}
+    
+    {{#if notification.data.jobTitle}}
+    <p style="margin: 8px 0; font-size: 15px;">
+      <strong style="color: #1f2937;">Position:</strong> 
+      <span style="color: #374151;">{{notification.data.jobTitle}}</span>
+    </p>
+    {{/if}}
+    
+    {{#if notification.data.experience}}
+    <p style="margin: 8px 0; font-size: 15px;">
+      <strong style="color: #1f2937;">Experience:</strong> 
+      <span style="color: #374151;">{{notification.data.experience}}</span>
+    </p>
+    {{/if}}
+    
+    {{#if notification.data.appliedAt}}
+    <p style="margin: 8px 0; font-size: 15px;">
+      <strong style="color: #1f2937;">Applied:</strong> 
+      <span style="color: #374151;">{{formatDate notification.data.appliedAt}}</span>
+    </p>
+    {{/if}}
+  </div>
+  
+  {{#if actionUrl}}
+  <div style="text-align: center; margin-top: 30px;">
+    <a href="{{actionUrl}}" style="display: inline-block; padding: 14px 32px; background-color: #3b82f6; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+      Review Application →
+    </a>
+  </div>
+  {{/if}}
+</div>
+
+<div style="padding: 15px; background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px;">
+  <p style="font-size: 14px; color: #1e40af; margin: 0;">
+    💡 <strong>Quick Tip:</strong> Candidates who receive a response within 48 hours are 3x more likely to accept an offer.
+  </p>
+</div>

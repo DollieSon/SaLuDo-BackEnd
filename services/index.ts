@@ -6,6 +6,11 @@ export { JobService } from './JobService';
 export { AuditLogService } from './AuditLogService';
 export { RefreshTokenService } from './RefreshTokenService';
 export { TokenCleanupService } from './TokenCleanupService';
+export { NotificationService } from './NotificationService';
+export { WebSocketService, webSocketService } from './WebSocketService';
+export { EmailService, emailService } from './EmailService';
+export { TemplateService, templateService } from './TemplateService';
+export { EmailQueueService, emailQueueService } from './EmailQueueService';
 
 // Export all types and interfaces
 export * from './types';
