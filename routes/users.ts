@@ -18,6 +18,15 @@ import { connectDB } from "../mongo_db";
 import { asyncHandler, errorHandler } from "./middleware/errorHandler";
 import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
 import { UserValidation } from "./middleware/userValidation";
+import { 
+  OK, 
+  CREATED, 
+  BAD_REQUEST, 
+  UNAUTHORIZED, 
+  NOT_FOUND, 
+  CONFLICT, 
+  INTERNAL_SERVER_ERROR 
+} from "../constants/HttpStatusCodes";
 import { PasswordUtils } from "./middleware/passwordUtils";
 import {
   authRateLimit,
@@ -56,7 +65,7 @@ router.post(
     const { email, password } = req.body;
 
     if (!email || !password) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: "Email and password are required",
       });
@@ -69,7 +78,7 @@ router.post(
     const userData = await userRepository.getUserByEmail(email);
 
     if (!userData) {
-      res.status(401).json({
+      res.status(UNAUTHORIZED).json({
         success: false,
         message: "Invalid email or password",
       });
@@ -89,7 +98,7 @@ router.post(
 
     // Check if account is active
     if (!user.isActive || user.isDeleted) {
-      res.status(401).json({
+      res.status(UNAUTHORIZED).json({
         success: false,
         message: "Account is inactive or deleted",
       });
@@ -127,7 +136,7 @@ router.post(
         }
       );
 
-      res.status(401).json({
+      res.status(UNAUTHORIZED).json({
         success: false,
         message: "Invalid email or password",
       });
@@ -201,7 +210,7 @@ router.post(
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: "Refresh token is required",
       });
@@ -237,7 +246,7 @@ router.post(
       );
 
       if (!newTokenPair) {
-        res.status(401).json({
+        res.status(UNAUTHORIZED).json({
           success: false,
           message: "Invalid or expired refresh token",
         });
@@ -256,7 +265,7 @@ router.post(
       });
     } catch (error) {
       console.error("Token refresh error:", error);
-      res.status(500).json({
+      res.status(INTERNAL_SERVER_ERROR).json({
         success: false,
         message: "Failed to refresh token",
       });
@@ -295,7 +304,7 @@ router.post(
     // Generate temporary token for immediate use (if needed)
     const token = PasswordUtils.generateToken(newUser.userId);
 
-    res.status(201).json({
+    res.status(CREATED).json({
       success: true,
       message:
         "User created successfully. Password change required on first login.",
@@ -386,7 +395,7 @@ router.get(
     const user = await userService.getUserProfile(userId);
 
     if (!user) {
-      res.status(404).json({
+      res.status(NOT_FOUND).json({
         success: false,
         message: "User not found",
       });
@@ -415,7 +424,7 @@ router.put(
     // Check if user exists
     const existingUser = await userService.getUserProfile(userId);
     if (!existingUser) {
-      res.status(404).json({
+      res.status(NOT_FOUND).json({
         success: false,
         message: "User not found",
       });
@@ -429,7 +438,7 @@ router.put(
       const emailExists = await userRepository.emailExists(email, userId);
 
       if (emailExists) {
-        res.status(409).json({
+        res.status(CONFLICT).json({
           success: false,
           message: "Email address is already in use",
         });
@@ -476,7 +485,7 @@ router.put(
     const { isActive } = req.body;
 
     if (typeof isActive !== "boolean") {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: "isActive must be a boolean value",
       });
@@ -503,7 +512,7 @@ router.delete(
 
     // Prevent admin from deleting themselves
     if (req.user!.userId === userId) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: "Cannot delete your own account",
       });
@@ -530,7 +539,7 @@ router.post(
     const userId = req.userId!;
 
     if (!token) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: "No token provided",
       });
@@ -644,7 +653,7 @@ router.post(
         console.error("Failed to log failed logout:", auditError);
       }
 
-      res.status(500).json({
+      res.status(INTERNAL_SERVER_ERROR).json({
         success: false,
         message: "Failed to logout",
       });
@@ -668,7 +677,7 @@ router.post(
     const user = await userRepository.getUserById(userId);
 
     if (!user) {
-      res.status(404).json({
+      res.status(NOT_FOUND).json({
         success: false,
         message: "User not found",
       });
@@ -681,7 +690,7 @@ router.post(
       user.passwordHash
     );
     if (!isCurrentPasswordValid) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: "Current password is incorrect",
       });
@@ -694,7 +703,7 @@ router.post(
       user.passwordHash
     );
     if (isSamePassword) {
-      res.status(400).json({
+      res.status(BAD_REQUEST).json({
         success: false,
         message: "New password must be different from current password",
       });
@@ -785,7 +794,7 @@ router.post(
       });
     } catch (error) {
       console.error("Force cleanup error:", error);
-      res.status(500).json({
+      res.status(INTERNAL_SERVER_ERROR).json({
         success: false,
         message: "Failed to execute token cleanup",
       });

@@ -1,4 +1,5 @@
 import express, { Request, Response } from "express";
+import { createServer } from "http";
 import cors from "cors";
 import usersRouter from "./routes/users";
 import jobRouter from "./routes/job";
@@ -11,9 +12,12 @@ import strengthsWeaknessesRouter from "./routes/strengths-weaknesses";
 import transcriptsRouter from "./routes/transcripts";
 import videosRouter from "./routes/videos";
 import filesRouter from "./routes/files";
+import notificationsRouter from "./routes/notifications";
+import commentsRouter from "./routes/comments";
 import dotenv from "dotenv";
 import { connectDB } from "./mongo_db";
 import { TokenBlacklistRepository } from "./repositories/TokenBlacklistRepository";
+import { webSocketService } from "./services/WebSocketService";
 
 dotenv.config();
 
@@ -83,6 +87,7 @@ console.log('MongoDB URI:', mongoUri ? mongoUri.replace(/\/\/([^:]+):([^@]+)@/, 
 console.log('─'.repeat(60));
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
@@ -109,6 +114,8 @@ app.use("/api/candidates", strengthsWeaknessesRouter);
 app.use("/api/candidates/:candidateId/transcripts", transcriptsRouter); // Transcript routes
 app.use("/api/candidates/:candidateId/videos", videosRouter); // Video routes
 app.use("/api/files", filesRouter); // File serving routes
+app.use("/api/notifications", notificationsRouter); // Notification routes
+app.use("/api/comments", commentsRouter); // Comment routes
 
 // Function to start the server with database connection
 async function startServer() {
@@ -117,6 +124,11 @@ async function startServer() {
     console.log(' Testing database connection...');
     const db = await connectDB();
     console.log(' Database connection successful!');
+    
+    // Initialize WebSocket service
+    console.log(' Initializing WebSocket service...');
+    webSocketService.initialize(httpServer);
+    console.log(' WebSocket service initialized successfully');
     
     // Initialize comprehensive token cleanup service
     console.log(' Setting up comprehensive token cleanup service...');
@@ -127,12 +139,21 @@ async function startServer() {
     
     console.log(' Token cleanup service started successfully');
     
+    // Initialize digest scheduler for email digests
+    console.log(' Setting up digest scheduler...');
+    const { DigestScheduler } = await import('./DigestScheduler');
+    const digestScheduler = new DigestScheduler(db);
+    digestScheduler.start();
+    console.log(' Digest scheduler started successfully');
+    
     // Start the server
-    app.listen(PORT, () => {
+    httpServer.listen(PORT, () => {
       console.log(' Server Status:');
       console.log(`    Server running on port ${PORT}`);
       console.log(`    Environment: ${nodeEnv}`);
       console.log(`    Database: ${isLocal ? 'LOCAL' : 'REMOTE'} MongoDB`);
+      console.log(`    WebSocket: Enabled on same port`);
+      console.log(`    Digest Scheduler: Running`);
       console.log('─'.repeat(60));
     });
   } catch (error) {

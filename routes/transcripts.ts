@@ -9,6 +9,7 @@ import { connectDB } from "../mongo_db";
 import { GridFSBucket, ObjectId } from "mongodb";
 import pdfParse from 'pdf-parse';
 
+import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const router = Router({ mergeParams: true });
 const upload = multer();
 const candidateService = new CandidateService();
@@ -57,7 +58,7 @@ router.post(
     console.log('=== DEBUG: Calling updateCandidatePersonality ===');
     await candidateService.updateCandidatePersonality(candidateId, personality);
     console.log(`=== DEBUG: Personality update completed successfully ===`);
-    res.status(201).json({
+    res.status(CREATED).json({
       success: true,
       message: "Transcript file uploaded successfully",
       data: transcriptMetadata,
@@ -146,7 +147,7 @@ router.get(
       transcriptId
     );
     if (!metadata) {
-      return res.status(404).json({
+      return res.status(NOT_FOUND).json({
         success: false,
         message: "Transcript not found",
       });

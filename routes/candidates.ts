@@ -14,6 +14,7 @@ import { parseResumeWithGemini } from "../services/GeminiResumeService";
 import { AddedBy } from "../Models/Skill";
 import { UserRole } from "../Models/User";
 import multer from "multer";
+import { CREATED, BAD_REQUEST } from "../constants/HttpStatusCodes";
 
 const router = Router({ mergeParams: true });
 const upload = multer();
@@ -77,7 +78,7 @@ router.post(
 
     if (!req.file) {
       return res
-        .status(400)
+        .status(BAD_REQUEST)
         .json({ success: false, message: "Resume file is required" });
     }
 
@@ -87,7 +88,7 @@ router.post(
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ];
     if (!allowedTypes.includes(req.file.mimetype)) {
-      return res.status(400).json({
+      return res.status(BAD_REQUEST).json({
         success: false,
         message: "Resume must be a PDF or Word document",
       });
@@ -95,7 +96,7 @@ router.post(
 
     const maxSize = 10 * 1024 * 1024; // 10MB
     if (req.file.size > maxSize) {
-      return res.status(400).json({
+      return res.status(BAD_REQUEST).json({
         success: false,
         message: "Resume file size must not exceed 10MB",
       });
@@ -144,7 +145,7 @@ router.post(
         weakness
       );
 
-    res.status(201).json({
+    res.status(CREATED).json({
       success: true,
       message: "Candidate created and resume parsed successfully",
       data: candidate,
@@ -253,7 +254,7 @@ router.get(
     const { candidateId1, candidateId2 } = req.params;
 
     if (candidateId1 === candidateId2) {
-      return res.status(400).json({
+      return res.status(BAD_REQUEST).json({
         success: false,
         message: "Cannot compare a candidate with themselves",
       });
@@ -382,7 +383,7 @@ router.post(
     const assignedBy = user.userId;
 
     if (!hrUserIds || !Array.isArray(hrUserIds) || hrUserIds.length === 0) {
-      return res.status(400).json({
+      return res.status(BAD_REQUEST).json({
         success: false,
         message: "hrUserIds array is required",
       });
