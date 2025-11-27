@@ -3,6 +3,9 @@ import { CandidateService } from "../services/CandidateService";
 import { asyncHandler, errorHandler } from "./middleware/errorHandler";
 import { candidateExists } from "./middleware/candidateExists";
 import { validation } from "./middleware/validation";
+import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType } from "../types/AuditEventTypes";
 import multer from "multer";
 import { analyzeTranscriptWithGemini } from "../services/GeminiTranscriptService";
 import { connectDB } from "../mongo_db";
@@ -23,9 +26,10 @@ router.post(
   upload.single("transcript"),
   candidateExists,
   validation.validateTranscriptFile,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const transcriptFile = req.file!;
+    const user = req.user;
     const metadata = {
       interviewRound: req.body.interviewRound,
       duration: req.body.duration ? parseFloat(req.body.duration) : undefined,
@@ -46,11 +50,18 @@ router.post(
       text = data.text;
     }
     var currentPersonality = await candidateService.getCandidatePersonality(candidateId);
+    const candidate = await candidateService.getCandidate(candidateId);
     console.log(`Current personality for candidate ${candidateId}:`, currentPersonality);
     console.log(`Transcript text for candidate ${candidateId}: ${text.substring(0, 200)}...`);
 
     console.log('=== DEBUG: Calling analyzeTranscriptWithGemini ===');
-    const personality = await analyzeTranscriptWithGemini(text);
+    const personality = await analyzeTranscriptWithGemini(
+      text,
+      candidateId,
+      candidate?.name,
+      user?.userId,
+      user?.email
+    );
     console.log(`=== DEBUG: Gemini response type:`, typeof personality);
     console.log(`=== DEBUG: Gemini response keys:`, Object.keys(personality || {}));
     console.log(`=== DEBUG: Full Gemini response:`, JSON.stringify(personality, null, 2));
@@ -58,6 +69,24 @@ router.post(
     console.log('=== DEBUG: Calling updateCandidatePersonality ===');
     await candidateService.updateCandidatePersonality(candidateId, personality);
     console.log(`=== DEBUG: Personality update completed successfully ===`);
+    
+    // Log transcript generation
+    await AuditLogger.logAIOperation({
+      eventType: AuditEventType.TRANSCRIPT_GENERATED,
+      candidateId,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: `Transcript uploaded and processed for ${candidate?.name || candidateId}`,
+      success: true,
+      metadata: {
+        candidateName: candidate?.name,
+        transcriptLength: text.length,
+        interviewRound: metadata.interviewRound,
+        duration: metadata.duration,
+        mimeType: transcriptFile.mimetype
+      }
+    });
+    
     res.status(CREATED).json({
       success: true,
       message: "Transcript file uploaded successfully",
@@ -162,15 +191,23 @@ router.get(
 router.post(
   "/:transcriptId/transcribe",
   candidateExists,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, transcriptId } = req.params;
+    const user = req.user;
     const buffer = await candidateService.getTranscriptBuffer(
       candidateId,
       transcriptId
     );
 
     const transcriptText = buffer.toString("utf-8");
-    const personality = await analyzeTranscriptWithGemini(transcriptText);
+    const candidate = await candidateService.getCandidate(candidateId);
+    const personality = await analyzeTranscriptWithGemini(
+      transcriptText,
+      candidateId,
+      candidate?.name,
+      user?.userId,
+      user?.email
+    );
 
     res.json({
       success: true,

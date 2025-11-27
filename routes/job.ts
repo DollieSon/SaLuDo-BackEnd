@@ -5,7 +5,7 @@ import { validation } from "./middleware/validation";
 import { parseJobWithGemini } from "../services/GeminiJobService";
 import { SkillMasterRepository } from "../repositories/SkillMasterRepository";
 import { connectDB } from "../mongo_db";
-import { AuthMiddleware } from "./middleware/auth";
+import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
 import { UserRole } from "../Models/User";
 // import { JobSkillRequirement } from '../models/JobTypes';
 
@@ -152,9 +152,10 @@ router.post(
   AuthMiddleware.authenticate,
   AuthMiddleware.requireRole(UserRole.HR_MANAGER),
   validation.requireFields(["jobName", "jobDescription"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { jobName, jobDescription } = req.body;
+      const user = req.user;
 
       const parsed = await parseJobWithGemini(jobName, jobDescription);
 
@@ -182,7 +183,7 @@ router.post(
         skills: skillsWithIds,
       };
 
-      const newJob = await jobService.createJob(jobData);
+      const newJob = await jobService.createJob(jobData, user?.userId, user?.email);
       res.status(201).json({
         success: true,
         message: "Job created and skills parsed successfully",
@@ -202,9 +203,11 @@ router.post(
 // PUT /api/jobs/:id - Update a job
 router.put(
   "/:id",
-  asyncHandler(async (req: Request, res: Response) => {
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const updateData = req.body;
+    const user = req.user;
 
     if (updateData.skills) {
       if (!Array.isArray(updateData.skills)) {
@@ -227,7 +230,7 @@ router.put(
       }
     }
 
-    await jobService.updateJob(id, updateData);
+    await jobService.updateJob(id, updateData, user?.userId, user?.email);
     res.json({ success: true, message: "Job updated successfully" });
   })
 );
@@ -235,9 +238,13 @@ router.put(
 // DELETE /api/jobs/:id - Delete a job
 router.delete(
   "/:id",
-  asyncHandler(async (req: Request, res: Response) => {
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.HR_MANAGER),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
-    await jobService.deleteJob(id);
+    const user = req.user;
+    
+    await jobService.deleteJob(id, user?.userId, user?.email);
     res.json({ success: true, message: "Job deleted successfully" });
   })
 );

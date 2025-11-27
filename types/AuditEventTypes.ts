@@ -1,0 +1,168 @@
+/**
+ * Audit Event Types Enum
+ * Comprehensive list of all auditable events in the system
+ */
+
+export enum AuditEventType {
+  // ============================================
+  // AUTHENTICATION EVENTS
+  // ============================================
+  LOGIN_SUCCESS = 'LOGIN_SUCCESS',
+  LOGIN_FAILURE = 'LOGIN_FAILURE',
+  LOGOUT = 'LOGOUT',
+  TOKEN_REFRESH = 'TOKEN_REFRESH',
+  
+  // ============================================
+  // USER MANAGEMENT EVENTS
+  // ============================================
+  USER_CREATED = 'USER_CREATED',
+  USER_UPDATED = 'USER_UPDATED',
+  USER_DELETED = 'USER_DELETED',
+  USER_ACTIVATED = 'USER_ACTIVATED',
+  USER_DEACTIVATED = 'USER_DEACTIVATED',
+  ROLE_CHANGED = 'ROLE_CHANGED',
+  
+  // ============================================
+  // PASSWORD EVENTS
+  // ============================================
+  PASSWORD_CHANGED = 'PASSWORD_CHANGED',
+  PASSWORD_RESET = 'PASSWORD_RESET',
+  PASSWORD_RESET_REQUESTED = 'PASSWORD_RESET_REQUESTED',
+  
+  // ============================================
+  // SECURITY EVENTS
+  // ============================================
+  FAILED_LOGIN_ATTEMPT = 'FAILED_LOGIN_ATTEMPT',
+  ACCOUNT_LOCKED = 'ACCOUNT_LOCKED',
+  SUSPICIOUS_ACTIVITY = 'SUSPICIOUS_ACTIVITY',
+  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
+  UNAUTHORIZED_ACCESS_ATTEMPT = 'UNAUTHORIZED_ACCESS_ATTEMPT',
+  PERMISSION_GRANTED = 'PERMISSION_GRANTED',
+  PERMISSION_REVOKED = 'PERMISSION_REVOKED',
+  
+  // ============================================
+  // CANDIDATE MANAGEMENT EVENTS
+  // ============================================
+  CANDIDATE_CREATED = 'CANDIDATE_CREATED',
+  CANDIDATE_UPDATED = 'CANDIDATE_UPDATED',
+  CANDIDATE_DELETED = 'CANDIDATE_DELETED',
+  CANDIDATE_STATUS_CHANGED = 'CANDIDATE_STATUS_CHANGED',
+  CANDIDATE_ASSIGNED = 'CANDIDATE_ASSIGNED',
+  CANDIDATE_UNASSIGNED = 'CANDIDATE_UNASSIGNED',
+  CANDIDATE_MERGED = 'CANDIDATE_MERGED',
+  CANDIDATE_EXPORTED = 'CANDIDATE_EXPORTED',
+  CANDIDATE_VIEWED = 'CANDIDATE_VIEWED',
+  
+  // ============================================
+  // CANDIDATE DOCUMENT EVENTS
+  // ============================================
+  CANDIDATE_DOCUMENT_UPLOADED = 'CANDIDATE_DOCUMENT_UPLOADED',
+  CANDIDATE_DOCUMENT_DELETED = 'CANDIDATE_DOCUMENT_DELETED',
+  CANDIDATE_RESUME_PARSED = 'CANDIDATE_RESUME_PARSED',
+  CANDIDATE_VIDEO_UPLOADED = 'CANDIDATE_VIDEO_UPLOADED',
+  CANDIDATE_VIDEO_DELETED = 'CANDIDATE_VIDEO_DELETED',
+  
+  // ============================================
+  // INTERVIEW EVENTS
+  // ============================================
+  INTERVIEW_SCHEDULED = 'INTERVIEW_SCHEDULED',
+  INTERVIEW_RESCHEDULED = 'INTERVIEW_RESCHEDULED',
+  INTERVIEW_CANCELLED = 'INTERVIEW_CANCELLED',
+  INTERVIEW_COMPLETED = 'INTERVIEW_COMPLETED',
+  INTERVIEW_NOTES_ADDED = 'INTERVIEW_NOTES_ADDED',
+  INTERVIEW_FEEDBACK_SUBMITTED = 'INTERVIEW_FEEDBACK_SUBMITTED',
+  
+  // ============================================
+  // JOB POSTING EVENTS
+  // ============================================
+  JOB_CREATED = 'JOB_CREATED',
+  JOB_UPDATED = 'JOB_UPDATED',
+  JOB_PUBLISHED = 'JOB_PUBLISHED',
+  JOB_UNPUBLISHED = 'JOB_UNPUBLISHED',
+  JOB_CLOSED = 'JOB_CLOSED',
+  JOB_DELETED = 'JOB_DELETED',
+  JOB_APPLICATION_RECEIVED = 'JOB_APPLICATION_RECEIVED',
+  JOB_VIEWED = 'JOB_VIEWED',
+  
+  // ============================================
+  // AI/ANALYSIS EVENTS
+  // ============================================
+  AI_ANALYSIS_REQUESTED = 'AI_ANALYSIS_REQUESTED',
+  AI_ANALYSIS_COMPLETED = 'AI_ANALYSIS_COMPLETED',
+  AI_ANALYSIS_FAILED = 'AI_ANALYSIS_FAILED',
+  PERSONALITY_ASSESSMENT_GENERATED = 'PERSONALITY_ASSESSMENT_GENERATED',
+  SKILL_ANALYSIS_COMPLETED = 'SKILL_ANALYSIS_COMPLETED',
+  TRANSCRIPT_GENERATED = 'TRANSCRIPT_GENERATED',
+  
+  // ============================================
+  // COMMENT/COLLABORATION EVENTS
+  // ============================================
+  COMMENT_CREATED = 'COMMENT_CREATED',
+  COMMENT_UPDATED = 'COMMENT_UPDATED',
+  COMMENT_DELETED = 'COMMENT_DELETED',
+  COMMENT_MENTION = 'COMMENT_MENTION',
+  
+  // ============================================
+  // NOTIFICATION EVENTS
+  // ============================================
+  NOTIFICATION_SENT = 'NOTIFICATION_SENT',
+  NOTIFICATION_PREFERENCES_UPDATED = 'NOTIFICATION_PREFERENCES_UPDATED',
+  EMAIL_SENT = 'EMAIL_SENT',
+  EMAIL_FAILED = 'EMAIL_FAILED',
+  
+  // ============================================
+  // SEARCH/FILTER EVENTS
+  // ============================================
+  ADVANCED_SEARCH_PERFORMED = 'ADVANCED_SEARCH_PERFORMED',
+  BULK_EXPORT_PERFORMED = 'BULK_EXPORT_PERFORMED',
+  REPORT_GENERATED = 'REPORT_GENERATED',
+  
+  // ============================================
+  // DATA ACCESS EVENTS
+  // ============================================
+  PROFILE_VIEWED = 'PROFILE_VIEWED',
+  SENSITIVE_DATA_ACCESSED = 'SENSITIVE_DATA_ACCESSED',
+  FILE_UPLOADED = 'FILE_UPLOADED',
+  FILE_DOWNLOADED = 'FILE_DOWNLOADED',
+  FILE_DELETED = 'FILE_DELETED',
+  
+  // ============================================
+  // ADMIN EVENTS
+  // ============================================
+  ADMIN_OVERRIDE = 'ADMIN_OVERRIDE',
+  BULK_OPERATION_PERFORMED = 'BULK_OPERATION_PERFORMED',
+  
+  // ============================================
+  // DATA PRIVACY/COMPLIANCE EVENTS
+  // ============================================
+  DATA_EXPORT_REQUESTED = 'DATA_EXPORT_REQUESTED',
+  DATA_DELETION_REQUESTED = 'DATA_DELETION_REQUESTED',
+  GDPR_REQUEST_FULFILLED = 'GDPR_REQUEST_FULFILLED',
+  PII_VIEWED = 'PII_VIEWED',
+  
+  // ============================================
+  // INTEGRATION/WEBHOOK EVENTS
+  // ============================================
+  WEBHOOK_CONFIGURED = 'WEBHOOK_CONFIGURED',
+  WEBHOOK_TRIGGERED = 'WEBHOOK_TRIGGERED',
+  WEBHOOK_FAILED = 'WEBHOOK_FAILED',
+  API_KEY_CREATED = 'API_KEY_CREATED',
+  API_KEY_REVOKED = 'API_KEY_REVOKED',
+  EXTERNAL_INTEGRATION_CONNECTED = 'EXTERNAL_INTEGRATION_CONNECTED',
+  
+  // ============================================
+  // SYSTEM EVENTS
+  // ============================================
+  SYSTEM_ERROR = 'SYSTEM_ERROR',
+  CONFIG_CHANGED = 'CONFIG_CHANGED',
+  BACKUP_CREATED = 'BACKUP_CREATED',
+  SYSTEM_MAINTENANCE_STARTED = 'SYSTEM_MAINTENANCE_STARTED',
+  SYSTEM_MAINTENANCE_COMPLETED = 'SYSTEM_MAINTENANCE_COMPLETED'
+}
+
+export enum AuditSeverity {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL'
+}

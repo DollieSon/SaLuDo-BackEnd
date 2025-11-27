@@ -10,6 +10,8 @@ import {
   AuditEventType,
   AuditSeverity,
 } from "../repositories/AuditLogRepository";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType as NewAuditEventType } from "../types/AuditEventTypes";
 import { NotificationRepository } from "../repositories/NotificationRepository";
 import { NotificationPreferencesRepository } from "../repositories/NotificationPreferencesRepository";
 import {
@@ -161,25 +163,21 @@ export class CommentService {
     );
 
     // Audit log
-    await this.auditLogRepository!.logEvent({
-      eventType: AuditEventType.FILE_UPLOADED,
-      severity: AuditSeverity.LOW,
+    await AuditLogger.logCommentOperation({
+      eventType: NewAuditEventType.COMMENT_CREATED,
+      commentId: comment.commentId,
       userId: createData.authorId,
       userEmail: createData.authorName,
-      ipAddress: "",
-      userAgent: "",
-      details: {
-        action: "comment_created",
-        resource: createData.entityType,
-        resourceId: createData.entityId,
-        metadata: {
-          commentId: comment.commentId,
-          isReply: !!createData.parentCommentId,
-          mentionCount: validMentions.length,
-          failedMentionCount: failedMentions.length,
-        },
-      },
-      success: true,
+      action: `Created comment on ${createData.entityType} ${createData.entityId}`,
+      metadata: {
+        entityType: createData.entityType,
+        entityId: createData.entityId,
+        isReply: !!createData.parentCommentId,
+        parentCommentId: createData.parentCommentId,
+        mentionCount: validMentions.length,
+        failedMentionCount: failedMentions.length,
+        textLength: sanitizedText.length
+      }
     });
 
     // Trigger notifications (don't await - fire and forget)
@@ -408,23 +406,19 @@ export class CommentService {
     await this.commentRepository!.updateText(comment);
 
     // Audit log
-    await this.auditLogRepository!.logEvent({
-      eventType: AuditEventType.USER_UPDATED,
-      severity: AuditSeverity.LOW,
+    await AuditLogger.logCommentOperation({
+      eventType: NewAuditEventType.COMMENT_UPDATED,
+      commentId: commentId,
       userId: userId,
       userEmail: updateData.editedByName,
-      ipAddress: "",
-      userAgent: "",
-      details: {
-        action: "comment_updated",
-        resource: comment.entityType,
-        resourceId: comment.entityId,
-        metadata: {
-          commentId: commentId,
-          editCount: comment.getEditCount(),
-        },
-      },
-      success: true,
+      action: `Updated comment on ${comment.entityType} ${comment.entityId}`,
+      newValue: sanitizedText,
+      metadata: {
+        entityType: comment.entityType,
+        entityId: comment.entityId,
+        editCount: comment.getEditCount(),
+        textLength: sanitizedText.length
+      }
     });
 
     // Broadcast via WebSocket for real-time updates
@@ -488,23 +482,18 @@ export class CommentService {
     await this.commentRepository!.softDelete(commentId, userId);
 
     // Audit log
-    await this.auditLogRepository!.logEvent({
-      eventType: AuditEventType.USER_DELETED,
-      severity: AuditSeverity.MEDIUM,
+    await AuditLogger.logCommentOperation({
+      eventType: NewAuditEventType.COMMENT_DELETED,
+      commentId: commentId,
       userId: userId,
       userEmail: "",
-      ipAddress: "",
-      userAgent: "",
-      details: {
-        action: "comment_deleted",
-        resource: comment.entityType,
-        resourceId: comment.entityId,
-        metadata: {
-          commentId: commentId,
-          deletedByAuthor: comment.authorId === userId,
-        },
-      },
-      success: true,
+      action: `Deleted comment on ${comment.entityType} ${comment.entityId}`,
+      metadata: {
+        entityType: comment.entityType,
+        entityId: comment.entityId,
+        deletedByAuthor: comment.authorId === userId,
+        isAdmin
+      }
     });
 
     // Broadcast via WebSocket for real-time updates
@@ -668,6 +657,21 @@ export class CommentService {
             entityId: comment.entityId,
             commentPreview: comment.text.substring(0, 200),
           },
+        });
+        
+        // Audit log for mention
+        await AuditLogger.logCommentOperation({
+          eventType: NewAuditEventType.COMMENT_MENTION,
+          commentId: comment.commentId,
+          userId: comment.authorId,
+          userEmail: comment.authorName,
+          action: `Mentioned ${mention.username} (@${mention.username}) in comment`,
+          metadata: {
+            entityType: comment.entityType,
+            entityId: comment.entityId,
+            mentionedUserId: mention.userId,
+            mentionedUsername: mention.username
+          }
         });
       } catch (error) {
         console.error(

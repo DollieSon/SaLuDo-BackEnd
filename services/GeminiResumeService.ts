@@ -1,6 +1,8 @@
 import pdfParse from 'pdf-parse';
 import { Buffer } from 'buffer';
 import { ParsedResumeData, GeminiResponse } from './types/GeminiTypes';
+import { AuditLogger } from '../utils/AuditLogger';
+import { AuditEventType } from '../types/AuditEventTypes';
 
 // Helper to clean Gemini's ```json\n...\n``` wrapping
 function cleanGeminiJson(raw: string): string {
@@ -11,7 +13,13 @@ function cleanGeminiJson(raw: string): string {
     .trim();
 }
 
-export async function parseResumeWithGemini(buffer: Buffer): Promise<ParsedResumeData> {
+export async function parseResumeWithGemini(
+  buffer: Buffer, 
+  candidateId?: string, 
+  candidateName?: string,
+  userId?: string,
+  userEmail?: string
+): Promise<ParsedResumeData> {
   // 1. Convert resume file to plain text
   const textContent = await pdfParse(buffer).then(data => data.text);
 
@@ -72,8 +80,41 @@ ${textContent}`
   try {
     const cleanedText = cleanGeminiJson(contentText);
     const parsed = JSON.parse(cleanedText);
+    
+    // Log successful resume parsing
+    if (candidateId) {
+      await AuditLogger.logAIOperation({
+        eventType: AuditEventType.CANDIDATE_RESUME_PARSED,
+        candidateId,
+        userId,
+        userEmail,
+        action: `AI successfully parsed resume for ${candidateName || candidateId}`,
+        success: true,
+        metadata: {
+          candidateName,
+          skillCount: parsed.skills?.length || 0,
+          educationCount: parsed.education?.length || 0,
+          experienceCount: parsed.experience?.length || 0,
+          certificationCount: parsed.certifications?.length || 0
+        }
+      });
+    }
+    
     return parsed;
   } catch (err) {
+    // Log failed resume parsing
+    if (candidateId) {
+      await AuditLogger.logAIOperation({
+        eventType: AuditEventType.AI_ANALYSIS_FAILED,
+        candidateId,
+        userId,
+        userEmail,
+        action: `AI failed to parse resume for ${candidateName || candidateId}`,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        metadata: { candidateName, operation: 'resume_parsing' }
+      });
+    }
     throw new Error('Invalid JSON returned by Gemini: ' + contentText);
   }
 }

@@ -4,6 +4,8 @@
  */
 
 import nodemailer, { Transporter, SendMailOptions } from 'nodemailer';
+import { AuditLogger } from '../utils/AuditLogger';
+import { AuditEventType } from '../types/AuditEventTypes';
 
 export interface EmailOptions {
   to: string | string[];
@@ -15,6 +17,11 @@ export interface EmailOptions {
     path?: string;
     content?: Buffer | string;
   }>;
+  // Optional audit context
+  userId?: string;
+  userEmail?: string;
+  ipAddress?: string;
+  userAgent?: string;
 }
 
 export interface EmailResult {
@@ -84,6 +91,22 @@ export class EmailService {
   async sendEmail(options: EmailOptions): Promise<EmailResult> {
     if (!this.isConfigured || !this.transporter) {
       console.warn('EmailService: Cannot send email - SMTP not configured');
+      
+      // Log failed email attempt
+      await AuditLogger.logNotificationOperation({
+        eventType: AuditEventType.EMAIL_FAILED,
+        userId: options.userId || 'system',
+        action: 'email_send',
+        error: 'SMTP not configured',
+        metadata: {
+          recipient: Array.isArray(options.to) ? options.to.join(', ') : options.to,
+          subject: options.subject,
+          errorReason: 'SMTP not configured',
+          hasAttachments: !!options.attachments?.length,
+          userEmail: options.userEmail || 'system@saludo.com'
+        }
+      });
+
       return {
         success: false,
         error: 'SMTP not configured'
@@ -108,15 +131,49 @@ export class EmailService {
         subject: options.subject
       });
 
+      // Log successful email
+      await AuditLogger.logNotificationOperation({
+        eventType: AuditEventType.EMAIL_SENT,
+        userId: options.userId || 'system',
+        action: 'email_send',
+        success: true,
+        metadata: {
+          recipient: Array.isArray(options.to) ? options.to.join(', ') : options.to,
+          subject: options.subject,
+          messageId: info.messageId,
+          hasAttachments: !!options.attachments?.length,
+          attachmentCount: options.attachments?.length || 0,
+          userEmail: options.userEmail || 'system@saludo.com'
+        }
+      });
+
       return {
         success: true,
         messageId: info.messageId
       };
     } catch (error) {
       console.error('EmailService: Failed to send email:', error);
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      // Log failed email
+      await AuditLogger.logNotificationOperation({
+        eventType: AuditEventType.EMAIL_FAILED,
+        userId: options.userId || 'system',
+        action: 'email_send',
+        error: errorMessage,
+        metadata: {
+          recipient: Array.isArray(options.to) ? options.to.join(', ') : options.to,
+          subject: options.subject,
+          errorReason: errorMessage,
+          hasAttachments: !!options.attachments?.length,
+          userEmail: options.userEmail || 'system@saludo.com'
+        }
+      });
+
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: errorMessage
       };
     }
   }

@@ -13,6 +13,8 @@ import { CandidateAccessMiddleware } from "./middleware/candidateAccess";
 import { parseResumeWithGemini } from "../services/GeminiResumeService";
 import { AddedBy } from "../Models/Skill";
 import { UserRole } from "../Models/User";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType } from "../types/AuditEventTypes";
 import multer from "multer";
 import { CREATED, BAD_REQUEST } from "../constants/HttpStatusCodes";
 
@@ -73,8 +75,9 @@ router.post(
   validation.requireFields(["name", "email", "birthdate"]),
   validation.validateEmailMiddleware,
   validation.validateDatesMiddleware(["birthdate"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { name, email, birthdate, roleApplied } = req.body;
+    const user = req.user;
 
     if (!req.file) {
       return res
@@ -112,11 +115,19 @@ router.post(
       emailArray,
       new Date(birthdate),
       jobId,
-      req.file
+      req.file,
+      user?.userId,
+      user?.email
     );
 
     // Use Gemini to parse resume
-    const parsedData = await parseResumeWithGemini(req.file.buffer);
+    const parsedData = await parseResumeWithGemini(
+      req.file.buffer,
+      candidate.candidateId,
+      name,
+      user?.userId,
+      user?.email
+    );
 
     // Save parsed data
     if (parsedData.skills.length) {
@@ -127,6 +138,21 @@ router.post(
           addedBy: AddedBy.AI,
         }))
       );
+      
+      // Log skill analysis completion
+      await AuditLogger.logAIOperation({
+        eventType: AuditEventType.SKILL_ANALYSIS_COMPLETED,
+        candidateId: candidate.candidateId,
+        userId: user?.userId,
+        userEmail: user?.email,
+        action: `AI completed skill analysis for ${name}`,
+        success: true,
+        metadata: {
+          candidateName: name,
+          skillCount: parsedData.skills.length,
+          averageScore: parsedData.skills.reduce((sum, s) => sum + (s.score || 0), 0) / parsedData.skills.length
+        }
+      });
     }
     for (const edu of parsedData.education)
       await educationService.addEducation(candidate.candidateId, edu);
@@ -180,6 +206,7 @@ router.put(
     const { candidateId } = req.params;
     const { name, email, birthdate, roleApplied } = req.body;
     const resumeFile = req.file;
+    const user = req.user;
 
     // Parse email array if it's a string
     let emailArray: string[];
@@ -194,16 +221,26 @@ router.put(
     }
 
     // Update candidate basic info
-    await candidateService.updateCandidate(candidateId, {
-      name,
-      email: emailArray,
-      birthdate: new Date(birthdate),
-      roleApplied,
-    });
+    await candidateService.updateCandidate(
+      candidateId, 
+      {
+        name,
+        email: emailArray,
+        birthdate: new Date(birthdate),
+        roleApplied,
+      },
+      user?.userId,
+      user?.email
+    );
 
     // Update resume if provided
     if (resumeFile) {
-      await candidateService.updateResumeFile(candidateId, resumeFile);
+      await candidateService.updateResumeFile(
+        candidateId, 
+        resumeFile, 
+        user?.userId, 
+        user?.email
+      );
     }
 
     // Get updated candidate data
@@ -220,9 +257,17 @@ router.put(
 // Delete a candidate
 router.delete(
   "/:candidateId",
-  asyncHandler(async (req: Request, res: Response) => {
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
-    await candidateService.deleteCandidate(candidateId);
+    const user = req.user;
+    
+    await candidateService.deleteCandidate(
+      candidateId,
+      user?.userId,
+      user?.email
+    );
 
     res.json({
       success: true,

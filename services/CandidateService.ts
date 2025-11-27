@@ -4,6 +4,7 @@ import {
   ResumeRepository,
   InterviewRepository,
 } from "../repositories/CandidateRepository";
+import { UserRepository } from "../repositories/UserRepository";
 import {
   Candidate,
   CandidateData,
@@ -26,33 +27,42 @@ import {
 import { Personality, PersonalityData } from "../Models/Personality";
 import { GridFSBucket, GridFSBucketReadStream, ObjectId } from "mongodb";
 import streamBuffers from "stream-buffers";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType } from "../types/AuditEventTypes";
+
 export class CandidateService {
   private personalInfoRepo: PersonalInfoRepository;
   private resumeRepo: ResumeRepository;
   private interviewRepo: InterviewRepository;
+  private userRepo: UserRepository;
   constructor() {
     // Initialize repositories - will be set up in init() (trust the process bestie)
     this.personalInfoRepo = null as any;
     this.resumeRepo = null as any;
     this.interviewRepo = null as any;
+    this.userRepo = null as any;
   }
   async init(): Promise<void> {
     const db = await connectDB();
     this.personalInfoRepo = new PersonalInfoRepository(db);
     this.resumeRepo = new ResumeRepository(db);
     this.interviewRepo = new InterviewRepository(db);
+    this.userRepo = new UserRepository(db);
   }
   async addCandidate(
     name: string,
     email: string[],
     birthdate: Date,
     roleApplied: string | null = null,
-    resumeFile?: Express.Multer.File
+    resumeFile?: Express.Multer.File,
+    userId?: string,
+    userEmail?: string
   ): Promise<Candidate> {
     await this.init();
     try {
       // Handle resume file upload if provided
       let resumeMetadata: ResumeMetadata | undefined;
+      let uploadedFileId: string | undefined;
       if (resumeFile) {
         const db = await connectDB();
         const bucket = new GridFSBucket(db, { bucketName: "resumes" });
@@ -71,8 +81,9 @@ export class CandidateService {
           uploadStream.on("finish", resolve);
           uploadStream.on("error", reject);
         });
+        uploadedFileId = fileId.toString();
         resumeMetadata = {
-          fileId: fileId.toString(),
+          fileId: uploadedFileId,
           filename: resumeFile.originalname,
           contentType: resumeFile.mimetype,
           size: resumeFile.size,
@@ -104,7 +115,7 @@ export class CandidateService {
         weaknesses: [],
       });
       // Update GridFS metadata with candidateId
-      if (resumeMetadata) {
+      if (resumeMetadata && uploadedFileId) {
         const db = await connectDB();
         await db
           .collection("resumes.files")
@@ -112,6 +123,23 @@ export class CandidateService {
             { _id: new ObjectId(resumeMetadata.fileId) },
             { $set: { "metadata.candidateId": personalInfo.candidateId } }
           );
+
+        // Log document upload
+        await AuditLogger.logFileOperation({
+          eventType: AuditEventType.CANDIDATE_DOCUMENT_UPLOADED,
+          fileId: uploadedFileId,
+          fileName: resumeMetadata.filename,
+          fileType: 'resume',
+          candidateId: personalInfo.candidateId,
+          userId,
+          userEmail,
+          action: 'upload',
+          metadata: {
+            candidateName: name,
+            contentType: resumeMetadata.contentType,
+            size: resumeMetadata.size
+          }
+        });
       }
       // Create empty interview data
       await this.interviewRepo.create({
@@ -133,6 +161,17 @@ export class CandidateService {
         personalInfo.dateCreated,
         personalInfo.dateUpdated
       );
+
+      // Log audit event
+      await AuditLogger.logCandidateOperation({
+        eventType: AuditEventType.CANDIDATE_CREATED,
+        candidateId: personalInfo.candidateId,
+        candidateName: name,
+        action: 'Created new candidate',
+        newValue: { name, email, status: CandidateStatus.APPLIED, roleApplied },
+        metadata: { hasResume: !!resumeFile }
+      });
+
       return candidate;
     } catch (error) {
       console.error("Error adding candidate:", error);
@@ -208,10 +247,16 @@ export class CandidateService {
   }
   async updateCandidate(
     candidateId: string,
-    updatedData: Partial<CandidateData>
+    updatedData: Partial<CandidateData>,
+    userId?: string,
+    userEmail?: string
   ): Promise<void> {
     await this.init();
     try {
+      // Get old values for audit
+      const oldCandidate = await this.getCandidate(candidateId);
+      const changes: Record<string, any> = {};
+
       // Update personal info if relevant fields changed
       if (
         updatedData.name ||
@@ -220,6 +265,22 @@ export class CandidateService {
         updatedData.roleApplied ||
         updatedData.status
       ) {
+        if (updatedData.status && oldCandidate?.status !== updatedData.status) {
+          changes.status = { old: oldCandidate?.status, new: updatedData.status };
+          
+          // Log status change separately
+          await AuditLogger.logCandidateOperation({
+            eventType: AuditEventType.CANDIDATE_STATUS_CHANGED,
+            candidateId,
+            candidateName: oldCandidate?.name,
+            userId,
+            userEmail,
+            action: `Changed candidate status from ${oldCandidate?.status} to ${updatedData.status}`,
+            oldValue: oldCandidate?.status,
+            newValue: updatedData.status
+          });
+        }
+
         await this.personalInfoRepo.update(candidateId, {
           name: updatedData.name,
           email: updatedData.email,
@@ -227,6 +288,10 @@ export class CandidateService {
           roleApplied: updatedData.roleApplied,
           status: updatedData.status,
         });
+        
+        if (updatedData.name) changes.name = updatedData.name;
+        if (updatedData.email) changes.email = updatedData.email;
+        if (updatedData.roleApplied) changes.roleApplied = updatedData.roleApplied;
       }
       // Update resume data if relevant fields changed
       if (
@@ -249,6 +314,8 @@ export class CandidateService {
           weaknesses: updatedData.weaknesses,
           resumeAssessment: updatedData.resumeAssessment,
         });
+        
+        if (updatedData.resumeAssessment) changes.resumeAssessment = 'updated';
       }
       // Update interview data if relevant fields changed
       if (
@@ -261,16 +328,45 @@ export class CandidateService {
           personality: updatedData.personality,
           interviewAssessment: updatedData.interviewAssessment,
         });
+        
+        if (updatedData.interviewAssessment) changes.interviewAssessment = 'updated';
+      }
+
+      // Log general update audit
+      if (Object.keys(changes).length > 0) {
+        await AuditLogger.logCandidateOperation({
+          eventType: AuditEventType.CANDIDATE_UPDATED,
+          candidateId,
+          candidateName: oldCandidate?.name,
+          userId,
+          userEmail,
+          action: 'Updated candidate information',
+          newValue: changes
+        });
       }
     } catch (error) {
       console.error("Error updating candidate:", error);
       throw new Error("Failed to update candidate");
     }
   }
-  async deleteCandidate(candidateId: string): Promise<void> {
+  async deleteCandidate(candidateId: string, userId?: string, userEmail?: string): Promise<void> {
     await this.init();
     try {
+      // Get candidate info before deletion for audit
+      const candidate = await this.getCandidate(candidateId);
+      
       await this.personalInfoRepo.delete(candidateId);
+
+      // Log audit event
+      await AuditLogger.logCandidateOperation({
+        eventType: AuditEventType.CANDIDATE_DELETED,
+        candidateId,
+        candidateName: candidate?.name,
+        userId,
+        userEmail,
+        action: 'Deleted candidate (soft delete)',
+        oldValue: { name: candidate?.name, email: candidate?.email, status: candidate?.status }
+      });
     } catch (error) {
       console.error("Error deleting candidate:", error);
       throw new Error("Failed to delete candidate");
@@ -344,10 +440,17 @@ export class CandidateService {
   }
   async updateResumeFile(
     candidateId: string,
-    resumeFile: Express.Multer.File
+    resumeFile: Express.Multer.File,
+    userId?: string,
+    userEmail?: string
   ): Promise<void> {
     await this.init();
     try {
+      const personalInfo = await this.personalInfoRepo.findById(candidateId);
+      if (!personalInfo) {
+        throw new Error("Candidate not found");
+      }
+
       const resumeData = await this.resumeRepo.findById(candidateId);
       if (!resumeData) {
         throw new Error("Candidate not found");
@@ -389,14 +492,32 @@ export class CandidateService {
       await this.resumeRepo.update(candidateId, {
         resume: newResumeMetadata,
       });
+
+      // Log document upload
+      await AuditLogger.logFileOperation({
+        eventType: AuditEventType.CANDIDATE_DOCUMENT_UPLOADED,
+        fileId: fileId.toString(),
+        fileName: resumeFile.originalname,
+        fileType: 'resume',
+        candidateId: candidateId,
+        userId,
+        userEmail,
+        action: 'upload',
+        metadata: {
+          candidateName: personalInfo.name,
+          contentType: resumeFile.mimetype,
+          size: resumeFile.size
+        }
+      });
     } catch (error) {
       console.error("Error updating resume file:", error);
       throw new Error("Failed to update resume file");
     }
   }
-  async deleteResumeFile(candidateId: string): Promise<void> {
+  async deleteResumeFile(candidateId: string, userId?: string, userEmail?: string): Promise<void> {
     await this.init();
     try {
+      const candidate = await this.getCandidate(candidateId);
       const resumeData = await this.resumeRepo.findById(candidateId);
       if (!resumeData?.resume) {
         return; // No resume to delete
@@ -408,6 +529,19 @@ export class CandidateService {
       // Update resume data to remove metadata
       await this.resumeRepo.update(candidateId, {
         resume: undefined,
+      });
+
+      // Log audit event
+      await AuditLogger.logFileOperation({
+        eventType: AuditEventType.CANDIDATE_DOCUMENT_DELETED,
+        fileId: resumeData.resume.fileId,
+        candidateId,
+        fileName: resumeData.resume.filename,
+        fileType: 'resume',
+        userId,
+        userEmail,
+        action: `Deleted resume file: ${resumeData.resume.filename}`,
+        metadata: { candidateName: candidate?.name }
       });
     } catch (error) {
       console.error("Error deleting resume file:", error);
@@ -702,10 +836,17 @@ export class CandidateService {
     candidateId: string,
     videoFile: Express.Multer.File,
     videoType: "interview" | "introduction",
-    metadata?: Partial<VideoMetadata>
+    metadata?: Partial<VideoMetadata>,
+    userId?: string,
+    userEmail?: string
   ): Promise<VideoMetadata> {
     await this.init();
     try {
+      const personalInfo = await this.personalInfoRepo.findById(candidateId);
+      if (!personalInfo) {
+        throw new Error("Candidate not found");
+      }
+
       // Validate file
       this.validateVideoFile(videoFile);
       const db = await connectDB();
@@ -791,6 +932,27 @@ export class CandidateService {
           personality: new Personality().toObject(),
         });
       }
+
+      // Log video upload
+      await AuditLogger.logFileOperation({
+        eventType: AuditEventType.CANDIDATE_VIDEO_UPLOADED,
+        fileId: fileId.toString(),
+        fileName: videoFile.originalname,
+        fileType: videoType === 'interview' ? 'interview_video' : 'introduction_video',
+        candidateId: candidateId,
+        userId,
+        userEmail,
+        action: 'upload',
+        metadata: {
+          candidateName: personalInfo.name,
+          videoType,
+          contentType: videoFile.mimetype,
+          size: videoFile.size,
+          duration: metadata?.duration,
+          interviewRound: metadata?.interviewRound
+        }
+      });
+
       return videoMetadata;
     } catch (error) {
       console.error("Error adding video file:", error);
@@ -912,10 +1074,21 @@ export class CandidateService {
   async deleteVideoFile(
     candidateId: string,
     videoId: string,
-    videoType: "interview" | "introduction"
+    videoType: "interview" | "introduction",
+    userId?: string,
+    userEmail?: string
   ): Promise<void> {
     await this.init();
     try {
+      const candidate = await this.getCandidate(candidateId);
+      const interviewData = await this.interviewRepo.findById(candidateId);
+      
+      // Find video metadata for audit log
+      const videoArray = videoType === "interview" ? "interviewVideos" : "introductionVideos";
+      const videoMetadata = interviewData?.[videoArray]?.find(
+        (v: VideoMetadata) => v.fileId === videoId
+      );
+
       const db = await connectDB();
       const bucketName =
         videoType === "interview" ? "interview-videos" : "introduction-videos";
@@ -925,13 +1098,23 @@ export class CandidateService {
       await bucket.delete(new ObjectId(videoId));
 
       // Remove from interview data
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      const videoArray =
-        videoType === "interview" ? "interviewVideos" : "introductionVideos";
       const updatedVideos =
         interviewData?.[videoArray]?.filter(
           (v: VideoMetadata) => v.fileId !== videoId
         ) || [];
+
+      // Log audit event
+      await AuditLogger.logFileOperation({
+        eventType: AuditEventType.CANDIDATE_VIDEO_DELETED,
+        fileId: videoId,
+        candidateId,
+        fileName: videoMetadata?.filename || 'unknown',
+        fileType: videoType === 'interview' ? 'interview-video' : 'introduction-video',
+        userId,
+        userEmail,
+        action: `Deleted ${videoType} video: ${videoMetadata?.filename || videoId}`,
+        metadata: { candidateName: candidate?.name, videoType }
+      });
 
       const updatedInterviewData = {
         candidateId: candidateId,
@@ -1299,6 +1482,10 @@ export class CandidateService {
         throw new Error("HR user is already assigned to this candidate");
       }
 
+      // Get HR user details for audit
+      const hrUser = await this.userRepo.findById(hrUserId);
+      const assignedByUser = await this.userRepo.findById(assignedBy);
+
       // Add HR user to assignment list
       personalInfo.assignedHRUserIds.push(hrUserId);
       personalInfo.lastAssignedAt = new Date();
@@ -1306,6 +1493,22 @@ export class CandidateService {
       personalInfo.dateUpdated = new Date();
 
       await this.personalInfoRepo.update(candidateId, personalInfo);
+
+      // Log candidate assignment
+      await AuditLogger.logCandidateOperation({
+        eventType: AuditEventType.CANDIDATE_ASSIGNED,
+        candidateId: candidateId,
+        candidateName: personalInfo.name,
+        userId: assignedBy,
+        userEmail: assignedByUser?.email || 'unknown@saludo.com',
+        action: 'assigned',
+        metadata: {
+          assignedToUserId: hrUserId,
+          assignedToUserName: hrUser ? `${hrUser.firstName} ${hrUser.lastName}` : 'Unknown User',
+          assignedToUserEmail: hrUser?.email || 'unknown@saludo.com',
+          totalAssignments: personalInfo.assignedHRUserIds.length
+        }
+      });
     } catch (error) {
       console.error("Error assigning HR user to candidate:", error);
       throw error;
@@ -1334,10 +1537,29 @@ export class CandidateService {
         throw new Error("HR user is not assigned to this candidate");
       }
 
+      // Get HR user details for audit before removal
+      const hrUser = await this.userRepo.findById(hrUserId);
+
       personalInfo.assignedHRUserIds.splice(index, 1);
       personalInfo.dateUpdated = new Date();
 
       await this.personalInfoRepo.update(candidateId, personalInfo);
+
+      // Log candidate unassignment
+      await AuditLogger.logCandidateOperation({
+        eventType: AuditEventType.CANDIDATE_UNASSIGNED,
+        candidateId: candidateId,
+        candidateName: personalInfo.name,
+        userId: hrUserId,
+        userEmail: hrUser?.email || 'unknown@saludo.com',
+        action: 'unassigned',
+        metadata: {
+          unassignedUserId: hrUserId,
+          unassignedUserName: hrUser ? `${hrUser.firstName} ${hrUser.lastName}` : 'Unknown User',
+          unassignedUserEmail: hrUser?.email || 'unknown@saludo.com',
+          remainingAssignments: personalInfo.assignedHRUserIds.length
+        }
+      });
     } catch (error) {
       console.error("Error unassigning HR user from candidate:", error);
       throw error;

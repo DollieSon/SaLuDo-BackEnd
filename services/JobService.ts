@@ -3,6 +3,8 @@ import { JobWithSkillNames, JobSkillRequirement } from '../Models/JobTypes';
 import { JobRepository } from '../repositories/JobRepository';
 import { SkillMasterRepository } from '../repositories/SkillMasterRepository';
 import { connectDB } from '../mongo_db';
+import { AuditLogger } from '../utils/AuditLogger';
+import { AuditEventType } from '../types/AuditEventTypes';
 
 export class JobService {
     private jobRepo: JobRepository;
@@ -19,7 +21,7 @@ export class JobService {
         }
     }
 
-    async createJob(jobData: CreateJobData): Promise<JobData> {
+    async createJob(jobData: CreateJobData, userId?: string, userEmail?: string): Promise<JobData> {
         try {
             // Initialize skill master repo
             await this.initSkillMasterRepo();
@@ -34,6 +36,24 @@ export class JobService {
             
             // Save to database
             const savedJob = await this.jobRepo.create(job.toObject());
+            
+            // Log audit event
+            await AuditLogger.logJobOperation({
+                eventType: AuditEventType.JOB_CREATED,
+                jobId: savedJob._id || 'unknown',
+                jobTitle: savedJob.jobName,
+                userId,
+                userEmail,
+                action: `Created new job: ${savedJob.jobName}`,
+                newValue: {
+                    jobName: savedJob.jobName,
+                    jobDescription: savedJob.jobDescription,
+                    skills: savedJob.skills
+                },
+                metadata: {
+                    skillCount: savedJob.skills?.length || 0
+                }
+            });
             
             return savedJob;
         } catch (error) {
@@ -75,7 +95,7 @@ export class JobService {
         }
     }
 
-    async updateJob(jobId: string, updateData: UpdateJobData): Promise<void> {
+    async updateJob(jobId: string, updateData: UpdateJobData, userId?: string, userEmail?: string): Promise<void> {
         try {
             // Check if job exists
             const existingJob = await this.jobRepo.findById(jobId);
@@ -92,8 +112,27 @@ export class JobService {
             const job = Job.fromObject(existingJob);
             job.updateJob(updateData);
 
+            // Track changes for audit
+            const changes: Record<string, any> = {};
+            if (updateData.jobName) changes.jobName = updateData.jobName;
+            if (updateData.jobDescription) changes.jobDescription = updateData.jobDescription;
+            if (updateData.skills) changes.skills = updateData.skills;
+
             // Update in database
             await this.jobRepo.update(jobId, updateData);
+            
+            // Log general update audit
+            if (Object.keys(changes).length > 0) {
+                await AuditLogger.logJobOperation({
+                    eventType: AuditEventType.JOB_UPDATED,
+                    jobId,
+                    jobTitle: existingJob.jobName,
+                    userId,
+                    userEmail,
+                    action: `Updated job: ${existingJob.jobName}`,
+                    newValue: changes
+                });
+            }
         } catch (error) {
             console.error('Error updating job:', error);
             if (error instanceof Error) {
@@ -103,7 +142,7 @@ export class JobService {
         }
     }
 
-    async deleteJob(jobId: string): Promise<void> {
+    async deleteJob(jobId: string, userId?: string, userEmail?: string): Promise<void> {
         try {
             // Check if job exists
             const existingJob = await this.jobRepo.findById(jobId);
@@ -112,6 +151,20 @@ export class JobService {
             }
 
             await this.jobRepo.delete(jobId);
+            
+            // Log audit event
+            await AuditLogger.logJobOperation({
+                eventType: AuditEventType.JOB_DELETED,
+                jobId,
+                jobTitle: existingJob.jobName,
+                userId,
+                userEmail,
+                action: `Deleted job: ${existingJob.jobName}`,
+                oldValue: {
+                    jobName: existingJob.jobName,
+                    jobDescription: existingJob.jobDescription
+                }
+            });
         } catch (error) {
             console.error('Error deleting job:', error);
             if (error instanceof Error) {

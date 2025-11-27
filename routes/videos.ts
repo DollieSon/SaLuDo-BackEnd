@@ -4,6 +4,7 @@ import { CandidateService } from "../services";
 import { candidateExists } from "./middleware/candidateExists";
 import { validation } from "./middleware/validation";
 import { asyncHandler } from "./middleware/errorHandler";
+import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
 
 import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const router = express.Router({ mergeParams: true });
@@ -44,9 +45,10 @@ router.post(
   upload.single("video"),
   candidateExists,
   validation.validateVideoFile,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const videoFile = req.file!;
+    const user = req.user;
     const metadata = {
       interviewRound: req.body.interviewRound,
       duration: req.body.duration ? parseFloat(req.body.duration) : undefined,
@@ -61,7 +63,9 @@ router.post(
       candidateId,
       videoFile,
       "interview",
-      metadata
+      metadata,
+      user?.userId,
+      user?.email
     );
 
     res.status(CREATED).json({
@@ -200,10 +204,19 @@ router.put(
 // DELETE /api/candidates/:candidateId/videos/interview/:videoId
 router.delete(
   "/interview/:videoId",
+  AuthMiddleware.authenticate,
   candidateExists,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
-    await candidateService.deleteVideoFile(candidateId, videoId, "interview");
+    const user = req.user;
+    
+    await candidateService.deleteVideoFile(
+      candidateId, 
+      videoId, 
+      "interview",
+      user?.userId,
+      user?.email
+    );
 
     res.json({
       success: true,
@@ -222,9 +235,10 @@ router.post(
   upload.single("video"),
   candidateExists,
   validation.validateVideoFile,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const videoFile = req.file!;
+    const user = req.user;
     const metadata = {
       duration: req.body.duration ? parseFloat(req.body.duration) : undefined,
       resolution: req.body.resolution,
@@ -238,7 +252,9 @@ router.post(
       candidateId,
       videoFile,
       "introduction",
-      metadata
+      metadata,
+      user?.userId,
+      user?.email
     );
 
     res.status(CREATED).json({
@@ -376,13 +392,18 @@ router.put(
 // DELETE /api/candidates/:candidateId/videos/introduction/:videoId
 router.delete(
   "/introduction/:videoId",
+  AuthMiddleware.authenticate,
   candidateExists,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
+    const user = req.user;
+    
     await candidateService.deleteVideoFile(
       candidateId,
       videoId,
-      "introduction"
+      "introduction",
+      user?.userId,
+      user?.email
     );
 
     res.json({
