@@ -91,7 +91,6 @@ export class AuditLogger {
     // Critical system events
     if ([
       AuditEventType.SYSTEM_ERROR,
-      AuditEventType.DATA_DELETION_REQUESTED,
       AuditEventType.PERMISSION_REVOKED,
       AuditEventType.ROLE_CHANGED
     ].includes(eventType)) {
@@ -105,7 +104,6 @@ export class AuditLogger {
       AuditEventType.PASSWORD_CHANGED,
       AuditEventType.CANDIDATE_DELETED,
       AuditEventType.JOB_DELETED,
-      AuditEventType.CONFIG_CHANGED,
       AuditEventType.BULK_OPERATION_PERFORMED
     ].includes(eventType)) {
       return AuditSeverity.MEDIUM;
