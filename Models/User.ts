@@ -15,6 +15,7 @@ import {
   UserLoginData,
   UserAuthTokens,
 } from './interfaces/UserInterfaces';
+import { ProfilePhotoMetadata, Availability, RoleSpecificData } from './interfaces/ProfileInterfaces';
 
 // Re-export for convenience
 export { UserRole, UserRoleHierarchy } from './enums/UserRole';
@@ -49,6 +50,15 @@ export class User {
   public accountLockedUntil?: Date;
   public passwordChangedAt?: Date;
   public passwordHistory?: string[];
+  // Extended profile fields
+  public photoMetadata?: ProfilePhotoMetadata;
+  public phoneNumber?: string;
+  public location?: string;
+  public timezone?: string;
+  public linkedInUrl?: string;
+  public bio?: string;
+  public availability?: Availability;
+  public roleSpecificData?: RoleSpecificData;
 
   constructor(
     email: string,
@@ -107,6 +117,15 @@ export class User {
       isVerified: this.isVerified,
       createdAt: this.createdAt,
       lastLogin: this.lastLogin,
+      // Extended profile fields
+      photoMetadata: this.photoMetadata,
+      phoneNumber: this.phoneNumber,
+      location: this.location,
+      timezone: this.timezone,
+      linkedInUrl: this.linkedInUrl,
+      bio: this.bio,
+      availability: this.availability,
+      roleSpecificData: this.roleSpecificData,
     };
   }
 
@@ -313,6 +332,15 @@ export class User {
       accountLockedUntil: this.accountLockedUntil,
       passwordChangedAt: this.passwordChangedAt,
       passwordHistory: this.passwordHistory,
+      // Extended profile fields
+      photoMetadata: this.photoMetadata,
+      phoneNumber: this.phoneNumber,
+      location: this.location,
+      timezone: this.timezone,
+      linkedInUrl: this.linkedInUrl,
+      bio: this.bio,
+      availability: this.availability,
+      roleSpecificData: this.roleSpecificData,
     };
   }
 
@@ -342,6 +370,16 @@ export class User {
     user.accountLockedUntil = data.accountLockedUntil;
     user.passwordChangedAt = data.passwordChangedAt;
     user.passwordHistory = data.passwordHistory;
+
+    // Extended profile fields
+    user.photoMetadata = data.photoMetadata;
+    user.phoneNumber = data.phoneNumber;
+    user.location = data.location;
+    user.timezone = data.timezone;
+    user.linkedInUrl = data.linkedInUrl;
+    user.bio = data.bio;
+    user.availability = data.availability;
+    user.roleSpecificData = data.roleSpecificData;
 
     return user;
   }

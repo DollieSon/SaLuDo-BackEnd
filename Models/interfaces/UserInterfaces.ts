@@ -5,6 +5,7 @@
 // =======================
 
 import { UserRole } from '../enums/UserRole';
+import { ProfilePhotoMetadata, Availability, RoleSpecificData } from './ProfileInterfaces';
 
 // =======================
 // DATA INTERFACES
@@ -34,6 +35,15 @@ export interface UserData {
   accountLockedUntil?: Date;          // Temporary account lock timestamp
   passwordChangedAt?: Date;           // Last password change timestamp
   passwordHistory?: string[];         // Store last N password hashes to prevent reuse
+  // Extended profile fields
+  photoMetadata?: ProfilePhotoMetadata; // Profile photo information
+  phoneNumber?: string;                 // Contact phone number
+  location?: string;                    // Location/office (e.g., "New York, NY")
+  timezone?: string;                    // Timezone (e.g., "America/New_York")
+  linkedInUrl?: string;                 // LinkedIn profile URL
+  bio?: string;                         // Professional bio/about section
+  availability?: Availability;          // Scheduling availability
+  roleSpecificData?: RoleSpecificData;  // Role-based additional data
 }
 
 // =======================
@@ -65,6 +75,15 @@ export interface UpdateUserData {
   failedLoginAttempts?: number; // For tracking login attempts
   accountLockedUntil?: Date; // For account lockout
   lastLogin?: Date; // For recording login timestamp
+  // Extended profile fields
+  photoMetadata?: ProfilePhotoMetadata; // Profile photo information
+  phoneNumber?: string; // Contact phone number
+  location?: string; // Location/office
+  timezone?: string; // Timezone
+  linkedInUrl?: string; // LinkedIn profile URL
+  bio?: string; // Professional bio
+  availability?: Availability; // Scheduling availability
+  roleSpecificData?: RoleSpecificData; // Role-based data
 }
 
 // =======================
@@ -98,4 +117,13 @@ export interface UserProfile {
   isVerified: boolean;
   createdAt: Date;
   lastLogin?: Date;
+  // Extended profile fields
+  photoMetadata?: ProfilePhotoMetadata; // Profile photo information
+  phoneNumber?: string; // Contact phone number
+  location?: string; // Location/office
+  timezone?: string; // Timezone
+  linkedInUrl?: string; // LinkedIn profile URL
+  bio?: string; // Professional bio
+  availability?: Availability; // Scheduling availability
+  roleSpecificData?: RoleSpecificData; // Role-based data
 }
