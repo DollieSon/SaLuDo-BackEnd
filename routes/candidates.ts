@@ -186,8 +186,42 @@ router.get(
   CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
+    const user = req.user;
 
     const candidate = await candidateService.getCandidate(candidateId);
+
+    // Log candidate view
+    await AuditLogger.logCandidateOperation({
+      eventType: AuditEventType.CANDIDATE_VIEWED,
+      candidateId,
+      candidateName: candidate?.name,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'viewed',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        status: candidate?.status,
+        roleApplied: candidate?.roleApplied
+      }
+    });
+
+    // Log PII access (email, birthdate are considered sensitive personal data)
+    await AuditLogger.logCandidateOperation({
+      eventType: AuditEventType.PII_VIEWED,
+      candidateId,
+      candidateName: candidate?.name,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'accessed_pii',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        piiFields: ['email', 'birthdate', 'name'],
+        emailCount: candidate?.email?.length || 0,
+        status: candidate?.status
+      }
+    });
 
     res.json({
       success: true,
@@ -450,6 +484,24 @@ router.post(
         );
       }
     }
+
+    // Log bulk operation audit
+    await AuditLogger.log({
+      eventType: AuditEventType.BULK_OPERATION_PERFORMED,
+      userId: user.userId,
+      userEmail: user.email,
+      resource: 'candidate',
+      resourceId: candidateId,
+      action: 'bulk_hr_assignment',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        operationType: 'assign_multiple_hr_users',
+        hrUserIds,
+        assignedCount: hrUserIds.length,
+        candidateId
+      }
+    });
 
     res.json({
       success: true,

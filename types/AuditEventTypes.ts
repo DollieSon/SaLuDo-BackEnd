@@ -49,8 +49,6 @@ export enum AuditEventType {
   CANDIDATE_STATUS_CHANGED = 'CANDIDATE_STATUS_CHANGED',
   CANDIDATE_ASSIGNED = 'CANDIDATE_ASSIGNED',
   CANDIDATE_UNASSIGNED = 'CANDIDATE_UNASSIGNED',
-  CANDIDATE_MERGED = 'CANDIDATE_MERGED',
-  CANDIDATE_EXPORTED = 'CANDIDATE_EXPORTED',
   CANDIDATE_VIEWED = 'CANDIDATE_VIEWED',
   
   // ============================================
@@ -63,25 +61,11 @@ export enum AuditEventType {
   CANDIDATE_VIDEO_DELETED = 'CANDIDATE_VIDEO_DELETED',
   
   // ============================================
-  // INTERVIEW EVENTS
-  // ============================================
-  INTERVIEW_SCHEDULED = 'INTERVIEW_SCHEDULED',
-  INTERVIEW_RESCHEDULED = 'INTERVIEW_RESCHEDULED',
-  INTERVIEW_CANCELLED = 'INTERVIEW_CANCELLED',
-  INTERVIEW_COMPLETED = 'INTERVIEW_COMPLETED',
-  INTERVIEW_NOTES_ADDED = 'INTERVIEW_NOTES_ADDED',
-  INTERVIEW_FEEDBACK_SUBMITTED = 'INTERVIEW_FEEDBACK_SUBMITTED',
-  
-  // ============================================
   // JOB POSTING EVENTS
   // ============================================
   JOB_CREATED = 'JOB_CREATED',
   JOB_UPDATED = 'JOB_UPDATED',
-  JOB_PUBLISHED = 'JOB_PUBLISHED',
-  JOB_UNPUBLISHED = 'JOB_UNPUBLISHED',
-  JOB_CLOSED = 'JOB_CLOSED',
   JOB_DELETED = 'JOB_DELETED',
-  JOB_APPLICATION_RECEIVED = 'JOB_APPLICATION_RECEIVED',
   JOB_VIEWED = 'JOB_VIEWED',
   
   // ============================================
@@ -111,17 +95,14 @@ export enum AuditEventType {
   EMAIL_FAILED = 'EMAIL_FAILED',
   
   // ============================================
-  // SEARCH/FILTER EVENTS
+  // REPORTING EVENTS
   // ============================================
-  ADVANCED_SEARCH_PERFORMED = 'ADVANCED_SEARCH_PERFORMED',
-  BULK_EXPORT_PERFORMED = 'BULK_EXPORT_PERFORMED',
   REPORT_GENERATED = 'REPORT_GENERATED',
   
   // ============================================
   // DATA ACCESS EVENTS
   // ============================================
   PROFILE_VIEWED = 'PROFILE_VIEWED',
-  SENSITIVE_DATA_ACCESSED = 'SENSITIVE_DATA_ACCESSED',
   FILE_UPLOADED = 'FILE_UPLOADED',
   FILE_DOWNLOADED = 'FILE_DOWNLOADED',
   FILE_DELETED = 'FILE_DELETED',
@@ -129,15 +110,11 @@ export enum AuditEventType {
   // ============================================
   // ADMIN EVENTS
   // ============================================
-  ADMIN_OVERRIDE = 'ADMIN_OVERRIDE',
   BULK_OPERATION_PERFORMED = 'BULK_OPERATION_PERFORMED',
   
   // ============================================
   // DATA PRIVACY/COMPLIANCE EVENTS
   // ============================================
-  DATA_EXPORT_REQUESTED = 'DATA_EXPORT_REQUESTED',
-  DATA_DELETION_REQUESTED = 'DATA_DELETION_REQUESTED',
-  GDPR_REQUEST_FULFILLED = 'GDPR_REQUEST_FULFILLED',
   PII_VIEWED = 'PII_VIEWED',
   
   // ============================================
@@ -146,18 +123,11 @@ export enum AuditEventType {
   WEBHOOK_CONFIGURED = 'WEBHOOK_CONFIGURED',
   WEBHOOK_TRIGGERED = 'WEBHOOK_TRIGGERED',
   WEBHOOK_FAILED = 'WEBHOOK_FAILED',
-  API_KEY_CREATED = 'API_KEY_CREATED',
-  API_KEY_REVOKED = 'API_KEY_REVOKED',
-  EXTERNAL_INTEGRATION_CONNECTED = 'EXTERNAL_INTEGRATION_CONNECTED',
   
   // ============================================
   // SYSTEM EVENTS
   // ============================================
-  SYSTEM_ERROR = 'SYSTEM_ERROR',
-  CONFIG_CHANGED = 'CONFIG_CHANGED',
-  BACKUP_CREATED = 'BACKUP_CREATED',
-  SYSTEM_MAINTENANCE_STARTED = 'SYSTEM_MAINTENANCE_STARTED',
-  SYSTEM_MAINTENANCE_COMPLETED = 'SYSTEM_MAINTENANCE_COMPLETED'
+  SYSTEM_ERROR = 'SYSTEM_ERROR'
 }
 
 export enum AuditSeverity {

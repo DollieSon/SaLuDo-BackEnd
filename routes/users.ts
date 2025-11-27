@@ -38,6 +38,8 @@ import { UserRole, User } from "../Models/User";
 import multer from "multer";
 import { validation } from "./middleware/validation";
 import ProfileService from "../services/ProfileService";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType as NewAuditEventType } from "../types/AuditEventTypes";
 
 const router = Router();
 let userService: UserService;
@@ -401,6 +403,9 @@ router.get(
   AuthMiddleware.requireOwnershipOrAdmin,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { userId } = req.params;
+    const viewerUserId = req.user?.userId;
+    const viewerEmail = req.user?.email;
+    
     const user = await userService.getUserProfile(userId);
 
     if (!user) {
@@ -410,6 +415,22 @@ router.get(
       });
       return;
     }
+
+    // Log profile view
+    await AuditLogger.logUserOperation({
+      eventType: NewAuditEventType.PROFILE_VIEWED,
+      targetUserId: userId,
+      performedBy: viewerUserId,
+      action: 'viewed',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        viewerEmail: viewerEmail,
+        targetUserEmail: user.email,
+        targetUserRole: user.role,
+        isSelfView: viewerUserId === userId
+      }
+    });
 
     res.json({
       success: true,
@@ -543,23 +564,23 @@ router.post(
     const userRepository = new UserRepository(db);
     await userRepository.updateUser(userId, { photoMetadata });
 
-    // Log the photo upload
-    const performedBy = req.user!;
-    await auditLogService.logUserManagementEvent(
-      'USER_UPDATE' as AuditEventType,
-      {
-        userId: performedBy.userId,
-        userEmail: performedBy.email,
-        ipAddress: req.ip || 'unknown',
-        userAgent: req.get('user-agent')
-      },
-      userId,
-      {
-        action: 'profile_photo_uploaded',
-        resource: 'photo',
-        metadata: { fileId: photoMetadata.fileId }
+    // Log the file upload
+    await AuditLogger.logFileOperation({
+      eventType: NewAuditEventType.FILE_UPLOADED,
+      fileId: photoMetadata.fileId,
+      fileName: photoMetadata.filename,
+      fileType: 'profile_photo',
+      userId: req.user?.userId,
+      userEmail: req.user?.email,
+      action: 'upload',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        targetUserId: userId,
+        contentType: photoMetadata.contentType,
+        size: photoMetadata.size
       }
-    );
+    });
 
     res.status(CREATED).json({
       success: true,
@@ -633,30 +654,32 @@ router.delete(
       return;
     }
 
+    const fileIdToDelete = user.photoMetadata.fileId;
+    const fileNameToDelete = user.photoMetadata.filename;
+
     // Delete photo from GridFS
-    await ProfileService.deleteProfilePhoto(user.photoMetadata.fileId);
+    await ProfileService.deleteProfilePhoto(fileIdToDelete);
 
     // Update user to remove photo metadata
     const db = await connectDB();
     const userRepository = new UserRepository(db);
     await userRepository.updateUser(userId, { photoMetadata: undefined });
 
-    // Log the photo deletion
-    const performedBy = req.user!;
-    await auditLogService.logUserManagementEvent(
-      'USER_UPDATE' as AuditEventType,
-      {
-        userId: performedBy.userId,
-        userEmail: performedBy.email,
-        ipAddress: req.ip || 'unknown',
-        userAgent: req.get('user-agent')
-      },
-      userId,
-      {
-        action: 'profile_photo_deleted',
-        resource: 'photo'
+    // Log the file deletion
+    await AuditLogger.logFileOperation({
+      eventType: NewAuditEventType.FILE_DELETED,
+      fileId: fileIdToDelete,
+      fileName: fileNameToDelete,
+      fileType: 'profile_photo',
+      userId: req.user?.userId,
+      userEmail: req.user?.email,
+      action: 'delete',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        targetUserId: userId
       }
-    );
+    });
 
     res.json({
       success: true,

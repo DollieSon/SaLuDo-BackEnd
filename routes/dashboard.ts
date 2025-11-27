@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
 import { DashboardService } from '../services/DashboardService';
 import { connectDB } from '../mongo_db';
+import { AuditLogger } from '../utils/AuditLogger';
+import { AuditEventType } from '../types/AuditEventTypes';
 
 const router = Router();
 
@@ -16,6 +18,22 @@ router.get('/stats', AuthMiddleware.authenticate, AuthMiddleware.requireAdmin, a
     const dashboardService = new DashboardService(db);
     
     const stats = await dashboardService.getStats();
+    
+    // Log report generation
+    await AuditLogger.log({
+      eventType: AuditEventType.REPORT_GENERATED,
+      userId: req.user?.userId,
+      userEmail: req.user?.email,
+      resource: 'dashboard',
+      resourceId: 'statistics',
+      action: 'generated',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        reportType: 'dashboard_statistics',
+        statsIncluded: Object.keys(stats)
+      }
+    });
     
     res.status(200).json({
       success: true,

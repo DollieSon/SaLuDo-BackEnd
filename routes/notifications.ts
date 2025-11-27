@@ -15,6 +15,8 @@ import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
 import { NotificationType, NotificationCategory, NotificationChannel, NotificationPriority } from '../Models/enums/NotificationTypes';
 import { CreateNotificationData, NotificationFilter } from '../Models/Notification';
+import { AuditLogger } from '../utils/AuditLogger';
+import { AuditEventType } from '../types/AuditEventTypes';
 
 import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const router = Router();
@@ -279,7 +281,29 @@ router.put(
       return res.status(UNAUTHORIZED).json({ error: 'Unauthorized' });
     }
 
+    const oldPreferences = await notificationService.getPreferences(userId);
     const preferences = await notificationService.updatePreferences(userId, req.body);
+    
+    // Log permission changes
+    const preferencesChanged = JSON.stringify(oldPreferences) !== JSON.stringify(preferences);
+    if (preferencesChanged && preferences) {
+      await AuditLogger.log({
+        eventType: AuditEventType.PERMISSION_GRANTED,
+        userId,
+        userEmail: req.user?.email,
+        resource: 'notification_preferences',
+        resourceId: userId,
+        action: 'updated_preferences',
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: {
+          updatedFields: Object.keys(req.body),
+          enabled: preferences.enabled,
+          defaultChannels: preferences.defaultChannels
+        }
+      });
+    }
+    
     res.json({ preferences, message: 'Preferences updated successfully' });
   })
 );
@@ -303,7 +327,51 @@ router.put(
       return res.status(BAD_REQUEST).json({ error: 'Missing required fields: category, channels' });
     }
 
+    const oldPreferences = await notificationService.getPreferences(userId);
     const preferences = await notificationService.updateCategoryPreferences(userId, category, channels);
+    
+    // Log permission changes for category
+    const oldCategoryChannels = oldPreferences?.categories?.[category as NotificationCategory]?.channels || [];
+    const newCategoryChannels = channels as NotificationChannel[];
+    const channelsGranted = newCategoryChannels.filter(ch => !oldCategoryChannels.includes(ch));
+    const channelsRevoked = oldCategoryChannels.filter(ch => !newCategoryChannels.includes(ch));
+    
+    if (channelsGranted.length > 0) {
+      await AuditLogger.log({
+        eventType: AuditEventType.PERMISSION_GRANTED,
+        userId,
+        userEmail: req.user?.email,
+        resource: 'notification_preferences',
+        resourceId: userId,
+        action: 'granted_channels',
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: {
+          category,
+          channelsGranted,
+          totalChannels: newCategoryChannels.length
+        }
+      });
+    }
+    
+    if (channelsRevoked.length > 0) {
+      await AuditLogger.log({
+        eventType: AuditEventType.PERMISSION_REVOKED,
+        userId,
+        userEmail: req.user?.email,
+        resource: 'notification_preferences',
+        resourceId: userId,
+        action: 'revoked_channels',
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: {
+          category,
+          channelsRevoked,
+          remainingChannels: newCategoryChannels.length
+        }
+      });
+    }
+    
     res.json({ preferences, message: `${category} preferences updated` });
   })
 );

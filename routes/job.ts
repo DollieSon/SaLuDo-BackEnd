@@ -7,6 +7,8 @@ import { SkillMasterRepository } from "../repositories/SkillMasterRepository";
 import { connectDB } from "../mongo_db";
 import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
 import { UserRole } from "../Models/User";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType } from "../types/AuditEventTypes";
 // import { JobSkillRequirement } from '../models/JobTypes';
 
 const router = Router();
@@ -124,9 +126,10 @@ router.get(
 // GET /api/jobs/:id - Get specific job
 router.get(
   "/:id",
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const includeSkillNames = req.query.includeSkillNames === "true";
+    const user = req.user;
 
     const job = includeSkillNames
       ? await jobService.getJobWithSkillNames(id)
@@ -138,6 +141,20 @@ router.get(
         message: "Job not found",
       });
     }
+
+    // Log job view
+    await AuditLogger.logJobOperation({
+      eventType: AuditEventType.JOB_VIEWED,
+      jobId: id,
+      jobTitle: job.jobName,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'viewed',
+      metadata: {
+        includeSkillNames,
+        skillCount: job.skills?.length || 0
+      }
+    });
 
     res.json({
       success: true,
