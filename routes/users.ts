@@ -550,7 +550,7 @@ router.post(
       {
         userId: performedBy.userId,
         userEmail: performedBy.email,
-        ipAddress: req.ip,
+        ipAddress: req.ip || 'unknown',
         userAgent: req.get('user-agent')
       },
       userId,
@@ -648,7 +648,7 @@ router.delete(
       {
         userId: performedBy.userId,
         userEmail: performedBy.email,
-        ipAddress: req.ip,
+        ipAddress: req.ip || 'unknown',
         userAgent: req.get('user-agent')
       },
       userId,

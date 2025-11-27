@@ -8,7 +8,7 @@
 import { User, UserRole } from '../Models/User';
 import { UserRepository } from '../repositories/UserRepository';
 import { ProfileStats, ProfileActivity, ProfileActivityType } from '../Models/interfaces/ProfileInterfaces';
-import { AuditLogRepository } from '../repositories/AuditLogRepository';
+import { AuditLogRepository, AuditLogEntry } from '../repositories/AuditLogRepository';
 import { connectDB } from '../mongo_db';
 import { PersonalInfoRepository } from '../repositories/CandidateRepository';
 import { CandidateStatus } from '../Models/Candidate';
@@ -113,9 +113,9 @@ export class UserService {
 
     // Count by status
     const activeCandidates = assignedCandidates.filter(c => 
-      c.status === CandidateStatus.SCREENING || 
-      c.status === CandidateStatus.INTERVIEWING ||
-      c.status === CandidateStatus.OFFER_MADE
+      c.status === CandidateStatus.APPLIED || 
+      c.status === CandidateStatus.REFERENCE_CHECK ||
+      c.status === CandidateStatus.OFFER
     );
 
     const hiredCandidates = assignedCandidates.filter(c => 
@@ -155,12 +155,13 @@ export class UserService {
     const auditLogRepo = new AuditLogRepository(db);
 
     // Get recent audit logs for this user
-    const logs = await auditLogRepo.getUserAuditLogs(userId, limit);
+    const result = await auditLogRepo.getAuditLogs({ userId, limit });
+    const logs = result.logs;
 
     // Transform audit logs to profile activities
     const activities: ProfileActivity[] = logs
-      .filter(log => this.isProfileRelatedEvent(log.eventType))
-      .map(log => ({
+      .filter((log: AuditLogEntry) => this.isProfileRelatedEvent(log.eventType))
+      .map((log: AuditLogEntry) => ({
         activityId: log._id || '',
         userId: log.userId || userId,
         activityType: this.mapEventTypeToActivityType(log.eventType),
@@ -219,7 +220,7 @@ export class UserService {
           severity: 'LOW' as any,
           userId: context.performedBy,
           targetUserId: userId,
-          ipAddress: context.ipAddress,
+          ipAddress: context.ipAddress || 'unknown',
           userAgent: context.userAgent,
           details: {
             action: 'profile_field_updated',
@@ -238,9 +239,14 @@ export class UserService {
     const profileEvents = [
       'PROFILE_UPDATE',
       'USER_UPDATE',
+      'USER_UPDATED',
+      'PASSWORD_CHANGED',
       'PASSWORD_CHANGE',
-      'ACCOUNT_LOCKED',
-      'ACCOUNT_UNLOCKED'
+      'FILE_UPLOADED',
+      'FILE_DOWNLOADED',
+      'PROFILE_VIEWED',
+      'LOGIN_SUCCESS',
+      'LOGOUT'
     ];
     return profileEvents.includes(eventType);
   }
@@ -249,7 +255,10 @@ export class UserService {
     const mapping: Record<string, ProfileActivityType> = {
       'PROFILE_UPDATE': 'profile_updated',
       'USER_UPDATE': 'profile_updated',
+      'USER_UPDATED': 'profile_updated',
+      'PASSWORD_CHANGED': 'profile_updated',
       'PASSWORD_CHANGE': 'profile_updated',
+      'FILE_UPLOADED': 'photo_uploaded',
       'PHOTO_UPLOAD': 'photo_uploaded',
       'PHOTO_DELETE': 'photo_deleted'
     };
