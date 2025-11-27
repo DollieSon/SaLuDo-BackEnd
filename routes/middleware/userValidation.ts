@@ -63,10 +63,16 @@ export class UserValidation {
 
   // Validate user profile update data
   static validateUpdateProfile = (req: Request, res: Response, next: NextFunction): void => {
-    const { email, firstName, lastName, title } = req.body;
+    const { 
+      email, firstName, lastName, title, middleName,
+      phoneNumber, location, timezone, linkedInUrl, bio,
+      availability, roleSpecificData
+    } = req.body;
     
     // At least one field must be provided
-    if (!email && !firstName && !lastName && !title) {
+    if (!email && !firstName && !lastName && !title && !middleName &&
+        !phoneNumber && !location && !timezone && !linkedInUrl && !bio &&
+        !availability && !roleSpecificData) {
       res.status(400).json({
         success: false,
         message: 'At least one field must be provided for update'
@@ -81,6 +87,54 @@ export class UserValidation {
         message: 'Invalid email format'
       });
       return;
+    }
+
+    // Validate phone number if provided (basic international format)
+    if (phoneNumber && !validation.validatePhoneNumber(phoneNumber)) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid phone number format. Use format: +1234567890 or (123) 456-7890'
+      });
+      return;
+    }
+
+    // Validate LinkedIn URL if provided
+    if (linkedInUrl && !validation.validateLinkedInUrl(linkedInUrl)) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid LinkedIn URL format'
+      });
+      return;
+    }
+
+    // Validate bio length if provided
+    if (bio && bio.length > 1000) {
+      res.status(400).json({
+        success: false,
+        message: 'Bio must be 1000 characters or less'
+      });
+      return;
+    }
+
+    // Validate timezone if provided
+    if (timezone && !validation.validateTimezone(timezone)) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid timezone format. Use IANA timezone format (e.g., America/New_York)'
+      });
+      return;
+    }
+
+    // Validate availability if provided
+    if (availability) {
+      const validationError = validation.validateAvailability(availability);
+      if (validationError) {
+        res.status(400).json({
+          success: false,
+          message: validationError
+        });
+        return;
+      }
     }
 
     next();

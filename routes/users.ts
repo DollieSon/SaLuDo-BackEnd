@@ -35,10 +35,19 @@ import {
   accountCreationRateLimit,
 } from "./middleware/rateLimiter";
 import { UserRole, User } from "../Models/User";
+import multer from "multer";
+import { validation } from "./middleware/validation";
+import ProfileService from "../services/ProfileService";
 
 const router = Router();
 let userService: UserService;
 let auditLogService: AuditLogService;
+
+// Multer configuration for profile photo uploads
+const photoUpload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
 
 // Initialize services
 const initializeService = async () => {
@@ -419,7 +428,11 @@ router.put(
   AuthMiddleware.requireOwnershipOrAdmin,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { userId } = req.params;
-    const { email, firstName, lastName, middleName, title } = req.body;
+    const { 
+      email, firstName, lastName, middleName, title,
+      phoneNumber, location, timezone, linkedInUrl, bio,
+      availability, roleSpecificData
+    } = req.body;
 
     // Check if user exists
     const existingUser = await userService.getUserProfile(userId);
@@ -453,11 +466,23 @@ router.put(
     if (lastName) updateData.lastName = lastName.trim();
     if (middleName !== undefined) updateData.middleName = middleName?.trim();
     if (title) updateData.title = title.trim();
+    
+    // Extended profile fields
+    if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
+    if (location !== undefined) updateData.location = location;
+    if (timezone !== undefined) updateData.timezone = timezone;
+    if (linkedInUrl !== undefined) updateData.linkedInUrl = linkedInUrl;
+    if (bio !== undefined) updateData.bio = validation.sanitizeText(bio); // Sanitize to prevent XSS
+    if (availability !== undefined) updateData.availability = availability;
+    if (roleSpecificData !== undefined) updateData.roleSpecificData = roleSpecificData;
 
-    // Update user
-    const db = await connectDB();
-    const userRepository = new UserRepository(db);
-    await userRepository.updateUser(userId, updateData);
+    // Update user with audit trail
+    const performedBy = req.user!;
+    await userService.updateProfileWithAudit(userId, updateData, {
+      performedBy: performedBy.userId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
 
     // Get updated user profile
     const updatedUser = await userService.getUserProfile(userId);
@@ -466,6 +491,236 @@ router.put(
       success: true,
       message: "Profile updated successfully",
       data: updatedUser!.getProfile(),
+    });
+  })
+);
+
+// Upload profile photo
+router.post(
+  "/:userId/profile/photo",
+  userOperationRateLimit, // Rate limit photo uploads
+  AuthMiddleware.authenticate,
+  UserValidation.validateUserId,
+  AuthMiddleware.requireOwnershipOrAdmin,
+  photoUpload.single('photo'),
+  validation.validateProfilePhoto,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+    const file = req.file;
+
+    if (!file) {
+      res.status(BAD_REQUEST).json({
+        success: false,
+        message: "No photo file provided",
+      });
+      return;
+    }
+
+    // Check if user exists
+    const user = await userService.getUserProfile(userId);
+    if (!user) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    // Delete old photo if exists
+    if (user.photoMetadata?.fileId) {
+      try {
+        await ProfileService.deleteProfilePhoto(user.photoMetadata.fileId);
+      } catch (error) {
+        console.warn('Failed to delete old profile photo:', error);
+      }
+    }
+
+    // Upload new photo
+    const photoMetadata = await ProfileService.uploadProfilePhoto(userId, file);
+
+    // Update user with new photo metadata
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    await userRepository.updateUser(userId, { photoMetadata });
+
+    // Log the photo upload
+    const performedBy = req.user!;
+    await auditLogService.logUserManagementEvent(
+      'USER_UPDATE' as AuditEventType,
+      {
+        userId: performedBy.userId,
+        userEmail: performedBy.email,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent')
+      },
+      userId,
+      {
+        action: 'profile_photo_uploaded',
+        resource: 'photo',
+        metadata: { fileId: photoMetadata.fileId }
+      }
+    );
+
+    res.status(CREATED).json({
+      success: true,
+      message: "Profile photo uploaded successfully",
+      data: photoMetadata,
+    });
+  })
+);
+
+// Get profile photo
+router.get(
+  "/:userId/profile/photo",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId } = req.params;
+    const { thumbnail } = req.query;
+
+    // Get user
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    const userData = await userRepository.getUserById(userId);
+
+    if (!userData || !userData.photoMetadata) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "Profile photo not found",
+      });
+      return;
+    }
+
+    // Get photo from GridFS
+    const fileId = thumbnail === 'true' && userData.photoMetadata.thumbnailFileId
+      ? userData.photoMetadata.thumbnailFileId
+      : userData.photoMetadata.fileId;
+
+    const { stream, metadata } = await ProfileService.getProfilePhoto(fileId);
+
+    // Set content type header
+    res.set('Content-Type', metadata.contentType || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+
+    // Pipe the stream to response
+    stream.pipe(res);
+  })
+);
+
+// Delete profile photo
+router.delete(
+  "/:userId/profile/photo",
+  userOperationRateLimit,
+  AuthMiddleware.authenticate,
+  UserValidation.validateUserId,
+  AuthMiddleware.requireOwnershipOrAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+
+    // Check if user exists
+    const user = await userService.getUserProfile(userId);
+    if (!user) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    if (!user.photoMetadata?.fileId) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "No profile photo to delete",
+      });
+      return;
+    }
+
+    // Delete photo from GridFS
+    await ProfileService.deleteProfilePhoto(user.photoMetadata.fileId);
+
+    // Update user to remove photo metadata
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    await userRepository.updateUser(userId, { photoMetadata: undefined });
+
+    // Log the photo deletion
+    const performedBy = req.user!;
+    await auditLogService.logUserManagementEvent(
+      'USER_UPDATE' as AuditEventType,
+      {
+        userId: performedBy.userId,
+        userEmail: performedBy.email,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent')
+      },
+      userId,
+      {
+        action: 'profile_photo_deleted',
+        resource: 'photo'
+      }
+    );
+
+    res.json({
+      success: true,
+      message: "Profile photo deleted successfully",
+    });
+  })
+);
+
+// Get user profile stats
+router.get(
+  "/:userId/profile/stats",
+  AuthMiddleware.authenticate,
+  UserValidation.validateUserId,
+  AuthMiddleware.requireOwnershipOrAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+
+    // Check if user exists
+    const user = await userService.getUserProfile(userId);
+    if (!user) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    // Get stats
+    const stats = await userService.getUserStats(userId);
+
+    res.json({
+      success: true,
+      data: stats,
+    });
+  })
+);
+
+// Get user profile activity
+router.get(
+  "/:userId/profile/activity",
+  AuthMiddleware.authenticate,
+  UserValidation.validateUserId,
+  AuthMiddleware.requireOwnershipOrAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+    const limit = parseInt(req.query.limit as string) || 10;
+
+    // Check if user exists
+    const user = await userService.getUserProfile(userId);
+    if (!user) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    // Get activity
+    const activity = await userService.getProfileActivity(userId, limit);
+
+    res.json({
+      success: true,
+      data: activity,
+      count: activity.length,
     });
   })
 );

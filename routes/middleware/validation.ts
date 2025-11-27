@@ -173,4 +173,132 @@ export const validation = {
     const validRounds = ["initial", "technical", "hr", "final", "general"];
     return validRounds.includes(round.toLowerCase());
   },
+
+  // =======================
+  // PROFILE VALIDATION
+  // =======================
+
+  validatePhoneNumber: (phone: string): boolean => {
+    // Support international phone numbers with or without country code
+    // Formats: +1234567890, (123) 456-7890, 123-456-7890, 123.456.7890
+    const phoneRegex = /^[\+]?[(]?[0-9]{1,4}[)]?[-\s\.]?[(]?[0-9]{1,4}[)]?[-\s\.]?[0-9]{1,9}$/;
+    return phoneRegex.test(phone.replace(/\s/g, ''));
+  },
+
+  validateLinkedInUrl: (url: string): boolean => {
+    // Validate LinkedIn profile URL
+    const linkedInRegex = /^(https?:\/\/)?(www\.)?linkedin\.com\/(in|company)\/[\w\-]+\/?$/;
+    return linkedInRegex.test(url);
+  },
+
+  validateTimezone: (timezone: string): boolean => {
+    // Basic IANA timezone validation (e.g., America/New_York, Europe/London)
+    // This is a simple check - for production, consider using a library like moment-timezone
+    const timezoneRegex = /^[A-Za-z]+\/[A-Za-z_]+$/;
+    return timezoneRegex.test(timezone);
+  },
+
+  validateAvailability: (availability: any): string | null => {
+    if (typeof availability !== 'object') {
+      return 'Availability must be an object';
+    }
+
+    const { status, daysAvailable, preferredTimeSlots, notes } = availability;
+
+    // Validate status
+    if (status && !['available', 'busy', 'away'].includes(status)) {
+      return 'Invalid availability status. Must be: available, busy, or away';
+    }
+
+    // Validate daysAvailable
+    if (daysAvailable) {
+      if (!Array.isArray(daysAvailable)) {
+        return 'daysAvailable must be an array';
+      }
+      const validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      const invalidDays = daysAvailable.filter((day: string) => !validDays.includes(day));
+      if (invalidDays.length > 0) {
+        return `Invalid days: ${invalidDays.join(', ')}. Must be: ${validDays.join(', ')}`;
+      }
+    }
+
+    // Validate preferredTimeSlots
+    if (preferredTimeSlots) {
+      if (!Array.isArray(preferredTimeSlots)) {
+        return 'preferredTimeSlots must be an array';
+      }
+      const validSlots = ['morning', 'afternoon', 'evening'];
+      const invalidSlots = preferredTimeSlots.filter((slot: string) => !validSlots.includes(slot));
+      if (invalidSlots.length > 0) {
+        return `Invalid time slots: ${invalidSlots.join(', ')}. Must be: ${validSlots.join(', ')}`;
+      }
+    }
+
+    // Validate notes length
+    if (notes && typeof notes === 'string' && notes.length > 500) {
+      return 'Availability notes must be 500 characters or less';
+    }
+
+    return null; // No errors
+  },
+
+  validateProfilePhoto: (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): void => {
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({
+        success: false,
+        message: "No profile photo provided",
+      });
+      return;
+    }
+
+    // Allowed MIME types for profile photos
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+
+    if (!allowedTypes.includes(file.mimetype)) {
+      res.status(400).json({
+        success: false,
+        message:
+          "Invalid file type. Only JPEG, PNG, and WebP images are allowed.",
+      });
+      return;
+    }
+
+    // Check file size (5MB limit for profile photos)
+    const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+    if (file.size > maxSize) {
+      res.status(400).json({
+        success: false,
+        message: "File size too large. Maximum size is 5MB.",
+      });
+      return;
+    }
+
+    next();
+  },
+
+  // Sanitize text to prevent XSS attacks
+  sanitizeText: (text: string): string => {
+    if (!text) return '';
+    
+    // Remove HTML tags
+    const withoutHtml = text.replace(/<[^>]*>/g, '');
+    
+    // Escape special characters
+    return withoutHtml
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;')
+      .replace(/\//g, '&#x2F;');
+  },
 };
