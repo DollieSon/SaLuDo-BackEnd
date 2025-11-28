@@ -3,6 +3,7 @@ export class Experience {
     public title: string;
     public role: string;
     public description?: string;
+    public addedBy: 'AI' | 'HUMAN';
     public isDeleted: boolean;
     public createdAt: Date;
     public updatedAt: Date;
@@ -11,6 +12,7 @@ export class Experience {
         title: string,
         role: string,
         description?: string,
+        addedBy: 'AI' | 'HUMAN' = 'AI',
         isDeleted?: boolean,
         createdAt?: Date,
         updatedAt?: Date
@@ -19,6 +21,7 @@ export class Experience {
         this.title = title;
         this.role = role;
         this.description = description;
+        this.addedBy = addedBy;
         this.isDeleted = isDeleted || false;
         this.createdAt = createdAt || new Date();
         this.updatedAt = updatedAt || new Date();
@@ -29,6 +32,7 @@ export class Experience {
             obj.title,
             obj.role,
             obj.description,
+            obj.addedBy || 'AI',
             obj.isDeleted || false,
             obj.createdAt ? new Date(obj.createdAt) : undefined,
             obj.updatedAt ? new Date(obj.updatedAt) : undefined
@@ -39,7 +43,11 @@ export class Experience {
             experienceId: this.experienceId,
             title: this.title,
             role: this.role,
+            // Add frontend-compatible field names
+            position: this.title,
+            company: this.role,
             description: this.description,
+            addedBy: this.addedBy,
             isDeleted: this.isDeleted,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
@@ -72,7 +80,10 @@ export interface ExperienceData {
     experienceId: string;
     title: string;
     role: string;
+    position?: string; // Alias for title (frontend compatibility)
+    company?: string; // Alias for role (frontend compatibility)
     description?: string;
+    addedBy: 'AI' | 'HUMAN';
     isDeleted: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -81,6 +92,7 @@ export interface CreateExperienceData {
     title: string;
     role: string;
     description?: string;
+    addedBy?: 'AI' | 'HUMAN';
 }
 export interface UpdateExperienceData {
     title?: string;

@@ -3,6 +3,7 @@ export class StrengthWeakness {
     public name: string;
     public description: string;
     public type: 'Strength' | 'Weakness';
+    public addedBy: 'AI' | 'HUMAN';
     public createdAt: Date;
     public updatedAt: Date;
     constructor(
@@ -10,6 +11,7 @@ export class StrengthWeakness {
         name: string,
         description: string,
         type: 'Strength' | 'Weakness',
+        addedBy: 'AI' | 'HUMAN' = 'AI',
         createdAt?: Date,
         updatedAt?: Date
     ) {
@@ -17,6 +19,7 @@ export class StrengthWeakness {
         this.name = name;
         this.description = description;
         this.type = type;
+        this.addedBy = addedBy;
         this.createdAt = createdAt || new Date();
         this.updatedAt = updatedAt || new Date();
     }
@@ -26,6 +29,7 @@ export class StrengthWeakness {
             obj.name,
             obj.description,
             obj.type,
+            obj.addedBy || 'AI',
             obj.createdAt ? new Date(obj.createdAt) : undefined,
             obj.updatedAt ? new Date(obj.updatedAt) : undefined
         );
@@ -36,6 +40,7 @@ export class StrengthWeakness {
             name: this.name,
             description: this.description,
             type: this.type,
+            addedBy: this.addedBy,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
         };
@@ -81,6 +86,7 @@ export interface StrengthWeaknessData {
     name: string;
     description: string;
     type: 'Strength' | 'Weakness';
+    addedBy: 'AI' | 'HUMAN';
     createdAt: Date;
     updatedAt: Date;
 }
@@ -88,6 +94,7 @@ export interface CreateStrengthWeaknessData {
     name: string;
     description: string;
     type: 'Strength' | 'Weakness';
+    addedBy?: 'AI' | 'HUMAN';
 }
 export interface UpdateStrengthWeaknessData {
     name?: string;
