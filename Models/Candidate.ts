@@ -53,6 +53,11 @@ export interface VideoMetadata {
   frameRate?: number; // Frame rate (e.g., 30)
   bitrate?: number; // Bitrate in kbps
 }
+
+export interface SocialLink {
+  platform: string; // e.g., "LinkedIn", "GitHub", "Portfolio", etc.
+  url: string; // Full URL to the social profile
+}
 export class Candidate {
   // Personal Information (PersonalInfo Database)
   public candidateId: string;
@@ -64,6 +69,7 @@ export class Candidate {
   public roleApplied: string | null; // Optional Job reference (job ID or null)
   public status: CandidateStatus;
   public isDeleted: boolean;
+  public socialLinks: SocialLink[]; // Social media and professional links
   // HR Assignment Information
   public assignedHRUserIds: string[]; // Array of HR user IDs assigned to this candidate
   public lastAssignedAt: Date | null; // When last assignment was made
@@ -95,7 +101,8 @@ export class Candidate {
     dateUpdated?: Date,
     assignedHRUserIds?: string[],
     lastAssignedAt?: Date | null,
-    lastAssignedBy?: string | null
+    lastAssignedBy?: string | null,
+    socialLinks?: SocialLink[]
   ) {
     this.candidateId = candidateId;
     this.name = name;
@@ -107,6 +114,7 @@ export class Candidate {
     this.isDeleted = false;
     this.dateCreated = dateCreated || new Date();
     this.dateUpdated = dateUpdated || new Date();
+    this.socialLinks = socialLinks || [];
     // Initialize assignment fields
     this.assignedHRUserIds = assignedHRUserIds || [];
     this.lastAssignedAt = lastAssignedAt || null;
@@ -141,7 +149,8 @@ export class Candidate {
       data.dateUpdated,
       data.assignedHRUserIds,
       data.lastAssignedAt,
-      data.lastAssignedBy
+      data.lastAssignedBy,
+      data.socialLinks
     );
 
     candidate.isDeleted = data.isDeleted;
@@ -239,12 +248,12 @@ export class Candidate {
       dateCreated: this.dateCreated,
       dateUpdated: this.dateUpdated,
       roleApplied: this.roleApplied,
-      resume: this.resumeMetadata,
       status: this.status,
       isDeleted: this.isDeleted,
       assignedHRUserIds: this.assignedHRUserIds,
       lastAssignedAt: this.lastAssignedAt,
       lastAssignedBy: this.lastAssignedBy,
+      socialLinks: this.socialLinks,
       skills: this.skills.map((s) => s.toObject()),
       experience: this.experience.map((e) => e.toObject()),
       education: this.education.map((e) => e.toObject()),
@@ -273,6 +282,7 @@ export class Candidate {
       assignedHRUserIds: this.assignedHRUserIds,
       lastAssignedAt: this.lastAssignedAt,
       lastAssignedBy: this.lastAssignedBy,
+      socialLinks: this.socialLinks,
     };
   }
   getResumeData(): ResumeData {
@@ -535,6 +545,7 @@ export interface CandidateData {
   assignedHRUserIds: string[];
   lastAssignedAt: Date | null;
   lastAssignedBy: string | null;
+  socialLinks: SocialLink[];
   skills: SkillData[];
   experience: ExperienceData[];
   education: EducationData[];
@@ -561,6 +572,7 @@ export interface PersonalInfoData {
   assignedHRUserIds: string[];
   lastAssignedAt: Date | null;
   lastAssignedBy: string | null;
+  socialLinks: SocialLink[];
 }
 export interface ResumeData {
   candidateId: string;

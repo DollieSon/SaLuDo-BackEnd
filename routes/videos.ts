@@ -90,7 +90,7 @@ router.get(
     res.json({
       success: true,
       message: "Interview videos retrieved successfully",
-      data: videos.interviewVideos,
+      data: videos,
     });
   })
 );
@@ -208,14 +208,11 @@ router.delete(
   candidateExists,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
-    const user = req.user;
     
     await candidateService.deleteVideoFile(
       candidateId, 
       videoId, 
-      "interview",
-      user?.userId,
-      user?.email
+      "interview"
     );
 
     res.json({
@@ -279,7 +276,7 @@ router.get(
     res.json({
       success: true,
       message: "Introduction videos retrieved successfully",
-      data: videos.introductionVideos,
+      data: videos,
     });
   })
 );
@@ -396,14 +393,11 @@ router.delete(
   candidateExists,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
-    const user = req.user;
     
     await candidateService.deleteVideoFile(
       candidateId,
       videoId,
-      "introduction",
-      user?.userId,
-      user?.email
+      "introduction"
     );
 
     res.json({
@@ -429,10 +423,9 @@ router.get(
       success: true,
       message: "All videos retrieved successfully",
       data: {
-        interviewVideos: videos.interviewVideos,
-        introductionVideos: videos.introductionVideos,
-        totalCount:
-          videos.interviewVideos.length + videos.introductionVideos.length,
+        interviewVideos: videos.filter(v => v.videoType === "interview"),
+        introductionVideos: videos.filter(v => v.videoType === "introduction"),
+        totalCount: videos.length,
       },
     });
   })

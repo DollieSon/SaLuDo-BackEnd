@@ -77,7 +77,7 @@ router.post(
   validation.validateEmailMiddleware,
   validation.validateDatesMiddleware(["birthdate"]),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { name, email, birthdate, roleApplied } = req.body;
+    const { name, email, birthdate, roleApplied, socialLinks } = req.body;
     const user = req.user;
 
     if (!req.file) {
@@ -111,6 +111,18 @@ router.post(
     // Parse roleApplied (can be null, undefined, or a job ID)
     const jobId = roleApplied || null;
 
+    // Parse social links if provided
+    let parsedSocialLinks: any[] = [];
+    if (socialLinks) {
+      try {
+        parsedSocialLinks = typeof socialLinks === 'string' 
+          ? JSON.parse(socialLinks) 
+          : socialLinks;
+      } catch (e) {
+        console.error('Failed to parse social links:', e);
+      }
+    }
+
     const candidate = await candidateService.addCandidate(
       name,
       emailArray,
@@ -118,7 +130,8 @@ router.post(
       jobId,
       req.file,
       user?.userId,
-      user?.email
+      user?.email,
+      parsedSocialLinks
     );
 
     // Use Gemini to parse resume
@@ -260,7 +273,7 @@ router.get(
 
     res.json({
       success: true,
-      data: candidate,
+      data: candidate?.toObject(),
     });
   })
 );
