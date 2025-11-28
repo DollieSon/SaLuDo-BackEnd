@@ -5,10 +5,14 @@ import { SkillMasterRepository } from '../repositories/SkillMasterRepository';
 import { connectDB } from '../mongo_db';
 import { AuditLogger } from '../utils/AuditLogger';
 import { AuditEventType } from '../types/AuditEventTypes';
+import { NotificationService } from './NotificationService';
+import { NotificationType } from '../Models/enums/NotificationTypes';
+import { getAllHRUsers } from '../utils/NotificationHelpers';
 
 export class JobService {
     private jobRepo: JobRepository;
     private skillMasterRepo: SkillMasterRepository | null = null;
+    private notificationService: NotificationService | null = null;
 
     constructor() {
         this.jobRepo = new JobRepository();
@@ -18,6 +22,20 @@ export class JobService {
         if (!this.skillMasterRepo) {
             const db = await connectDB();
             this.skillMasterRepo = new SkillMasterRepository(db);
+        }
+    }
+
+    private async initNotificationService(): Promise<void> {
+        if (!this.notificationService) {
+            const db = await connectDB();
+            const { NotificationRepository } = await import('../repositories/NotificationRepository');
+            const { NotificationPreferencesRepository } = await import('../repositories/NotificationPreferencesRepository');
+            const { WebhookRepository } = await import('../repositories/WebhookRepository');
+            
+            const notificationRepo = new NotificationRepository(db.collection('notifications'));
+            const preferencesRepo = new NotificationPreferencesRepository(db.collection('notificationPreferences'));
+            const webhookRepo = new WebhookRepository(db.collection('webhooks'));
+            this.notificationService = new NotificationService(notificationRepo, preferencesRepo, webhookRepo);
         }
     }
 
@@ -54,6 +72,28 @@ export class JobService {
                     skillCount: savedJob.skills?.length || 0
                 }
             });
+
+            // Notify all HR users about new job posting
+            await this.initNotificationService();
+            if (this.notificationService) {
+                try {
+                    const hrUsers = await getAllHRUsers();
+                    for (const hrUser of hrUsers) {
+                        await this.notificationService.notifyJobEvent(
+                            NotificationType.JOB_POSTED,
+                            hrUser.userId,
+                            savedJob._id || 'unknown',
+                            savedJob.jobName,
+                            {
+                                skillCount: savedJob.skills?.length || 0,
+                                description: savedJob.jobDescription.substring(0, 200)
+                            }
+                        );
+                    }
+                } catch (notifError) {
+                    console.error('Failed to send JOB_POSTED notification:', notifError);
+                }
+            }
             
             return savedJob;
         } catch (error) {
@@ -132,6 +172,28 @@ export class JobService {
                     action: `Updated job: ${existingJob.jobName}`,
                     newValue: changes
                 });
+
+                // Notify all HR users about job update
+                await this.initNotificationService();
+                if (this.notificationService) {
+                    try {
+                        const hrUsers = await getAllHRUsers();
+                        for (const hrUser of hrUsers) {
+                            await this.notificationService.notifyJobEvent(
+                                NotificationType.JOB_UPDATED,
+                                hrUser.userId,
+                                jobId,
+                                updateData.jobName || existingJob.jobName,
+                                {
+                                    updatedFields: Object.keys(changes),
+                                    skillCount: updateData.skills?.length || existingJob.skills?.length || 0
+                                }
+                            );
+                        }
+                    } catch (notifError) {
+                        console.error('Failed to send JOB_UPDATED notification:', notifError);
+                    }
+                }
             }
         } catch (error) {
             console.error('Error updating job:', error);
@@ -165,6 +227,28 @@ export class JobService {
                     jobDescription: existingJob.jobDescription
                 }
             });
+
+            // Notify all HR users that job is closed/deleted
+            await this.initNotificationService();
+            if (this.notificationService) {
+                try {
+                    const hrUsers = await getAllHRUsers();
+                    for (const hrUser of hrUsers) {
+                        await this.notificationService.notifyJobEvent(
+                            NotificationType.JOB_CLOSED,
+                            hrUser.userId,
+                            jobId,
+                            existingJob.jobName,
+                            {
+                                closedBy: userId,
+                                skillCount: existingJob.skills?.length || 0
+                            }
+                        );
+                    }
+                } catch (notifError) {
+                    console.error('Failed to send JOB_CLOSED notification:', notifError);
+                }
+            }
         } catch (error) {
             console.error('Error deleting job:', error);
             if (error instanceof Error) {
@@ -241,7 +325,7 @@ export class JobService {
         }
     }
 
-    async addSkillToJob(jobId: string, skillId: string, requiredLevel: number, evidence?: string): Promise<void> {
+    async addSkillToJob(jobId: string, skillId: string, requiredLevel: number, evidence?: string, addedBy?: string): Promise<void> {
         try {
             // Initialize skill master repo
             await this.initSkillMasterRepo();
@@ -265,7 +349,7 @@ export class JobService {
 
             // Create job instance and add skill
             const job = Job.fromObject(existingJob);
-            job.addSkill({ skillId, requiredLevel, evidence });
+            job.addSkill({ skillId, requiredLevel, evidence }, addedBy);
 
             // Update in database
             await this.jobRepo.update(jobId, { skills: job.skills });
@@ -278,7 +362,7 @@ export class JobService {
         }
     }
 
-    async addSkillsToJob(jobId: string, skillRequirements: JobSkillRequirement[]): Promise<void> {
+    async addSkillsToJob(jobId: string, skillRequirements: JobSkillRequirement[], addedBy?: string): Promise<void> {
         try {
             // Initialize skill master repo
             await this.initSkillMasterRepo();
@@ -325,7 +409,7 @@ export class JobService {
                     skillId: skillData.skillId,
                     requiredLevel: skillData.requiredLevel,
                     evidence: skillData.evidence
-                });
+                }, addedBy);
             }
 
             // Update in database with all skills at once
@@ -342,7 +426,7 @@ export class JobService {
 
     // Helper method to add skills by skillName instead of skillId
     // Uses SkillMaster's getOrCreate to automatically create missing skills
-    async addSkillsToJobByName(jobId: string, skillRequirements: Array<{skillName: string, requiredLevel: number, evidence?: string}>): Promise<void> {
+    async addSkillsToJobByName(jobId: string, skillRequirements: Array<{skillName: string, requiredLevel: number, evidence?: string}>, addedBy?: string): Promise<void> {
         try {
             // Initialize skill master repo
             await this.initSkillMasterRepo();
@@ -378,7 +462,7 @@ export class JobService {
             }
 
             // Use the existing addSkillsToJob method with the converted skill IDs
-            await this.addSkillsToJob(jobId, skillRequirementsWithIds);
+            await this.addSkillsToJob(jobId, skillRequirementsWithIds, addedBy);
             
         } catch (error) {
             console.error('Error adding skills to job by name:', error);

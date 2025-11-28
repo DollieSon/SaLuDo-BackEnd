@@ -5,6 +5,8 @@ export interface JobSkillRequirement {
     requiredLevel: number;     //0.0 - 10.0
     evidence?: string;         // Optional evidence/justification for the skill requirement
     isDeleted?: boolean;       // Soft deletion flag for job skills
+    addedBy?: string;          // UserId of the person who added this skill requirement
+    addedAt?: Date;            // Timestamp when the skill was added
 }
 
 export interface JobData {

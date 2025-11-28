@@ -29,12 +29,17 @@ import { GridFSBucket, GridFSBucketReadStream, ObjectId } from "mongodb";
 import streamBuffers from "stream-buffers";
 import { AuditLogger } from "../utils/AuditLogger";
 import { AuditEventType } from "../types/AuditEventTypes";
+import { NotificationService } from "./NotificationService";
+import { NotificationType } from "../Models/enums/NotificationTypes";
+import { getAllHRUsers, getAssignedHRUsers } from "../utils/NotificationHelpers";
 
 export class CandidateService {
   private personalInfoRepo: PersonalInfoRepository;
   private resumeRepo: ResumeRepository;
   private interviewRepo: InterviewRepository;
   private userRepo: UserRepository;
+  private notificationService: NotificationService | null = null;
+  
   constructor() {
     // Initialize repositories - will be set up in init() (trust the process bestie)
     this.personalInfoRepo = null as any;
@@ -48,6 +53,19 @@ export class CandidateService {
     this.resumeRepo = new ResumeRepository(db);
     this.interviewRepo = new InterviewRepository(db);
     this.userRepo = new UserRepository(db);
+    
+    // Initialize NotificationService
+    if (!this.notificationService) {
+      const { NotificationRepository } = await import('../repositories/NotificationRepository');
+      const { NotificationPreferencesRepository } = await import('../repositories/NotificationPreferencesRepository');
+      const { WebhookRepository } = await import('../repositories/WebhookRepository');
+      
+      const notificationRepo = new NotificationRepository(db.collection('notifications'));
+      const preferencesRepo = new NotificationPreferencesRepository(db.collection('notificationPreferences'));
+      const webhookRepo = new WebhookRepository(db.collection('webhooks'));
+      
+      this.notificationService = new NotificationService(notificationRepo, preferencesRepo, webhookRepo);
+    }
   }
   async addCandidate(
     name: string,
@@ -172,6 +190,28 @@ export class CandidateService {
         metadata: { hasResume: !!resumeFile }
       });
 
+      // Notify all HR users about new candidate
+      if (this.notificationService) {
+        try {
+          const hrUsers = await getAllHRUsers();
+          for (const hrUser of hrUsers) {
+            await this.notificationService.notifyCandidateEvent(
+              NotificationType.CANDIDATE_APPLIED,
+              hrUser.userId,
+              personalInfo.candidateId,
+              name,
+              {
+                roleApplied: roleApplied || 'Not specified',
+                hasResume: !!resumeMetadata,
+                email: email[0]
+              }
+            );
+          }
+        } catch (notifError) {
+          console.error('Failed to send CANDIDATE_APPLIED notification:', notifError);
+        }
+      }
+
       return candidate;
     } catch (error) {
       console.error("Error adding candidate:", error);
@@ -279,6 +319,28 @@ export class CandidateService {
             oldValue: oldCandidate?.status,
             newValue: updatedData.status
           });
+
+          // Notify assigned HR users about status change
+          if (this.notificationService) {
+            try {
+              const assignedUsers = await getAssignedHRUsers(candidateId);
+              for (const hrUser of assignedUsers) {
+                await this.notificationService.notifyCandidateEvent(
+                  NotificationType.CANDIDATE_STATUS_CHANGED,
+                  hrUser.userId,
+                  candidateId,
+                  oldCandidate?.name || 'Unknown Candidate',
+                  {
+                    oldStatus: oldCandidate?.status,
+                    newStatus: updatedData.status,
+                    roleApplied: oldCandidate?.roleApplied || 'Not specified'
+                  }
+                );
+              }
+            } catch (notifError) {
+              console.error('Failed to send CANDIDATE_STATUS_CHANGED notification:', notifError);
+            }
+          }
         }
 
         await this.personalInfoRepo.update(candidateId, {
@@ -509,6 +571,28 @@ export class CandidateService {
           size: resumeFile.size
         }
       });
+
+      // Notify assigned HR users about document upload
+      if (this.notificationService) {
+        try {
+          const assignedUsers = await getAssignedHRUsers(candidateId);
+          for (const hrUser of assignedUsers) {
+            await this.notificationService.notifyCandidateEvent(
+              NotificationType.CANDIDATE_DOCUMENT_UPLOADED,
+              hrUser.userId,
+              candidateId,
+              personalInfo.name,
+              {
+                documentType: 'resume',
+                fileName: resumeFile.originalname,
+                fileSize: resumeFile.size
+              }
+            );
+          }
+        } catch (notifError) {
+          console.error('Failed to send CANDIDATE_DOCUMENT_UPLOADED notification:', notifError);
+        }
+      }
     } catch (error) {
       console.error("Error updating resume file:", error);
       throw new Error("Failed to update resume file");
@@ -952,6 +1036,29 @@ export class CandidateService {
           interviewRound: metadata?.interviewRound
         }
       });
+
+      // Notify assigned HR users about video upload
+      if (this.notificationService) {
+        try {
+          const assignedUsers = await getAssignedHRUsers(candidateId);
+          for (const hrUser of assignedUsers) {
+            await this.notificationService.notifyCandidateEvent(
+              NotificationType.CANDIDATE_DOCUMENT_UPLOADED,
+              hrUser.userId,
+              candidateId,
+              personalInfo.name,
+              {
+                documentType: videoType === 'interview' ? 'interview_video' : 'introduction_video',
+                fileName: videoFile.originalname,
+                fileSize: videoFile.size,
+                interviewRound: metadata?.interviewRound
+              }
+            );
+          }
+        } catch (notifError) {
+          console.error('Failed to send video upload notification:', notifError);
+        }
+      }
 
       return videoMetadata;
     } catch (error) {
@@ -1509,6 +1616,44 @@ export class CandidateService {
           totalAssignments: personalInfo.assignedHRUserIds.length
         }
       });
+
+      // Notify the assigned HR user
+      if (this.notificationService && hrUser) {
+        try {
+          await this.notificationService.notifyCandidateEvent(
+            NotificationType.CANDIDATE_ASSIGNED,
+            hrUserId,
+            candidateId,
+            personalInfo.name,
+            {
+              assignedBy: assignedByUser ? `${assignedByUser.firstName} ${assignedByUser.lastName}` : 'Unknown',
+              roleApplied: personalInfo.roleApplied || 'Not specified',
+              status: personalInfo.status
+            }
+          );
+        } catch (notifError) {
+          console.error('Failed to send CANDIDATE_ASSIGNED notification:', notifError);
+        }
+      }
+      
+      // Notify the assigned HR user
+      if (this.notificationService && hrUser) {
+        try {
+          await this.notificationService.notifyCandidateEvent(
+            NotificationType.CANDIDATE_ASSIGNED,
+            hrUserId,
+            candidateId,
+            personalInfo.name,
+            {
+              assignedBy: assignedByUser ? `${assignedByUser.firstName} ${assignedByUser.lastName}` : 'Unknown',
+              roleApplied: personalInfo.roleApplied || 'Not specified',
+              status: personalInfo.status
+            }
+          );
+        } catch (notifError) {
+          console.error('Failed to send CANDIDATE_ASSIGNED notification:', notifError);
+        }
+      }
     } catch (error) {
       console.error("Error assigning HR user to candidate:", error);
       throw error;

@@ -269,8 +269,9 @@ router.delete(
 // POST /api/jobs/:id/skills - Add a skill to a job
 router.post(
   "/:id/skills",
+  AuthMiddleware.authenticate,
   validation.requireFields(["skillId", "requiredLevel"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const { skillId, requiredLevel, evidence } = req.body;
 
@@ -292,7 +293,7 @@ router.post(
       });
     }
     //todo create addskillstojob taking in a list of skills
-    await jobService.addSkillToJob(id, skillId, requiredLevel, evidence);
+    await jobService.addSkillToJob(id, skillId, requiredLevel, evidence, req.user?.userId);
     res.json({ success: true, message: "Skill added to job successfully" });
   })
 );
@@ -300,8 +301,9 @@ router.post(
 // POST /api/jobs/:id/skills/bulk - Add multiple skills to a job
 router.post(
   "/:id/skills/bulk",
+  AuthMiddleware.authenticate,
   validation.requireFields(["skills"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const { skills } = req.body;
 
@@ -344,7 +346,7 @@ router.post(
       }
     }
 
-    await jobService.addSkillsToJob(id, skills);
+    await jobService.addSkillsToJob(id, skills, req.user?.userId);
 
     res.json({
       success: true,
@@ -356,8 +358,9 @@ router.post(
 // POST /api/jobs/:id/skills/bulk-by-name - Add multiple skills to a job by skill names
 router.post(
   "/:id/skills/bulk-by-name",
+  AuthMiddleware.authenticate,
   validation.requireFields(["skills"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const { skills } = req.body;
 
@@ -404,7 +407,7 @@ router.post(
       }
     }
 
-    await jobService.addSkillsToJobByName(id, skills);
+    await jobService.addSkillsToJobByName(id, skills, req.user?.userId);
 
     res.json({
       success: true,

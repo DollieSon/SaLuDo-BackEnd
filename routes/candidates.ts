@@ -15,6 +15,7 @@ import { AddedBy } from "../Models/Skill";
 import { UserRole } from "../Models/User";
 import { AuditLogger } from "../utils/AuditLogger";
 import { AuditEventType } from "../types/AuditEventTypes";
+import { connectDB } from "../mongo_db";
 import multer from "multer";
 import { CREATED, BAD_REQUEST } from "../constants/HttpStatusCodes";
 
@@ -170,6 +171,40 @@ router.post(
         candidate.candidateId,
         weakness
       );
+
+    // Notify assigned HR users that AI analysis is complete
+    try {
+      const { NotificationService } = await import("../services/NotificationService");
+      const { NotificationRepository } = await import("../repositories/NotificationRepository");
+      const { NotificationPreferencesRepository } = await import("../repositories/NotificationPreferencesRepository");
+      const { WebhookRepository } = await import("../repositories/WebhookRepository");
+      const { getAssignedHRUsers } = await import("../utils/NotificationHelpers");
+      const { NotificationType } = await import("../Models/enums/NotificationTypes");
+      const db = await connectDB();
+      
+      const notificationRepo = new NotificationRepository(db.collection('notifications'));
+      const preferencesRepo = new NotificationPreferencesRepository(db.collection('notificationPreferences'));
+      const webhookRepo = new WebhookRepository(db.collection('webhooks'));
+      const notificationService = new NotificationService(notificationRepo, preferencesRepo, webhookRepo);
+      
+      const assignedUsers = await getAssignedHRUsers(candidate.candidateId);
+      for (const hrUser of assignedUsers) {
+        await notificationService.notifyCandidateEvent(
+          NotificationType.CANDIDATE_AI_ANALYSIS_COMPLETE,
+          hrUser.userId,
+          candidate.candidateId,
+          name,
+          {
+            skillsFound: parsedData.skills.length,
+            educationFound: parsedData.education.length,
+            experienceFound: parsedData.experience.length,
+            certificationsFound: parsedData.certifications.length
+          }
+        );
+      }
+    } catch (notifError) {
+      console.error('Failed to send CANDIDATE_AI_ANALYSIS_COMPLETE notification:', notifError);
+    }
 
     res.status(CREATED).json({
       success: true,
