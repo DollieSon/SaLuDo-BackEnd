@@ -248,6 +248,7 @@ export class Candidate {
       dateCreated: this.dateCreated,
       dateUpdated: this.dateUpdated,
       roleApplied: this.roleApplied,
+      resume: this.resumeMetadata,
       status: this.status,
       isDeleted: this.isDeleted,
       assignedHRUserIds: this.assignedHRUserIds,
