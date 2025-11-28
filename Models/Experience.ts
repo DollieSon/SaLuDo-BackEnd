@@ -43,9 +43,6 @@ export class Experience {
             experienceId: this.experienceId,
             title: this.title,
             role: this.role,
-            // Add frontend-compatible field names
-            position: this.title,
-            company: this.role,
             description: this.description,
             addedBy: this.addedBy,
             isDeleted: this.isDeleted,
@@ -80,8 +77,6 @@ export interface ExperienceData {
     experienceId: string;
     title: string;
     role: string;
-    position?: string; // Alias for title (frontend compatibility)
-    company?: string; // Alias for role (frontend compatibility)
     description?: string;
     addedBy: 'AI' | 'HUMAN';
     isDeleted: boolean;

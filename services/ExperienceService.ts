@@ -19,16 +19,12 @@ export class ExperienceService {
                 throw new Error('Candidate resume data not found');
             }
             const experienceId = new ObjectId().toString();
-            
-            // Map frontend fields (company/position) to backend fields (title/role)
-            const title = experienceData.title || experienceData.position || '';
-            const role = experienceData.role || experienceData.company || '';
             const addedBy = experienceData.addedBy || 'AI';
             
             const experience = new Experience(
                 experienceId,
-                title,
-                role,
+                experienceData.title,
+                experienceData.role,
                 experienceData.description,
                 addedBy
             );
@@ -55,11 +51,8 @@ export class ExperienceService {
             }
             const exp = experiences[expIndex];
             
-            // Map frontend fields (company/position) to backend fields (title/role)
             if (updatedExperience.title !== undefined) exp.title = updatedExperience.title;
-            if (updatedExperience.position !== undefined) exp.title = updatedExperience.position;
             if (updatedExperience.role !== undefined) exp.role = updatedExperience.role;
-            if (updatedExperience.company !== undefined) exp.role = updatedExperience.company;
             if (updatedExperience.description !== undefined) exp.description = updatedExperience.description;
             if (updatedExperience.addedBy !== undefined) exp.addedBy = updatedExperience.addedBy;
             

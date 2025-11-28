@@ -11,7 +11,7 @@ export class StrengthWeaknessService {
         const db = await connectDB();
         this.resumeRepo = new ResumeRepository(db);
     }
-    async addStrength(candidateId: string, strengthData: CreateStrengthWeaknessData): Promise<void> {
+    async addStrength(candidateId: string, strengthData: any): Promise<void> {
         await this.init();
         try {
             this.validateStrengthWeaknessData(strengthData);
@@ -20,11 +20,13 @@ export class StrengthWeaknessService {
                 throw new Error('Candidate resume data not found');
             }
             const strengthId = new ObjectId().toString();
+            const addedBy = strengthData.addedBy || 'AI';
             const strength = new StrengthWeakness(
                 strengthId,
                 strengthData.name,
                 strengthData.description,
-                'Strength'
+                'Strength',
+                addedBy
             );
             const updatedStrengths = [...resumeData.strengths.map(s => StrengthWeakness.fromObject(s)), strength];
             await this.resumeRepo.update(candidateId, {
@@ -35,7 +37,7 @@ export class StrengthWeaknessService {
             throw new Error('Failed to add strength');
         }
     }
-    async addWeakness(candidateId: string, weaknessData: CreateStrengthWeaknessData): Promise<void> {
+    async addWeakness(candidateId: string, weaknessData: any): Promise<void> {
         await this.init();
         try {
             this.validateStrengthWeaknessData(weaknessData);
@@ -44,11 +46,13 @@ export class StrengthWeaknessService {
                 throw new Error('Candidate resume data not found');
             }
             const weaknessId = new ObjectId().toString();
+            const addedBy = weaknessData.addedBy || 'AI';
             const weakness = new StrengthWeakness(
                 weaknessId,
                 weaknessData.name,
                 weaknessData.description,
-                'Weakness'
+                'Weakness',
+                addedBy
             );
             const updatedWeaknesses = [...resumeData.weaknesses.map(w => StrengthWeakness.fromObject(w)), weakness];
             await this.resumeRepo.update(candidateId, {
@@ -62,7 +66,7 @@ export class StrengthWeaknessService {
     async updateStrengthWeakness(
         candidateId: string, 
         strengthWeaknessId: string, 
-        updatedData: Partial<StrengthWeaknessData>,
+        updatedData: any,
         type: 'Strength' | 'Weakness'
     ): Promise<void> {
         await this.init();
@@ -78,9 +82,10 @@ export class StrengthWeaknessService {
                 throw new Error(`${type} not found`);
             }
             const item = items[itemIndex];
-            if (updatedData.name) item.name = updatedData.name;
+            if (updatedData.name !== undefined) item.name = updatedData.name || item.description?.substring(0, 50) || 'Unnamed';
             if (updatedData.description) item.description = updatedData.description;
             if (updatedData.type) item.type = updatedData.type;
+            if (updatedData.addedBy !== undefined) item.addedBy = updatedData.addedBy;
             item.updatedAt = new Date();
             const updateField = type === 'Strength' ? 'strengths' : 'weaknesses';
             await this.resumeRepo.update(candidateId, {
@@ -335,10 +340,11 @@ export class StrengthWeaknessService {
     }
     // Private helper methods
     private validateStrengthWeaknessData(data: CreateStrengthWeaknessData): void {
-        if (!data.name.trim()) {
-            throw new Error('Name is required');
+        // Name can be empty, we'll use description as fallback
+        if (!data.name) {
+            data.name = data.description?.substring(0, 50) || 'Unnamed';
         }
-        if (!data.description.trim()) {
+        if (!data.description || !data.description.trim()) {
             throw new Error('Description is required');
         }
         if (data.name.length > 100) {
