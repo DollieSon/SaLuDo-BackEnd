@@ -13,6 +13,8 @@ import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
 import { CreateWebhookData, UpdateWebhookData, WebhookEvent } from '../Models/WebhookConfig';
 import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND, FORBIDDEN } from '../constants/HttpStatusCodes';
+import { AuditLogger } from '../utils/AuditLogger';
+import { AuditEventType } from '../types/AuditEventTypes';
 
 const router = Router();
 let webhookRepository: WebhookRepository;
@@ -151,6 +153,24 @@ router.post(
     };
 
     const webhook = await webhookRepository.create(webhookData);
+
+    // Log webhook configuration
+    await AuditLogger.log({
+      eventType: AuditEventType.WEBHOOK_CONFIGURED,
+      userId,
+      userEmail: req.user?.email,
+      resource: 'webhook',
+      resourceId: webhook.webhookId,
+      action: 'created',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        url: webhook.url,
+        events: webhook.events,
+        method: webhook.method
+      }
+    });
+
     res.status(CREATED).json({ 
       webhook, 
       message: 'Webhook created successfully' 
@@ -225,6 +245,26 @@ router.put(
     };
 
     const updatedWebhook = await webhookRepository.update(webhookId, updateData);
+
+    if (updatedWebhook) {
+      // Log webhook configuration update
+      await AuditLogger.log({
+        eventType: AuditEventType.WEBHOOK_CONFIGURED,
+        userId,
+        userEmail: req.user?.email,
+        resource: 'webhook',
+        resourceId: webhookId,
+        action: 'updated',
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: {
+          url: updatedWebhook.url,
+          events: updatedWebhook.events,
+          isActive: updatedWebhook.isActive
+        }
+      });
+    }
+
     res.json({ 
       webhook: updatedWebhook, 
       message: 'Webhook updated successfully' 

@@ -6,51 +6,9 @@
 // =======================
 
 import { Db, Collection } from 'mongodb';
+import { AuditEventType, AuditSeverity } from '../types/AuditEventTypes';
 
-export enum AuditEventType {
-  // Authentication Events
-  LOGIN_SUCCESS = 'LOGIN_SUCCESS',
-  LOGIN_FAILURE = 'LOGIN_FAILURE',
-  LOGOUT = 'LOGOUT',
-  TOKEN_REFRESH = 'TOKEN_REFRESH',
-  
-  // User Management Events
-  USER_CREATED = 'USER_CREATED',
-  USER_UPDATED = 'USER_UPDATED',
-  USER_DELETED = 'USER_DELETED',
-  USER_ACTIVATED = 'USER_ACTIVATED',
-  USER_DEACTIVATED = 'USER_DEACTIVATED',
-  
-  // Password Events
-  PASSWORD_CHANGED = 'PASSWORD_CHANGED',
-  PASSWORD_RESET = 'PASSWORD_RESET',
-  PASSWORD_RESET_REQUESTED = 'PASSWORD_RESET_REQUESTED',
-  
-  // Security Events
-  FAILED_LOGIN_ATTEMPT = 'FAILED_LOGIN_ATTEMPT',
-  ACCOUNT_LOCKED = 'ACCOUNT_LOCKED',
-  SUSPICIOUS_ACTIVITY = 'SUSPICIOUS_ACTIVITY',
-  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
-  UNAUTHORIZED_ACCESS_ATTEMPT = 'UNAUTHORIZED_ACCESS_ATTEMPT',
-  
-  // Data Access Events
-  PROFILE_VIEWED = 'PROFILE_VIEWED',
-  SENSITIVE_DATA_ACCESSED = 'SENSITIVE_DATA_ACCESSED',
-  FILE_UPLOADED = 'FILE_UPLOADED',
-  FILE_DOWNLOADED = 'FILE_DOWNLOADED',
-  
-  // System Events
-  SYSTEM_ERROR = 'SYSTEM_ERROR',
-  CONFIG_CHANGED = 'CONFIG_CHANGED',
-  BACKUP_CREATED = 'BACKUP_CREATED'
-}
-
-export enum AuditSeverity {
-  LOW = 'LOW',
-  MEDIUM = 'MEDIUM',
-  HIGH = 'HIGH',
-  CRITICAL = 'CRITICAL'
-}
+export { AuditEventType, AuditSeverity } from '../types/AuditEventTypes';
 
 export interface AuditLogEntry {
   _id?: string;

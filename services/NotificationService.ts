@@ -9,6 +9,8 @@ import { WebhookRepository } from '../repositories/WebhookRepository';
 import { webSocketService } from './WebSocketService';
 import { emailQueueService } from './EmailQueueService';
 import { WebhookService } from './WebhookService';
+import { AuditLogger } from '../utils/AuditLogger';
+import { AuditEventType } from '../types/AuditEventTypes';
 import {
   Notification,
   CreateNotificationData,
@@ -80,6 +82,19 @@ export class NotificationService {
       await this.deliverNotification(notification);
 
       console.log(`Notification created and delivered: ${notification.notificationId} for user ${notification.userId}`);
+      
+      // Audit log notification sent
+      await AuditLogger.logNotificationOperation({
+        eventType: AuditEventType.NOTIFICATION_SENT,
+        notificationId: notification.notificationId,
+        userId: notification.userId,
+        action: `Sent ${notification.type} notification: ${notification.title}`,
+        metadata: {
+          type: notification.type,
+          priority: notification.priority,
+          channels: notification.channels
+        }
+      });
 
       return notification;
     } catch (error) {
@@ -392,7 +407,22 @@ export class NotificationService {
     userId: string,
     data: UpdateNotificationPreferencesData
   ): Promise<NotificationPreferences | null> {
-    return await this.notificationPreferencesRepository.update(userId, data);
+    const result = await this.notificationPreferencesRepository.update(userId, data);
+    
+    // Audit log preference update
+    if (result) {
+      await AuditLogger.logNotificationOperation({
+        eventType: AuditEventType.NOTIFICATION_PREFERENCES_UPDATED,
+        userId,
+        action: 'Updated notification preferences',
+        metadata: {
+          updatedFields: Object.keys(data),
+          defaultChannels: data.defaultChannels
+        }
+      });
+    }
+    
+    return result;
   }
 
   /**

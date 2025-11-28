@@ -1,6 +1,8 @@
 // geminiTranscriptService.ts
 import fetch from 'node-fetch';
 import { PersonalityData, Trait } from '../Models/PersonalityTypes';
+import { AuditLogger } from '../utils/AuditLogger';
+import { AuditEventType } from '../types/AuditEventTypes';
 
 function cleanGeminiJson(raw: string): string {
   return raw
@@ -10,7 +12,13 @@ function cleanGeminiJson(raw: string): string {
     .trim();
 }
 
-export async function analyzeTranscriptWithGemini(transcriptText: string): Promise<PersonalityData> {
+export async function analyzeTranscriptWithGemini(
+  transcriptText: string,
+  candidateId?: string,
+  candidateName?: string,
+  userId?: string,
+  userEmail?: string
+): Promise<PersonalityData> {
   const prompt = `You are an AI that evaluates interview transcripts to infer personality traits. 
 
 Using the transcript below, assess the candidate's traits using the following JSON structure. 
@@ -323,10 +331,43 @@ ${transcriptText}
     const processedData = processPersonalityData(parsed);
     
     console.log('=== DEBUG: Successfully parsed personality data ===');
+    
+    // Log successful personality assessment
+    if (candidateId) {
+      await AuditLogger.logAIOperation({
+        eventType: AuditEventType.PERSONALITY_ASSESSMENT_GENERATED,
+        candidateId,
+        userId,
+        userEmail,
+        action: `AI generated personality assessment for ${candidateName || candidateId}`,
+        success: true,
+        metadata: {
+          candidateName,
+          transcriptLength: transcriptText.length,
+          categoriesAnalyzed: Object.keys(processedData).length
+        }
+      });
+    }
+    
     return processedData;
   } catch (err) {
     console.error('=== DEBUG: Error parsing Gemini response:', err);
     console.error('=== DEBUG: Raw content:', contentText);
+    
+    // Log failed personality assessment
+    if (candidateId) {
+      await AuditLogger.logAIOperation({
+        eventType: AuditEventType.AI_ANALYSIS_FAILED,
+        candidateId,
+        userId,
+        userEmail,
+        action: `AI failed to generate personality assessment for ${candidateName || candidateId}`,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        metadata: { candidateName, operation: 'personality_assessment' }
+      });
+    }
+    
     throw new Error('Invalid JSON returned by Gemini: ' + contentText);
   }
 }

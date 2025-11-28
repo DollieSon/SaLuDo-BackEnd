@@ -4,6 +4,7 @@ export class Certification {
     public issuingOrganization: string;
     public issueDate: Date;
     public description?: string;
+    public addedBy: 'AI' | 'HUMAN';
     public createdAt: Date;
     public updatedAt: Date;
     constructor(
@@ -12,6 +13,7 @@ export class Certification {
         issuingOrganization: string,
         issueDate: Date,
         description?: string,
+        addedBy: 'AI' | 'HUMAN' = 'AI',
         createdAt?: Date,
         updatedAt?: Date
     ) {
@@ -20,6 +22,7 @@ export class Certification {
         this.issuingOrganization = issuingOrganization;
         this.issueDate = issueDate;
         this.description = description;
+        this.addedBy = addedBy;
         this.createdAt = createdAt || new Date();
         this.updatedAt = updatedAt || new Date();
     }
@@ -30,6 +33,7 @@ export class Certification {
             obj.issuingOrganization,
             new Date(obj.issueDate),
             obj.description,
+            obj.addedBy || 'AI',
             obj.createdAt ? new Date(obj.createdAt) : undefined,
             obj.updatedAt ? new Date(obj.updatedAt) : undefined
         );
@@ -41,6 +45,7 @@ export class Certification {
             issuingOrganization: this.issuingOrganization,
             issueDate: this.issueDate,
             description: this.description,
+            addedBy: this.addedBy,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
         };
@@ -55,6 +60,7 @@ export interface CertificationData {
     issuingOrganization: string;
     issueDate: Date;
     description?: string;
+    addedBy: 'AI' | 'HUMAN';
     createdAt: Date;
     updatedAt: Date;
 }
@@ -63,4 +69,5 @@ export interface CreateCertificationData {
     issuingOrganization: string;
     issueDate: Date;
     description?: string;
+    addedBy?: 'AI' | 'HUMAN';
 }

@@ -4,6 +4,7 @@ import { CandidateService } from "../services";
 import { candidateExists } from "./middleware/candidateExists";
 import { validation } from "./middleware/validation";
 import { asyncHandler } from "./middleware/errorHandler";
+import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
 
 import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const router = express.Router({ mergeParams: true });
@@ -44,9 +45,10 @@ router.post(
   upload.single("video"),
   candidateExists,
   validation.validateVideoFile,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const videoFile = req.file!;
+    const user = req.user;
     const metadata = {
       interviewRound: req.body.interviewRound,
       duration: req.body.duration ? parseFloat(req.body.duration) : undefined,
@@ -61,7 +63,9 @@ router.post(
       candidateId,
       videoFile,
       "interview",
-      metadata
+      metadata,
+      user?.userId,
+      user?.email
     );
 
     res.status(CREATED).json({
@@ -86,7 +90,7 @@ router.get(
     res.json({
       success: true,
       message: "Interview videos retrieved successfully",
-      data: videos.interviewVideos,
+      data: videos,
     });
   })
 );
@@ -200,10 +204,16 @@ router.put(
 // DELETE /api/candidates/:candidateId/videos/interview/:videoId
 router.delete(
   "/interview/:videoId",
+  AuthMiddleware.authenticate,
   candidateExists,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
-    await candidateService.deleteVideoFile(candidateId, videoId, "interview");
+    
+    await candidateService.deleteVideoFile(
+      candidateId, 
+      videoId, 
+      "interview"
+    );
 
     res.json({
       success: true,
@@ -222,9 +232,10 @@ router.post(
   upload.single("video"),
   candidateExists,
   validation.validateVideoFile,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const videoFile = req.file!;
+    const user = req.user;
     const metadata = {
       duration: req.body.duration ? parseFloat(req.body.duration) : undefined,
       resolution: req.body.resolution,
@@ -238,7 +249,9 @@ router.post(
       candidateId,
       videoFile,
       "introduction",
-      metadata
+      metadata,
+      user?.userId,
+      user?.email
     );
 
     res.status(CREATED).json({
@@ -263,7 +276,7 @@ router.get(
     res.json({
       success: true,
       message: "Introduction videos retrieved successfully",
-      data: videos.introductionVideos,
+      data: videos,
     });
   })
 );
@@ -376,9 +389,11 @@ router.put(
 // DELETE /api/candidates/:candidateId/videos/introduction/:videoId
 router.delete(
   "/introduction/:videoId",
+  AuthMiddleware.authenticate,
   candidateExists,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
+    
     await candidateService.deleteVideoFile(
       candidateId,
       videoId,
@@ -408,10 +423,9 @@ router.get(
       success: true,
       message: "All videos retrieved successfully",
       data: {
-        interviewVideos: videos.interviewVideos,
-        introductionVideos: videos.introductionVideos,
-        totalCount:
-          videos.interviewVideos.length + videos.introductionVideos.length,
+        interviewVideos: videos.filter(v => v.videoType === "interview"),
+        introductionVideos: videos.filter(v => v.videoType === "introduction"),
+        totalCount: videos.length,
       },
     });
   })

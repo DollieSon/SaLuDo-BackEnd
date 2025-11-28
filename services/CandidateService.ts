@@ -4,6 +4,7 @@ import {
   ResumeRepository,
   InterviewRepository,
 } from "../repositories/CandidateRepository";
+import { UserRepository } from "../repositories/UserRepository";
 import {
   Candidate,
   CandidateData,
@@ -12,75 +13,158 @@ import {
   TranscriptMetadata,
   VideoMetadata,
 } from "../Models/Candidate";
-import { Skill, CreateSkillData } from "../Models/Skill";
-import { Experience, CreateExperienceData } from "../Models/Experience";
-import { Education, CreateEducationData } from "../Models/Education";
-import {
-  Certification,
-  CreateCertificationData,
-} from "../Models/Certification";
-import {
-  StrengthWeakness,
-  CreateStrengthWeaknessData,
-} from "../Models/StrengthWeakness";
+import { Skill } from "../Models/Skill";
+import { Experience } from "../Models/Experience";
+import { Education } from "../Models/Education";
+import { Certification } from "../Models/Certification";
+import { StrengthWeakness } from "../Models/StrengthWeakness";
 import { Personality, PersonalityData } from "../Models/Personality";
-import { GridFSBucket, GridFSBucketReadStream, ObjectId } from "mongodb";
-import streamBuffers from "stream-buffers";
+import { GridFSBucket, ObjectId } from "mongodb";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType } from "../types/AuditEventTypes";
+import { NotificationService } from "./NotificationService";
+import { NotificationType } from "../Models/enums/NotificationTypes";
+import { getAllHRUsers, getAssignedHRUsers } from "../utils/NotificationHelpers";
+import {
+  ERROR_MESSAGES,
+  ACTIONS,
+  COLLECTION_NAMES,
+  BUCKET_NAMES,
+  DEFAULT_VALUES,
+  FILE_TYPES,
+  PROCESSING_STATUS,
+  METADATA_FIELDS,
+  NOTIFICATION_ERROR_MESSAGES,
+  LOG_MESSAGES,
+} from "../constants/CandidateServiceConstants";
+
+// Import specialized services
+import { CandidateFileService } from "./candidates/CandidateFileService";
+import { CandidatePersonalityService } from "./candidates/CandidatePersonalityService";
+import { CandidateAssignmentService } from "./candidates/CandidateAssignmentService";
+
 export class CandidateService {
   private personalInfoRepo: PersonalInfoRepository;
   private resumeRepo: ResumeRepository;
   private interviewRepo: InterviewRepository;
+  private userRepo: UserRepository;
+  private notificationService: NotificationService | null = null;
+  
+  // Specialized services
+  private fileService: CandidateFileService;
+  private personalityService: CandidatePersonalityService;
+  private assignmentService: CandidateAssignmentService;
+
   constructor() {
-    // Initialize repositories - will be set up in init() (trust the process bestie)
     this.personalInfoRepo = null as any;
     this.resumeRepo = null as any;
     this.interviewRepo = null as any;
+    this.userRepo = null as any;
+    this.fileService = null as any;
+    this.personalityService = null as any;
+    this.assignmentService = null as any;
   }
+
   async init(): Promise<void> {
     const db = await connectDB();
     this.personalInfoRepo = new PersonalInfoRepository(db);
     this.resumeRepo = new ResumeRepository(db);
     this.interviewRepo = new InterviewRepository(db);
+    this.userRepo = new UserRepository(db);
+
+    // Initialize NotificationService
+    if (!this.notificationService) {
+      const { NotificationRepository } = await import(
+        "../repositories/NotificationRepository"
+      );
+      const { NotificationPreferencesRepository } = await import(
+        "../repositories/NotificationPreferencesRepository"
+      );
+      const { WebhookRepository } = await import(
+        "../repositories/WebhookRepository"
+      );
+
+      const notificationRepo = new NotificationRepository(
+        db.collection(COLLECTION_NAMES.NOTIFICATIONS)
+      );
+      const preferencesRepo = new NotificationPreferencesRepository(
+        db.collection(COLLECTION_NAMES.NOTIFICATION_PREFERENCES)
+      );
+      const webhookRepo = new WebhookRepository(db.collection(COLLECTION_NAMES.WEBHOOKS));
+
+      this.notificationService = new NotificationService(
+        notificationRepo,
+        preferencesRepo,
+        webhookRepo
+      );
+    }
+
+    // Initialize specialized services
+    this.fileService = new CandidateFileService(
+      this.personalInfoRepo,
+      this.resumeRepo,
+      this.interviewRepo,
+      this.notificationService
+    );
+
+    this.personalityService = new CandidatePersonalityService(
+      this.interviewRepo
+    );
+
+    this.assignmentService = new CandidateAssignmentService(
+      this.personalInfoRepo,
+      this.userRepo,
+      this.notificationService,
+      this.getCandidate.bind(this)
+    );
   }
+
+  // ============================
+  // CORE CANDIDATE CRUD
+  // ============================
+
   async addCandidate(
     name: string,
     email: string[],
     birthdate: Date,
     roleApplied: string | null = null,
-    resumeFile?: Express.Multer.File
+    resumeFile?: Express.Multer.File,
+    userId?: string,
+    userEmail?: string,
+    socialLinks?: any[]
   ): Promise<Candidate> {
     await this.init();
     try {
-      // Handle resume file upload if provided
       let resumeMetadata: ResumeMetadata | undefined;
+      let uploadedFileId: string | undefined;
+
       if (resumeFile) {
         const db = await connectDB();
-        const bucket = new GridFSBucket(db, { bucketName: "resumes" });
-        // Upload file to GridFS
+        const bucket = new GridFSBucket(db, { bucketName: BUCKET_NAMES.RESUMES });
         const uploadStream = bucket.openUploadStream(resumeFile.originalname, {
           metadata: {
             contentType: resumeFile.mimetype,
-            uploadedBy: "candidate",
-            candidateId: "", // Will be updated after candidate creation
+            uploadedBy: DEFAULT_VALUES.UPLOADED_BY,
+            candidateId: "",
           },
         });
         const fileId = uploadStream.id;
         uploadStream.end(resumeFile.buffer);
-        // Wait for upload to complete
         await new Promise((resolve, reject) => {
           uploadStream.on("finish", resolve);
           uploadStream.on("error", reject);
         });
+        uploadedFileId = fileId.toString();
         resumeMetadata = {
-          fileId: fileId.toString(),
+          fileId: uploadedFileId,
           filename: resumeFile.originalname,
           contentType: resumeFile.mimetype,
           size: resumeFile.size,
           uploadedAt: new Date(),
-          parseStatus: "pending",
+          parseStatus: PROCESSING_STATUS.PENDING,
         };
       }
-      // Create personal info
+
       const personalInfo = await this.personalInfoRepo.create({
         name,
         email,
@@ -91,8 +175,9 @@ export class CandidateService {
         assignedHRUserIds: [],
         lastAssignedAt: null,
         lastAssignedBy: null,
+        socialLinks: socialLinks || [],
       });
-      // Create resume data with metadata
+
       await this.resumeRepo.create({
         candidateId: personalInfo.candidateId,
         resume: resumeMetadata,
@@ -103,17 +188,33 @@ export class CandidateService {
         strengths: [],
         weaknesses: [],
       });
-      // Update GridFS metadata with candidateId
-      if (resumeMetadata) {
+
+      if (resumeMetadata && uploadedFileId) {
         const db = await connectDB();
         await db
-          .collection("resumes.files")
+          .collection(COLLECTION_NAMES.RESUMES_FILES)
           .updateOne(
             { _id: new ObjectId(resumeMetadata.fileId) },
             { $set: { "metadata.candidateId": personalInfo.candidateId } }
           );
+
+        await AuditLogger.logFileOperation({
+          eventType: AuditEventType.CANDIDATE_DOCUMENT_UPLOADED,
+          fileId: uploadedFileId,
+          fileName: resumeMetadata.filename,
+          fileType: FILE_TYPES.RESUME,
+          candidateId: personalInfo.candidateId,
+          userId,
+          userEmail,
+          action: ACTIONS.UPLOAD,
+          metadata: {
+            candidateName: name,
+            contentType: resumeMetadata.contentType,
+            size: resumeMetadata.size,
+          },
+        });
       }
-      // Create empty interview data
+
       await this.interviewRepo.create({
         candidateId: personalInfo.candidateId,
         transcripts: [],
@@ -121,7 +222,7 @@ export class CandidateService {
         introductionVideos: [],
         personality: new Personality().toObject(),
       });
-      // Create and return candidate object
+
       const candidate = new Candidate(
         personalInfo.candidateId,
         name,
@@ -131,27 +232,66 @@ export class CandidateService {
         resumeMetadata,
         CandidateStatus.APPLIED,
         personalInfo.dateCreated,
-        personalInfo.dateUpdated
+        personalInfo.dateUpdated,
+        [],
+        null,
+        null,
+        socialLinks || []
       );
+
+      await AuditLogger.logCandidateOperation({
+        eventType: AuditEventType.CANDIDATE_CREATED,
+        candidateId: personalInfo.candidateId,
+        candidateName: name,
+        action: ACTIONS.CREATED_NEW_CANDIDATE,
+        newValue: { name, email, status: CandidateStatus.APPLIED, roleApplied },
+        metadata: { hasResume: !!resumeFile },
+      });
+
+      if (this.notificationService) {
+        try {
+          const hrUsers = await getAllHRUsers();
+          for (const hrUser of hrUsers) {
+            await this.notificationService.notifyCandidateEvent(
+              NotificationType.CANDIDATE_APPLIED,
+              hrUser.userId,
+              personalInfo.candidateId,
+              name,
+              {
+                roleApplied: roleApplied || DEFAULT_VALUES.ROLE_APPLIED,
+                hasResume: !!resumeMetadata,
+                email: email[0],
+              }
+            );
+          }
+        } catch (notifError) {
+          console.error(
+            NOTIFICATION_ERROR_MESSAGES.CANDIDATE_APPLIED,
+            notifError
+          );
+        }
+      }
+
       return candidate;
     } catch (error) {
-      console.error("Error adding candidate:", error);
-      throw new Error("Failed to add candidate");
+      console.error(LOG_MESSAGES.ERROR_ADDING_CANDIDATE, error);
+      throw new Error(ERROR_MESSAGES.FAILED_TO_ADD_CANDIDATE);
     }
   }
+
   async getCandidate(candidateId: string): Promise<Candidate | null> {
     await this.init();
     try {
-      // Get data from all repositories
       const [personalInfo, resumeData, interviewData] = await Promise.all([
         this.personalInfoRepo.findById(candidateId),
         this.resumeRepo.findById(candidateId),
         this.interviewRepo.findById(candidateId),
       ]);
+
       if (!personalInfo) {
         return null;
       }
-      // Reconstruct candidate object
+
       const candidate = new Candidate(
         personalInfo.candidateId,
         personalInfo.name,
@@ -164,10 +304,11 @@ export class CandidateService {
         personalInfo.dateUpdated,
         personalInfo.assignedHRUserIds,
         personalInfo.lastAssignedAt,
-        personalInfo.lastAssignedBy
+        personalInfo.lastAssignedBy,
+        personalInfo.socialLinks
       );
       candidate.isDeleted = personalInfo.isDeleted;
-      // Populate resume data if exists
+
       if (resumeData) {
         candidate.skills =
           resumeData.skills?.map((s: any) => Skill.fromObject(s)) || [];
@@ -190,7 +331,7 @@ export class CandidateService {
           ) || [];
         candidate.resumeAssessment = resumeData.resumeAssessment;
       }
-      // Populate interview data if exists
+
       if (interviewData) {
         candidate.transcripts = interviewData.transcripts || [];
         candidate.interviewVideos = interviewData.interviewVideos || [];
@@ -200,19 +341,25 @@ export class CandidateService {
         );
         candidate.interviewAssessment = interviewData.interviewAssessment;
       }
+
       return candidate;
     } catch (error) {
-      console.error("Error getting candidate:", error);
-      throw new Error("Failed to retrieve candidate");
+      console.error(LOG_MESSAGES.ERROR_GETTING_CANDIDATE, error);
+      throw new Error(ERROR_MESSAGES.FAILED_TO_RETRIEVE_CANDIDATE);
     }
   }
+
   async updateCandidate(
     candidateId: string,
-    updatedData: Partial<CandidateData>
+    updatedData: Partial<CandidateData>,
+    userId?: string,
+    userEmail?: string
   ): Promise<void> {
     await this.init();
     try {
-      // Update personal info if relevant fields changed
+      const oldCandidate = await this.getCandidate(candidateId);
+      const changes: Record<string, any> = {};
+
       if (
         updatedData.name ||
         updatedData.email ||
@@ -220,6 +367,48 @@ export class CandidateService {
         updatedData.roleApplied ||
         updatedData.status
       ) {
+        if (updatedData.status && oldCandidate?.status !== updatedData.status) {
+          changes.status = {
+            old: oldCandidate?.status,
+            new: updatedData.status,
+          };
+
+          await AuditLogger.logCandidateOperation({
+            eventType: AuditEventType.CANDIDATE_STATUS_CHANGED,
+            candidateId,
+            candidateName: oldCandidate?.name,
+            userId,
+            userEmail,
+            action: `Changed candidate status from ${oldCandidate?.status} to ${updatedData.status}`,
+            oldValue: oldCandidate?.status,
+            newValue: updatedData.status,
+          });
+
+          if (this.notificationService) {
+            try {
+              const assignedUsers = await getAssignedHRUsers(candidateId);
+              for (const hrUser of assignedUsers) {
+                await this.notificationService.notifyCandidateEvent(
+                  NotificationType.CANDIDATE_STATUS_CHANGED,
+                  hrUser.userId,
+                  candidateId,
+                  oldCandidate?.name || DEFAULT_VALUES.UNKNOWN_CANDIDATE,
+                  {
+                    oldStatus: oldCandidate?.status,
+                    newStatus: updatedData.status,
+                    roleApplied: oldCandidate?.roleApplied || DEFAULT_VALUES.ROLE_APPLIED,
+                  }
+                );
+              }
+            } catch (notifError) {
+              console.error(
+                NOTIFICATION_ERROR_MESSAGES.CANDIDATE_STATUS_CHANGED,
+                notifError
+              );
+            }
+          }
+        }
+
         await this.personalInfoRepo.update(candidateId, {
           name: updatedData.name,
           email: updatedData.email,
@@ -227,8 +416,12 @@ export class CandidateService {
           roleApplied: updatedData.roleApplied,
           status: updatedData.status,
         });
+
+        if (updatedData.name) changes.name = updatedData.name;
+        if (updatedData.email) changes.email = updatedData.email;
+        if (updatedData.roleApplied) changes.roleApplied = updatedData.roleApplied;
       }
-      // Update resume data if relevant fields changed
+
       if (
         updatedData.resume ||
         updatedData.skills ||
@@ -248,9 +441,11 @@ export class CandidateService {
           strengths: updatedData.strengths,
           weaknesses: updatedData.weaknesses,
           resumeAssessment: updatedData.resumeAssessment,
+          dateUpdated: new Date(),
         });
+        if (updatedData.resumeAssessment) changes.resumeAssessment = "updated";
       }
-      // Update interview data if relevant fields changed
+
       if (
         updatedData.transcripts ||
         updatedData.personality ||
@@ -260,22 +455,57 @@ export class CandidateService {
           transcripts: updatedData.transcripts,
           personality: updatedData.personality,
           interviewAssessment: updatedData.interviewAssessment,
+          dateUpdated: new Date(),
+        });
+        if (updatedData.interviewAssessment)
+          changes.interviewAssessment = "updated";
+      }
+
+      if (Object.keys(changes).length > 0) {
+        await AuditLogger.logCandidateOperation({
+          eventType: AuditEventType.CANDIDATE_UPDATED,
+          candidateId,
+          candidateName: oldCandidate?.name,
+          userId,
+          userEmail,
+          action: ACTIONS.UPDATED_CANDIDATE_PROFILE,
+          metadata: { changes },
         });
       }
     } catch (error) {
-      console.error("Error updating candidate:", error);
-      throw new Error("Failed to update candidate");
+      console.error(LOG_MESSAGES.ERROR_UPDATING_CANDIDATE, error);
+      throw new Error(ERROR_MESSAGES.FAILED_TO_UPDATE_CANDIDATE);
     }
   }
-  async deleteCandidate(candidateId: string): Promise<void> {
+
+  async deleteCandidate(
+    candidateId: string,
+    userId?: string,
+    userEmail?: string
+  ): Promise<void> {
     await this.init();
     try {
-      await this.personalInfoRepo.delete(candidateId);
+      const candidate = await this.getCandidate(candidateId);
+      await this.personalInfoRepo.update(candidateId, {
+        isDeleted: true,
+        dateUpdated: new Date(),
+      });
+
+      await AuditLogger.logCandidateOperation({
+        eventType: AuditEventType.CANDIDATE_DELETED,
+        candidateId,
+        candidateName: candidate?.name,
+        userId,
+        userEmail,
+        action: `${ACTIONS.DELETED_CANDIDATE}: ${candidate?.name}`,
+        metadata: { softDelete: true },
+      });
     } catch (error) {
-      console.error("Error deleting candidate:", error);
-      throw new Error("Failed to delete candidate");
+      console.error(LOG_MESSAGES.ERROR_DELETING_CANDIDATE, error);
+      throw new Error(ERROR_MESSAGES.FAILED_TO_DELETE_CANDIDATE);
     }
   }
+
   async getAllCandidates(): Promise<Candidate[]> {
     await this.init();
     try {
@@ -289,10 +519,11 @@ export class CandidateService {
       }
       return candidates;
     } catch (error) {
-      console.error("Error getting all candidates:", error);
-      throw new Error("Failed to retrieve candidates");
+      console.error(LOG_MESSAGES.ERROR_GETTING_ALL_CANDIDATES, error);
+      throw new Error(ERROR_MESSAGES.FAILED_TO_RETRIEVE_CANDIDATES);
     }
   }
+
   async getCandidatesByStatus(status: CandidateStatus): Promise<Candidate[]> {
     await this.init();
     try {
@@ -306,230 +537,79 @@ export class CandidateService {
       }
       return candidates;
     } catch (error) {
-      console.error("Error getting candidates by status:", error);
-      throw new Error("Failed to retrieve candidates by status");
+      console.error(LOG_MESSAGES.ERROR_GETTING_CANDIDATES_BY_STATUS, error);
+      throw new Error(ERROR_MESSAGES.FAILED_TO_RETRIEVE_CANDIDATES_BY_STATUS);
     }
   }
+
+  // ============================
+  // FILE OPERATIONS (Delegate to FileService)
+  // ============================
+
   async getResumeFile(
     candidateId: string
   ): Promise<{ stream: any; metadata: any } | null> {
     await this.init();
-    try {
-      const resumeData = await this.resumeRepo.findById(candidateId);
-      if (!resumeData?.resume) {
-        return null;
-      }
-      const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: "resumes" });
-      const fileId = new ObjectId(resumeData.resume.fileId);
-      const fileInfo = await db
-        .collection("resumes.files")
-        .findOne({ _id: fileId });
-      if (!fileInfo) {
-        return null;
-      }
-      const downloadStream = bucket.openDownloadStream(fileId);
-      return {
-        stream: downloadStream,
-        metadata: {
-          filename: resumeData.resume.filename,
-          contentType: resumeData.resume.contentType,
-          size: resumeData.resume.size,
-        },
-      };
-    } catch (error) {
-      console.error("Error getting resume file:", error);
-      throw new Error("Failed to retrieve resume file");
-    }
+    return this.fileService.getResumeFile(candidateId);
   }
+
   async updateResumeFile(
     candidateId: string,
-    resumeFile: Express.Multer.File
+    resumeFile: Express.Multer.File,
+    userId?: string,
+    userEmail?: string
   ): Promise<void> {
     await this.init();
-    try {
-      const resumeData = await this.resumeRepo.findById(candidateId);
-      if (!resumeData) {
-        throw new Error("Candidate not found");
-      }
-      const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: "resumes" });
-      // Delete old file if exists
-      if (resumeData.resume?.fileId) {
-        try {
-          await bucket.delete(new ObjectId(resumeData.resume.fileId));
-        } catch (error) {
-          console.log("Old resume file not found, continuing with upload");
-        }
-      }
-      // Upload new file
-      const uploadStream = bucket.openUploadStream(resumeFile.originalname, {
-        metadata: {
-          contentType: resumeFile.mimetype,
-          uploadedBy: "candidate",
-          candidateId: candidateId,
-        },
-      });
-      const fileId = uploadStream.id;
-      uploadStream.end(resumeFile.buffer);
-      // Wait for upload to complete
-      await new Promise((resolve, reject) => {
-        uploadStream.on("finish", resolve);
-        uploadStream.on("error", reject);
-      });
-      // Update resume metadata
-      const newResumeMetadata: ResumeMetadata = {
-        fileId: fileId.toString(),
-        filename: resumeFile.originalname,
-        contentType: resumeFile.mimetype,
-        size: resumeFile.size,
-        uploadedAt: new Date(),
-        parseStatus: "pending",
-      };
-      await this.resumeRepo.update(candidateId, {
-        resume: newResumeMetadata,
-      });
-    } catch (error) {
-      console.error("Error updating resume file:", error);
-      throw new Error("Failed to update resume file");
-    }
+    return this.fileService.updateResumeFile(
+      candidateId,
+      resumeFile,
+      userId,
+      userEmail
+    );
   }
-  async deleteResumeFile(candidateId: string): Promise<void> {
+
+  async deleteResumeFile(
+    candidateId: string,
+    userId?: string,
+    userEmail?: string
+  ): Promise<void> {
     await this.init();
-    try {
-      const resumeData = await this.resumeRepo.findById(candidateId);
-      if (!resumeData?.resume) {
-        return; // No resume to delete
-      }
-      const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: "resumes" });
-      // Delete file from GridFS
-      await bucket.delete(new ObjectId(resumeData.resume.fileId));
-      // Update resume data to remove metadata
-      await this.resumeRepo.update(candidateId, {
-        resume: undefined,
-      });
-    } catch (error) {
-      console.error("Error deleting resume file:", error);
-      throw new Error("Failed to delete resume file");
-    }
+    const candidate = await this.getCandidate(candidateId);
+    return this.fileService.deleteResumeFile(
+      candidateId,
+      candidate?.name || DEFAULT_VALUES.UNKNOWN,
+      userId,
+      userEmail
+    );
   }
+
   async hasResume(candidateId: string): Promise<boolean> {
     await this.init();
-    try {
-      const resumeData = await this.resumeRepo.findById(candidateId);
-      return !!resumeData?.resume?.fileId;
-    } catch (error) {
-      console.error("Error checking resume existence:", error);
-      return false;
-    }
+    return this.fileService.hasResume(candidateId);
   }
+
   async getResumeMetadata(candidateId: string): Promise<ResumeMetadata | null> {
     await this.init();
-    try {
-      const resumeData = await this.resumeRepo.findById(candidateId);
-      return resumeData?.resume || null;
-    } catch (error) {
-      console.error("Error getting resume metadata:", error);
-      throw new Error("Failed to retrieve resume metadata");
-    }
+    return this.fileService.getResumeMetadata(candidateId);
   }
-  // ============================
-  // TRANSCRIPT FILE OPERATIONS
-  // ============================
+
   async addTranscriptFile(
     candidateId: string,
     transcriptFile: Express.Multer.File,
     metadata?: Partial<TranscriptMetadata>
   ): Promise<TranscriptMetadata> {
     await this.init();
-    try {
-      // Validate file
-      this.validateTranscriptFile(transcriptFile);
-      const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: "transcripts" });
-      // Upload file to GridFS
-      const uploadStream = bucket.openUploadStream(
-        transcriptFile.originalname,
-        {
-          metadata: {
-            contentType: transcriptFile.mimetype,
-            uploadedBy: "candidate",
-            candidateId: candidateId,
-            interviewRound: metadata?.interviewRound || "general",
-            duration: metadata?.duration,
-          },
-        }
-      );
-      const fileId = uploadStream.id;
-      uploadStream.end(transcriptFile.buffer);
-      // Wait for upload to complete
-      await new Promise((resolve, reject) => {
-        uploadStream.on("finish", resolve);
-        uploadStream.on("error", reject);
-      });
-      const transcriptMetadata: TranscriptMetadata = {
-        fileId: fileId.toString(),
-        filename: transcriptFile.originalname,
-        contentType: transcriptFile.mimetype,
-        size: transcriptFile.size,
-        uploadedAt: new Date(),
-        transcriptionStatus: "not_started",
-        interviewRound: metadata?.interviewRound || "general",
-        duration: metadata?.duration,
-        ...metadata,
-      };
-      // Get current interview data
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      const currentTranscripts: TranscriptMetadata[] = Array.isArray(
-        interviewData?.transcripts
-      )
-        ? interviewData.transcripts.filter(
-            (t): t is TranscriptMetadata => typeof t === "object"
-          )
-        : [];
-      // Add new transcript metadata
-      const updatedTranscripts = [...currentTranscripts, transcriptMetadata];
-      // Update interview data
-      await this.interviewRepo.update(candidateId, {
-        transcripts: updatedTranscripts,
-        dateUpdated: new Date(),
-      });
-      return transcriptMetadata;
-    } catch (error) {
-      console.error("Error adding transcript file:", error);
-      throw new Error("Failed to add transcript file");
-    }
+    return this.fileService.addTranscriptFile(candidateId, transcriptFile, metadata);
   }
+
   async getTranscriptFile(
     candidateId: string,
     transcriptId: string
   ): Promise<{ stream: any; metadata: TranscriptMetadata }> {
     await this.init();
-    try {
-      const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: "transcripts" });
-      // Get transcript metadata first
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      const transcript = interviewData?.transcripts?.find(
-        (t) => t.fileId === transcriptId
-      );
-      if (!transcript) {
-        throw new Error("Transcript not found");
-      }
-      // Create download stream
-      const downloadStream = bucket.openDownloadStream(
-        new ObjectId(transcriptId)
-      );
-      return {
-        stream: downloadStream,
-        metadata: transcript,
-      };
-    } catch (error) {
-      console.error("Error getting transcript file:", error);
-      throw new Error("Failed to retrieve transcript file");
-    }
+    return this.fileService.getTranscriptFile(candidateId, transcriptId);
   }
+
   async updateTranscriptFile(
     candidateId: string,
     transcriptId: string,
@@ -537,295 +617,69 @@ export class CandidateService {
     metadata?: Partial<TranscriptMetadata>
   ): Promise<TranscriptMetadata> {
     await this.init();
-    try {
-      // Validate file
-      this.validateTranscriptFile(transcriptFile);
-      const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: "transcripts" });
-      // Delete old file from GridFS
-      await bucket.delete(new ObjectId(transcriptId));
-      // Upload new file
-      const uploadStream = bucket.openUploadStream(
-        transcriptFile.originalname,
-        {
-          metadata: {
-            contentType: transcriptFile.mimetype,
-            uploadedBy: "candidate",
-            candidateId: candidateId,
-            interviewRound: metadata?.interviewRound || "general",
-            duration: metadata?.duration,
-          },
-        }
-      );
-      const newFileId = uploadStream.id;
-      uploadStream.end(transcriptFile.buffer);
-      // Wait for upload to complete
-      await new Promise((resolve, reject) => {
-        uploadStream.on("finish", resolve);
-        uploadStream.on("error", reject);
-      });
-      const updatedTranscriptMetadata: TranscriptMetadata = {
-        fileId: newFileId.toString(),
-        filename: transcriptFile.originalname,
-        contentType: transcriptFile.mimetype,
-        size: transcriptFile.size,
-        uploadedAt: new Date(),
-        transcriptionStatus: "not_started",
-        interviewRound: metadata?.interviewRound || "general",
-        duration: metadata?.duration,
-        ...metadata,
-      };
-      // Update interview data
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      const updatedTranscripts = interviewData?.transcripts?.map((t) =>
-        t.fileId === transcriptId ? updatedTranscriptMetadata : t
-      ) || [updatedTranscriptMetadata];
-      await this.interviewRepo.update(candidateId, {
-        transcripts: updatedTranscripts,
-        dateUpdated: new Date(),
-      });
-      return updatedTranscriptMetadata;
-    } catch (error) {
-      console.error("Error updating transcript file:", error);
-      throw new Error("Failed to update transcript file");
-    }
+    return this.fileService.updateTranscriptFile(
+      candidateId,
+      transcriptId,
+      transcriptFile,
+      metadata
+    );
   }
+
   async deleteTranscriptFile(
     candidateId: string,
     transcriptId: string
   ): Promise<void> {
     await this.init();
-    try {
-      const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: "transcripts" });
-      // Delete file from GridFS
-      await bucket.delete(new ObjectId(transcriptId));
-      // Update interview data - remove the transcript
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      const updatedTranscripts =
-        interviewData?.transcripts?.filter((t) => t.fileId !== transcriptId) ||
-        [];
-      await this.interviewRepo.update(candidateId, {
-        transcripts: updatedTranscripts,
-        dateUpdated: new Date(),
-      });
-    } catch (error) {
-      console.error("Error deleting transcript file:", error);
-      throw new Error("Failed to delete transcript file");
-    }
+    return this.fileService.deleteTranscriptFile(candidateId, transcriptId);
   }
+
   async getAllTranscripts(candidateId: string): Promise<TranscriptMetadata[]> {
     await this.init();
-    try {
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      return interviewData?.transcripts || [];
-    } catch (error) {
-      console.error("Error getting transcripts:", error);
-      throw new Error("Failed to retrieve transcripts");
-    }
+    return this.fileService.getAllTranscripts(candidateId);
   }
+
   async getTranscriptMetadata(
     candidateId: string,
     transcriptId: string
   ): Promise<TranscriptMetadata | null> {
     await this.init();
-    try {
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      return (
-        interviewData?.transcripts?.find((t) => t.fileId === transcriptId) ||
-        null
-      );
-    } catch (error) {
-      console.error("Error getting transcript metadata:", error);
-      throw new Error("Failed to retrieve transcript metadata");
-    }
+    return this.fileService.getTranscriptMetadata(candidateId, transcriptId);
   }
-  private validateTranscriptFile(file: Express.Multer.File): void {
-    // Allowed MIME types for transcript files
-    const allowedTypes = [
-      "audio/mpeg", // MP3
-      "audio/wav", // WAV
-      "audio/mp4", // M4A
-      "audio/ogg", // OGG
-      "text/plain", // TXT
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // DOCX
-    ];
-    if (!allowedTypes.includes(file.mimetype)) {
-      throw new Error(
-        "Invalid file type. Only MP3, WAV, M4A, OGG, TXT, and DOCX files are allowed."
-      );
-    }
-    // Check file size (50MB limit for audio files)
-    const maxSize = 50 * 1024 * 1024; // 50MB in bytes
-    if (file.size > maxSize) {
-      throw new Error("File size too large. Maximum size is 50MB.");
-    }
-  }
+
   async getTranscriptBuffer(
     candidateId: string,
     transcriptId: string
   ): Promise<Buffer> {
     await this.init();
-    try {
-      const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: "transcripts" });
-
-      const chunks: Buffer[] = [];
-      const downloadStream = bucket.openDownloadStream(
-        new ObjectId(transcriptId)
-      );
-
-      return new Promise((resolve, reject) => {
-        downloadStream.on("data", (chunk) => {
-          chunks.push(chunk);
-        });
-
-        downloadStream.on("end", () => {
-          resolve(Buffer.concat(chunks));
-        });
-
-        downloadStream.on("error", (error) => {
-          reject(error);
-        });
-      });
-    } catch (error) {
-      console.error("Error getting transcript buffer:", error);
-      throw new Error("Failed to retrieve transcript buffer");
-    }
+    return this.fileService.getTranscriptBuffer(candidateId, transcriptId);
   }
-
-  // ============================
-  // VIDEO FILE OPERATIONS
-  // ============================
 
   async addVideoFile(
     candidateId: string,
     videoFile: Express.Multer.File,
     videoType: "interview" | "introduction",
-    metadata?: Partial<VideoMetadata>
+    metadata?: Partial<VideoMetadata>,
+    userId?: string,
+    userEmail?: string
   ): Promise<VideoMetadata> {
     await this.init();
-    try {
-      // Validate file
-      this.validateVideoFile(videoFile);
-      const db = await connectDB();
-      const bucketName =
-        videoType === "interview" ? "interview-videos" : "introduction-videos";
-      const bucket = new GridFSBucket(db, { bucketName });
-
-      // Upload file to GridFS
-      const uploadStream = bucket.openUploadStream(videoFile.originalname, {
-        metadata: {
-          contentType: videoFile.mimetype,
-          uploadedBy: "candidate",
-          candidateId: candidateId,
-          videoType: videoType,
-          interviewRound: metadata?.interviewRound,
-          duration: metadata?.duration,
-          resolution: metadata?.resolution,
-          frameRate: metadata?.frameRate,
-          bitrate: metadata?.bitrate,
-        },
-      });
-
-      const fileId = uploadStream.id;
-      uploadStream.end(videoFile.buffer);
-
-      // Wait for upload to complete
-      await new Promise((resolve, reject) => {
-        uploadStream.on("finish", resolve);
-        uploadStream.on("error", reject);
-      });
-
-      const videoMetadata: VideoMetadata = {
-        fileId: fileId.toString(),
-        filename: videoFile.originalname,
-        contentType: videoFile.mimetype,
-        size: videoFile.size,
-        uploadedAt: new Date(),
-        processingStatus: "not_started",
-        videoType: videoType,
-        interviewRound: metadata?.interviewRound,
-        duration: metadata?.duration,
-        resolution: metadata?.resolution,
-        frameRate: metadata?.frameRate,
-        bitrate: metadata?.bitrate,
-        ...metadata,
-      };
-
-      // Get current interview data
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      const currentInterviewVideos: VideoMetadata[] = Array.isArray(
-        interviewData?.interviewVideos
-      )
-        ? interviewData.interviewVideos
-        : [];
-      const currentIntroVideos: VideoMetadata[] = Array.isArray(
-        interviewData?.introductionVideos
-      )
-        ? interviewData.introductionVideos
-        : [];
-
-      // Add new video to appropriate array
-      if (videoType === "interview") {
-        currentInterviewVideos.push(videoMetadata);
-      } else {
-        currentIntroVideos.push(videoMetadata);
-      }
-
-      // Update interview data
-      const updatedInterviewData = {
-        candidateId: candidateId,
-        interviewVideos: currentInterviewVideos,
-        introductionVideos: currentIntroVideos,
-        dateUpdated: new Date(),
-      };
-
-      const existingData = await this.interviewRepo.findById(candidateId);
-      if (existingData) {
-        await this.interviewRepo.update(candidateId, updatedInterviewData);
-      } else {
-        await this.interviewRepo.create({
-          ...updatedInterviewData,
-          transcripts: [],
-          personality: new Personality().toObject(),
-        });
-      }
-      return videoMetadata;
-    } catch (error) {
-      console.error("Error adding video file:", error);
-      throw new Error("Failed to upload video file");
-    }
+    return this.fileService.addVideoFile(
+      candidateId,
+      videoFile,
+      videoType,
+      metadata,
+      userId,
+      userEmail
+    );
   }
 
   async getVideoFile(
     candidateId: string,
     videoId: string,
     videoType: "interview" | "introduction"
-  ): Promise<{ stream: GridFSBucketReadStream; metadata: VideoMetadata }> {
+  ): Promise<{ stream: any; metadata: VideoMetadata }> {
     await this.init();
-    try {
-      const db = await connectDB();
-      const bucketName =
-        videoType === "interview" ? "interview-videos" : "introduction-videos";
-      const bucket = new GridFSBucket(db, { bucketName });
-
-      const downloadStream = bucket.openDownloadStream(new ObjectId(videoId));
-      const metadata = await this.getVideoMetadata(
-        candidateId,
-        videoId,
-        videoType
-      );
-
-      if (!metadata) {
-        throw new Error("Video file not found");
-      }
-
-      return { stream: downloadStream, metadata };
-    } catch (error) {
-      console.error("Error getting video file:", error);
-      throw new Error("Failed to retrieve video file");
-    }
+    return this.fileService.getVideoFile(candidateId, videoId, videoType);
   }
 
   async updateVideoFile(
@@ -836,77 +690,13 @@ export class CandidateService {
     metadata?: Partial<VideoMetadata>
   ): Promise<VideoMetadata> {
     await this.init();
-    try {
-      // Validate file
-      this.validateVideoFile(videoFile);
-      const db = await connectDB();
-      const bucketName =
-        videoType === "interview" ? "interview-videos" : "introduction-videos";
-      const bucket = new GridFSBucket(db, { bucketName });
-
-      // Delete old file from GridFS
-      await bucket.delete(new ObjectId(videoId));
-
-      // Upload new file
-      const uploadStream = bucket.openUploadStream(videoFile.originalname, {
-        metadata: {
-          contentType: videoFile.mimetype,
-          uploadedBy: "candidate",
-          candidateId: candidateId,
-          videoType: videoType,
-          interviewRound: metadata?.interviewRound,
-          duration: metadata?.duration,
-          resolution: metadata?.resolution,
-          frameRate: metadata?.frameRate,
-          bitrate: metadata?.bitrate,
-        },
-      });
-
-      const newFileId = uploadStream.id;
-      uploadStream.end(videoFile.buffer);
-
-      // Wait for upload to complete
-      await new Promise((resolve, reject) => {
-        uploadStream.on("finish", resolve);
-        uploadStream.on("error", reject);
-      });
-
-      const updatedVideoMetadata: VideoMetadata = {
-        fileId: newFileId.toString(),
-        filename: videoFile.originalname,
-        contentType: videoFile.mimetype,
-        size: videoFile.size,
-        uploadedAt: new Date(),
-        processingStatus: "not_started",
-        videoType: videoType,
-        interviewRound: metadata?.interviewRound,
-        duration: metadata?.duration,
-        resolution: metadata?.resolution,
-        frameRate: metadata?.frameRate,
-        bitrate: metadata?.bitrate,
-        ...metadata,
-      };
-
-      // Update interview data
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      const videoArray =
-        videoType === "interview" ? "interviewVideos" : "introductionVideos";
-      const updatedVideos = interviewData?.[videoArray]?.map(
-        (v: VideoMetadata) => (v.fileId === videoId ? updatedVideoMetadata : v)
-      ) || [updatedVideoMetadata];
-
-      const updatedInterviewData = {
-        candidateId: candidateId,
-        [videoArray]: updatedVideos,
-        dateUpdated: new Date(),
-      };
-
-      await this.interviewRepo.update(candidateId, updatedInterviewData);
-      return updatedVideoMetadata;
-    } catch (error) {
-      console.error("Error updating video file:", error);
-      throw new Error("Failed to update video file");
-    }
+    return this.fileService.updateVideoFile(
+      candidateId,
+      videoId,
+      videoFile,
+      videoType,
+      metadata
+    );
   }
 
   async deleteVideoFile(
@@ -915,61 +705,15 @@ export class CandidateService {
     videoType: "interview" | "introduction"
   ): Promise<void> {
     await this.init();
-    try {
-      const db = await connectDB();
-      const bucketName =
-        videoType === "interview" ? "interview-videos" : "introduction-videos";
-      const bucket = new GridFSBucket(db, { bucketName });
-
-      // Delete file from GridFS
-      await bucket.delete(new ObjectId(videoId));
-
-      // Remove from interview data
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      const videoArray =
-        videoType === "interview" ? "interviewVideos" : "introductionVideos";
-      const updatedVideos =
-        interviewData?.[videoArray]?.filter(
-          (v: VideoMetadata) => v.fileId !== videoId
-        ) || [];
-
-      const updatedInterviewData = {
-        candidateId: candidateId,
-        [videoArray]: updatedVideos,
-        dateUpdated: new Date(),
-      };
-
-      await this.interviewRepo.update(candidateId, updatedInterviewData);
-    } catch (error) {
-      console.error("Error deleting video file:", error);
-      throw new Error("Failed to delete video file");
-    }
+    return this.fileService.deleteVideoFile(candidateId, videoId, videoType);
   }
 
   async getAllVideos(
     candidateId: string,
     videoType?: "interview" | "introduction"
-  ): Promise<{
-    interviewVideos: VideoMetadata[];
-    introductionVideos: VideoMetadata[];
-  }> {
+  ): Promise<VideoMetadata[]> {
     await this.init();
-    try {
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      const interviewVideos = interviewData?.interviewVideos || [];
-      const introductionVideos = interviewData?.introductionVideos || [];
-
-      if (videoType === "interview") {
-        return { interviewVideos, introductionVideos: [] };
-      } else if (videoType === "introduction") {
-        return { interviewVideos: [], introductionVideos };
-      }
-
-      return { interviewVideos, introductionVideos };
-    } catch (error) {
-      console.error("Error getting videos:", error);
-      throw new Error("Failed to retrieve videos");
-    }
+    return this.fileService.getAllVideos(candidateId, videoType);
   }
 
   async getVideoMetadata(
@@ -978,45 +722,7 @@ export class CandidateService {
     videoType: "interview" | "introduction"
   ): Promise<VideoMetadata | null> {
     await this.init();
-    try {
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      const videoArray =
-        videoType === "interview" ? "interviewVideos" : "introductionVideos";
-      return (
-        interviewData?.[videoArray]?.find(
-          (v: VideoMetadata) => v.fileId === videoId
-        ) || null
-      );
-    } catch (error) {
-      console.error("Error getting video metadata:", error);
-      throw new Error("Failed to retrieve video metadata");
-    }
-  }
-
-  private validateVideoFile(file: Express.Multer.File): void {
-    // Allowed MIME types for video files
-    const allowedTypes = [
-      "video/mp4", // MP4
-      "video/webm", // WebM
-      "video/avi", // AVI
-      "video/mov", // MOV (QuickTime)
-      "video/wmv", // WMV
-      "video/flv", // FLV
-      "video/mkv", // MKV
-      "video/m4v", // M4V
-    ];
-
-    if (!allowedTypes.includes(file.mimetype)) {
-      throw new Error(
-        "Invalid file type. Only MP4, WebM, AVI, MOV, WMV, FLV, MKV, and M4V files are allowed."
-      );
-    }
-
-    // Check file size (500MB limit for video files)
-    const maxSize = 500 * 1024 * 1024; // 500MB in bytes
-    if (file.size > maxSize) {
-      throw new Error("File size too large. Maximum size is 500MB.");
-    }
+    return this.fileService.getVideoMetadata(candidateId, videoId, videoType);
   }
 
   async getVideoBuffer(
@@ -1025,52 +731,18 @@ export class CandidateService {
     videoType: "interview" | "introduction"
   ): Promise<Buffer> {
     await this.init();
-    try {
-      const db = await connectDB();
-      const bucketName =
-        videoType === "interview" ? "interview-videos" : "introduction-videos";
-      const bucket = new GridFSBucket(db, { bucketName });
-
-      const chunks: Buffer[] = [];
-      const downloadStream = bucket.openDownloadStream(new ObjectId(videoId));
-
-      return new Promise((resolve, reject) => {
-        downloadStream.on("data", (chunk) => {
-          chunks.push(chunk);
-        });
-
-        downloadStream.on("end", () => {
-          resolve(Buffer.concat(chunks));
-        });
-
-        downloadStream.on("error", (error) => {
-          reject(error);
-        });
-      });
-    } catch (error) {
-      console.error("Error getting video buffer:", error);
-      throw new Error("Failed to retrieve video buffer");
-    }
+    return this.fileService.getVideoBuffer(candidateId, videoId, videoType);
   }
 
-  // =====================
-  // PERSONALITY METHODS
-  // =====================
+  // ============================
+  // PERSONALITY OPERATIONS (Delegate to PersonalityService)
+  // ============================
 
   async getCandidatePersonality(
     candidateId: string
   ): Promise<Personality | null> {
     await this.init();
-    try {
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      if (!interviewData?.personality) {
-        return null;
-      }
-      return Personality.fromObject(interviewData.personality);
-    } catch (error) {
-      console.error("Error getting candidate personality:", error);
-      throw new Error("Failed to retrieve candidate personality");
-    }
+    return this.personalityService.getCandidatePersonality(candidateId);
   }
 
   async updateCandidatePersonalityTrait(
@@ -1080,46 +752,12 @@ export class CandidateService {
     traitData: { score: number; evidence: string }
   ): Promise<void> {
     await this.init();
-    try {
-      // Validate category and subcategory
-      this.validatePersonalityCategory(category, subcategory);
-
-      // Validate score
-      if (traitData.score < 0 || traitData.score > 10) {
-        throw new Error("Score must be between 0 and 10");
-      }
-
-      // Get current personality data
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      if (!interviewData) {
-        throw new Error("Candidate not found");
-      }
-
-      // Get current personality or create new one
-      const personality = interviewData.personality
-        ? Personality.fromObject(interviewData.personality)
-        : new Personality();
-
-      // Update the specific trait
-      this.updatePersonalityTrait(
-        personality,
-        category,
-        subcategory,
-        traitData
-      );
-
-      // Save updated personality
-      await this.interviewRepo.update(candidateId, {
-        personality: personality.toObject(),
-        dateUpdated: new Date(),
-      });
-    } catch (error) {
-      console.error("Error updating candidate personality trait:", error);
-      if (error instanceof Error) {
-        throw error;
-      }
-      throw new Error("Failed to update candidate personality trait");
-    }
+    return this.personalityService.updateCandidatePersonalityTrait(
+      candidateId,
+      category,
+      subcategory,
+      traitData
+    );
   }
 
   async updateCandidatePersonality(
@@ -1127,155 +765,15 @@ export class CandidateService {
     personalityData: PersonalityData
   ): Promise<void> {
     await this.init();
-    try {
-      console.log("=== DEBUG: updateCandidatePersonality START ===");
-      console.log("candidateId:", candidateId);
-      console.log("personalityData type:", typeof personalityData);
-      console.log("personalityData keys:", Object.keys(personalityData || {}));
-
-      // Check if personalityData has the expected structure
-      if (!personalityData || typeof personalityData !== "object") {
-        throw new Error("Invalid personality data: must be an object");
-      }
-
-      const interviewData = await this.interviewRepo.findById(candidateId);
-      if (!interviewData) {
-        throw new Error("Candidate not found");
-      }
-
-      console.log("Current interview personality:", interviewData.personality);
-
-      // Create personality instance to validate data
-      console.log("Creating Personality instance...");
-      const personality = new Personality(personalityData);
-      console.log("Personality instance created successfully");
-
-      const personalityObject = personality.toObject();
-      console.log(
-        "Personality toObject() result:",
-        JSON.stringify(personalityObject, null, 2)
-      );
-
-      // Save updated personality
-      console.log("Updating personality in database...");
-      await this.interviewRepo.update(candidateId, {
-        personality: personalityObject,
-        dateUpdated: new Date(),
-      });
-      console.log("=== DEBUG: updateCandidatePersonality END ===");
-    } catch (error) {
-      console.error("Error updating candidate personality:", error);
-      if (error instanceof Error) {
-        throw error;
-      }
-      throw new Error("Failed to update candidate personality");
-    }
+    return this.personalityService.updateCandidatePersonality(
+      candidateId,
+      personalityData
+    );
   }
 
-  private validatePersonalityCategory(
-    category: string,
-    subcategory: string
-  ): void {
-    const categoryMap: Record<string, string> = {
-      cognitive: "cognitiveAndProblemSolving",
-      communication: "communicationAndTeamwork",
-      workethic: "workEthicAndReliability",
-      growth: "growthAndLeadership",
-      culture: "cultureAndPersonalityFit",
-      bonus: "bonusTraits",
-    };
-
-    const normalizedCategory = category.toLowerCase().replace(/[^a-z]/g, "");
-    if (!categoryMap[normalizedCategory]) {
-      throw new Error(
-        `Invalid category: ${category}. Valid categories are: cognitive, communication, workethic, growth, culture, bonus`
-      );
-    }
-  }
-
-  private updatePersonalityTrait(
-    personality: Personality,
-    category: string,
-    subcategory: string,
-    traitData: { score: number; evidence: string }
-  ): void {
-    const categoryMap: Record<string, keyof Personality> = {
-      cognitive: "cognitiveAndProblemSolving",
-      communication: "communicationAndTeamwork",
-      workethic: "workEthicAndReliability",
-      growth: "growthAndLeadership",
-      culture: "cultureAndPersonalityFit",
-      bonus: "bonusTraits",
-    };
-
-    const subcategoryMap: Record<string, string> = {
-      analyticalthinking: "analyticalThinking",
-      curiosity: "curiosity",
-      creativity: "creativity",
-      attentiontodetail: "attentionToDetail",
-      criticalthinking: "criticalThinking",
-      resourcefulness: "resourcefulness",
-      clearcommunication: "clearCommunication",
-      activelistening: "activeListening",
-      collaboration: "collaboration",
-      empathy: "empathy",
-      conflictresolution: "conflictResolution",
-      dependability: "dependability",
-      accountability: "accountability",
-      persistence: "persistence",
-      timemanagement: "timeManagement",
-      organization: "organization",
-      initiative: "initiative",
-      selfmotivation: "selfMotivation",
-      leadership: "leadership",
-      adaptability: "adaptability",
-      coachability: "coachability",
-      positiveattitude: "positiveAttitude",
-      humility: "humility",
-      confidence: "confidence",
-      integrity: "integrity",
-      professionalism: "professionalism",
-      openmindedness: "openMindedness",
-      enthusiasm: "enthusiasm",
-      customerfocus: "customerFocus",
-      visionarythinking: "visionaryThinking",
-      culturalawareness: "culturalAwareness",
-      senseofhumor: "senseOfHumor",
-      grit: "grit",
-    };
-
-    const normalizedCategory = category.toLowerCase().replace(/[^a-z]/g, "");
-    const normalizedSubcategory = subcategory
-      .toLowerCase()
-      .replace(/[^a-z]/g, "");
-
-    const categoryKey = categoryMap[normalizedCategory];
-    const subcategoryKey = subcategoryMap[normalizedSubcategory];
-
-    if (!categoryKey || !subcategoryKey) {
-      throw new Error(
-        `Invalid category "${category}" or subcategory "${subcategory}"`
-      );
-    }
-
-    const categoryData = personality[categoryKey] as any;
-    if (!categoryData || !categoryData[subcategoryKey]) {
-      throw new Error(`Trait not found: ${category}.${subcategory}`);
-    }
-
-    // Update the trait
-    const currentTrait = categoryData[subcategoryKey];
-    categoryData[subcategoryKey] = {
-      ...currentTrait,
-      score: traitData.score,
-      evidence: traitData.evidence,
-      updatedAt: new Date(),
-    };
-  }
-
-  // =======================
-  // HR ASSIGNMENT METHODS
-  // =======================
+  // ============================
+  // ASSIGNMENT OPERATIONS (Delegate to AssignmentService)
+  // ============================
 
   async assignHRUserToCandidate(
     candidateId: string,
@@ -1283,33 +781,11 @@ export class CandidateService {
     assignedBy: string
   ): Promise<void> {
     await this.init();
-    try {
-      const personalInfo = await this.personalInfoRepo.findById(candidateId);
-      if (!personalInfo) {
-        throw new Error("Candidate not found");
-      }
-
-      // Initialize assignedHRUserIds if it doesn't exist
-      if (!personalInfo.assignedHRUserIds) {
-        personalInfo.assignedHRUserIds = [];
-      }
-
-      // Check if HR user is already assigned
-      if (personalInfo.assignedHRUserIds.includes(hrUserId)) {
-        throw new Error("HR user is already assigned to this candidate");
-      }
-
-      // Add HR user to assignment list
-      personalInfo.assignedHRUserIds.push(hrUserId);
-      personalInfo.lastAssignedAt = new Date();
-      personalInfo.lastAssignedBy = assignedBy;
-      personalInfo.dateUpdated = new Date();
-
-      await this.personalInfoRepo.update(candidateId, personalInfo);
-    } catch (error) {
-      console.error("Error assigning HR user to candidate:", error);
-      throw error;
-    }
+    return this.assignmentService.assignHRUserToCandidate(
+      candidateId,
+      hrUserId,
+      assignedBy
+    );
   }
 
   async unassignHRUserFromCandidate(
@@ -1317,92 +793,25 @@ export class CandidateService {
     hrUserId: string
   ): Promise<void> {
     await this.init();
-    try {
-      const personalInfo = await this.personalInfoRepo.findById(candidateId);
-      if (!personalInfo) {
-        throw new Error("Candidate not found");
-      }
-
-      // Initialize assignedHRUserIds if it doesn't exist
-      if (!personalInfo.assignedHRUserIds) {
-        personalInfo.assignedHRUserIds = [];
-      }
-
-      // Remove HR user from assignment list
-      const index = personalInfo.assignedHRUserIds.indexOf(hrUserId);
-      if (index === -1) {
-        throw new Error("HR user is not assigned to this candidate");
-      }
-
-      personalInfo.assignedHRUserIds.splice(index, 1);
-      personalInfo.dateUpdated = new Date();
-
-      await this.personalInfoRepo.update(candidateId, personalInfo);
-    } catch (error) {
-      console.error("Error unassigning HR user from candidate:", error);
-      throw error;
-    }
+    return this.assignmentService.unassignHRUserFromCandidate(
+      candidateId,
+      hrUserId
+    );
   }
 
   async getCandidateAssignments(candidateId: string): Promise<string[]> {
     await this.init();
-    try {
-      const personalInfo = await this.personalInfoRepo.findById(candidateId);
-      if (!personalInfo) {
-        throw new Error("Candidate not found");
-      }
-      return personalInfo.assignedHRUserIds || [];
-    } catch (error) {
-      console.error("Error getting candidate assignments:", error);
-      throw error;
-    }
+    return this.assignmentService.getCandidateAssignments(candidateId);
   }
 
   async getCandidatesAssignedToHRUser(hrUserId: string): Promise<Candidate[]> {
     await this.init();
-    try {
-      const personalInfos = await this.personalInfoRepo.findAll();
-      const assignedCandidates: Candidate[] = [];
-
-      for (const personalInfo of personalInfos) {
-        if (
-          personalInfo.assignedHRUserIds &&
-          personalInfo.assignedHRUserIds.includes(hrUserId)
-        ) {
-          const candidate = await this.getCandidate(personalInfo.candidateId);
-          if (candidate) {
-            assignedCandidates.push(candidate);
-          }
-        }
-      }
-
-      return assignedCandidates;
-    } catch (error) {
-      console.error("Error getting candidates assigned to HR user:", error);
-      throw error;
-    }
+    return this.assignmentService.getCandidatesAssignedToHRUser(hrUserId);
   }
 
   async getUnassignedCandidates(): Promise<Candidate[]> {
     await this.init();
-    try {
-      const personalInfos = await this.personalInfoRepo.findAll();
-      const unassignedCandidates: Candidate[] = [];
-
-      for (const personalInfo of personalInfos) {
-        if (personalInfo.assignedHRUserIds.length === 0) {
-          const candidate = await this.getCandidate(personalInfo.candidateId);
-          if (candidate) {
-            unassignedCandidates.push(candidate);
-          }
-        }
-      }
-
-      return unassignedCandidates;
-    } catch (error) {
-      console.error("Error getting unassigned candidates:", error);
-      throw error;
-    }
+    return this.assignmentService.getUnassignedCandidates();
   }
 
   async isHRUserAssignedToCandidate(
@@ -1410,18 +819,9 @@ export class CandidateService {
     hrUserId: string
   ): Promise<boolean> {
     await this.init();
-    try {
-      const personalInfo = await this.personalInfoRepo.findById(candidateId);
-      if (!personalInfo) {
-        return false;
-      }
-      return (
-        personalInfo.assignedHRUserIds &&
-        personalInfo.assignedHRUserIds.includes(hrUserId)
-      );
-    } catch (error) {
-      console.error("Error checking HR user assignment:", error);
-      return false;
-    }
+    return this.assignmentService.isHRUserAssignedToCandidate(
+      candidateId,
+      hrUserId
+    );
   }
 }

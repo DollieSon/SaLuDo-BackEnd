@@ -11,7 +11,7 @@ export class EducationService {
         const db = await connectDB();
         this.resumeRepo = new ResumeRepository(db);
     }
-    async addEducation(candidateId: string, educationData: CreateEducationData): Promise<void> {
+    async addEducation(candidateId: string, educationData: any): Promise<void> {
         await this.init();
         try {
             // Validate education data
@@ -21,12 +21,14 @@ export class EducationService {
                 throw new Error('Candidate resume data not found');
             }
             const educationId = new ObjectId().toString();
+            const addedBy = educationData.addedBy || 'AI';
             const education = new Education(
                 educationId,
                 educationData.institution,
                 educationData.startDate,
                 educationData.endDate,
-                educationData.description
+                educationData.description,
+                addedBy
             );
             const updatedEducation = [...resumeData.education.map(e => Education.fromObject(e)), education];
             await this.resumeRepo.update(candidateId, {
@@ -37,7 +39,7 @@ export class EducationService {
             throw new Error('Failed to add education');
         }
     }
-    async updateEducation(candidateId: string, educationId: string, updatedEducation: Partial<EducationData>): Promise<void> {
+    async updateEducation(candidateId: string, educationId: string, updatedEducation: any): Promise<void> {
         await this.init();
         try {
             const resumeData = await this.resumeRepo.findById(candidateId);
@@ -54,6 +56,7 @@ export class EducationService {
             if (updatedEducation.startDate) edu.startDate = updatedEducation.startDate;
             if (updatedEducation.endDate !== undefined) edu.endDate = updatedEducation.endDate;
             if (updatedEducation.description !== undefined) edu.description = updatedEducation.description;
+            if (updatedEducation.addedBy !== undefined) edu.addedBy = updatedEducation.addedBy;
             edu.updatedAt = new Date();
             await this.resumeRepo.update(candidateId, {
                 education: educations.map(e => e.toObject())

@@ -4,6 +4,9 @@ import { AddedBy } from "../Models/Skill";
 import { asyncHandler, errorHandler } from "./middleware/errorHandler";
 import { candidateExists } from "./middleware/candidateExists";
 import { validation } from "./middleware/validation";
+import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType } from "../types/AuditEventTypes";
 const router = Router();
 import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const skillService = new SkillService();
@@ -25,10 +28,12 @@ router.get(
 );
 router.post(
   "/:candidateId/skills",
+  AuthMiddleware.authenticate,
   candidateExists,
   validation.requireFields(["skillName", "score"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
+    const user = req.user;
     const skillData = {
       skillName: req.body.skillName,
       score: req.body.score || 5,
@@ -43,6 +48,24 @@ router.post(
       });
     }
     const result = await skillService.addSkill(candidateId, skillData);
+    
+    // Log skill addition
+    await AuditLogger.logCandidateOperation({
+      eventType: AuditEventType.CANDIDATE_UPDATED,
+      candidateId,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'added_skill',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        skillName: skillData.skillName,
+        score: skillData.score,
+        addedBy: skillData.addedBy,
+        skillId: result.skillId
+      }
+    });
+    
     res.status(CREATED).json({
       success: true,
       message: "Skill added successfully",
@@ -52,11 +75,14 @@ router.post(
 );
 router.post(
   "/:candidateId/skills/bulk",
+  AuthMiddleware.authenticate,
   candidateExists,
   validation.requireFields(["skills"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const { skills } = req.body;
+    const user = req.user;
+    
     if (!Array.isArray(skills) || skills.length === 0) {
       return res.status(BAD_REQUEST).json({
         success: false,
@@ -79,6 +105,23 @@ router.post(
       }
     }
     const results = await skillService.addSkillsBulk(candidateId, skills);
+    
+    // Log bulk skill addition
+    await AuditLogger.logCandidateOperation({
+      eventType: AuditEventType.CANDIDATE_UPDATED,
+      candidateId,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'added_skills_bulk',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        skillCount: results.length,
+        skillNames: skills.map((s: any) => s.skillName),
+        addedBy: skills[0]?.addedBy || AddedBy.HUMAN
+      }
+    });
+    
     res.status(CREATED).json({
       success: true,
       message: `${results.length} skills added successfully`,
@@ -88,10 +131,13 @@ router.post(
 );
 router.put(
   "/:candidateId/skills/:candidateSkillId",
+  AuthMiddleware.authenticate,
   candidateExists,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, candidateSkillId } = req.params;
     const updateData = req.body;
+    const user = req.user;
+    
     // Validate skill score if provided
     if (updateData.score && (updateData.score < 1 || updateData.score > 10)) {
       return res.status(BAD_REQUEST).json({
@@ -100,6 +146,24 @@ router.put(
       });
     }
     await skillService.updateSkill(candidateId, candidateSkillId, updateData);
+    
+    // Log skill update
+    await AuditLogger.logCandidateOperation({
+      eventType: AuditEventType.CANDIDATE_UPDATED,
+      candidateId,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'updated_skill',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        candidateSkillId,
+        updatedFields: Object.keys(updateData),
+        newScore: updateData.score,
+        newEvidence: updateData.evidence
+      }
+    });
+    
     res.json({
       success: true,
       message: "Skill updated successfully",
@@ -108,10 +172,29 @@ router.put(
 );
 router.delete(
   "/:candidateId/skills/:candidateSkillId",
+  AuthMiddleware.authenticate,
   candidateExists,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, candidateSkillId } = req.params;
+    const user = req.user;
+    
     await skillService.deleteSkill(candidateId, candidateSkillId);
+    
+    // Log skill deletion
+    await AuditLogger.logCandidateOperation({
+      eventType: AuditEventType.CANDIDATE_UPDATED,
+      candidateId,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'deleted_skill',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        candidateSkillId,
+        deletionType: 'soft'
+      }
+    });
+    
     res.json({
       success: true,
       message: "Skill soft deleted successfully",
@@ -122,10 +205,28 @@ router.delete(
 // Restore soft deleted skill
 router.patch(
   "/:candidateId/skills/:candidateSkillId/restore",
+  AuthMiddleware.authenticate,
   candidateExists,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, candidateSkillId } = req.params;
+    const user = req.user;
+    
     await skillService.restoreSkill(candidateId, candidateSkillId);
+    
+    // Log skill restoration
+    await AuditLogger.logCandidateOperation({
+      eventType: AuditEventType.CANDIDATE_UPDATED,
+      candidateId,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'restored_skill',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        candidateSkillId
+      }
+    });
+    
     res.json({
       success: true,
       message: "Skill restored successfully",
@@ -136,10 +237,29 @@ router.patch(
 // Hard delete skill (permanent removal)
 router.delete(
   "/:candidateId/skills/:candidateSkillId/hard",
+  AuthMiddleware.authenticate,
   candidateExists,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, candidateSkillId } = req.params;
+    const user = req.user;
+    
     await skillService.hardDeleteSkill(candidateId, candidateSkillId);
+    
+    // Log permanent skill deletion
+    await AuditLogger.logCandidateOperation({
+      eventType: AuditEventType.CANDIDATE_UPDATED,
+      candidateId,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'hard_deleted_skill',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        candidateSkillId,
+        deletionType: 'permanent'
+      }
+    });
+    
     res.json({
       success: true,
       message: "Skill permanently deleted",

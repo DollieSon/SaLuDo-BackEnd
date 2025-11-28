@@ -5,8 +5,10 @@ import { validation } from "./middleware/validation";
 import { parseJobWithGemini } from "../services/GeminiJobService";
 import { SkillMasterRepository } from "../repositories/SkillMasterRepository";
 import { connectDB } from "../mongo_db";
-import { AuthMiddleware } from "./middleware/auth";
+import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
 import { UserRole } from "../Models/User";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType } from "../types/AuditEventTypes";
 // import { JobSkillRequirement } from '../models/JobTypes';
 
 const router = Router();
@@ -124,9 +126,10 @@ router.get(
 // GET /api/jobs/:id - Get specific job
 router.get(
   "/:id",
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const includeSkillNames = req.query.includeSkillNames === "true";
+    const user = req.user;
 
     const job = includeSkillNames
       ? await jobService.getJobWithSkillNames(id)
@@ -138,6 +141,20 @@ router.get(
         message: "Job not found",
       });
     }
+
+    // Log job view
+    await AuditLogger.logJobOperation({
+      eventType: AuditEventType.JOB_VIEWED,
+      jobId: id,
+      jobTitle: job.jobName,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'viewed',
+      metadata: {
+        includeSkillNames,
+        skillCount: job.skills?.length || 0
+      }
+    });
 
     res.json({
       success: true,
@@ -152,9 +169,10 @@ router.post(
   AuthMiddleware.authenticate,
   AuthMiddleware.requireRole(UserRole.HR_MANAGER),
   validation.requireFields(["jobName", "jobDescription"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { jobName, jobDescription } = req.body;
+      const user = req.user;
 
       const parsed = await parseJobWithGemini(jobName, jobDescription);
 
@@ -182,7 +200,7 @@ router.post(
         skills: skillsWithIds,
       };
 
-      const newJob = await jobService.createJob(jobData);
+      const newJob = await jobService.createJob(jobData, user?.userId, user?.email);
       res.status(201).json({
         success: true,
         message: "Job created and skills parsed successfully",
@@ -202,9 +220,11 @@ router.post(
 // PUT /api/jobs/:id - Update a job
 router.put(
   "/:id",
-  asyncHandler(async (req: Request, res: Response) => {
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const updateData = req.body;
+    const user = req.user;
 
     if (updateData.skills) {
       if (!Array.isArray(updateData.skills)) {
@@ -227,7 +247,7 @@ router.put(
       }
     }
 
-    await jobService.updateJob(id, updateData);
+    await jobService.updateJob(id, updateData, user?.userId, user?.email);
     res.json({ success: true, message: "Job updated successfully" });
   })
 );
@@ -235,9 +255,13 @@ router.put(
 // DELETE /api/jobs/:id - Delete a job
 router.delete(
   "/:id",
-  asyncHandler(async (req: Request, res: Response) => {
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.HR_MANAGER),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
-    await jobService.deleteJob(id);
+    const user = req.user;
+    
+    await jobService.deleteJob(id, user?.userId, user?.email);
     res.json({ success: true, message: "Job deleted successfully" });
   })
 );
@@ -245,8 +269,9 @@ router.delete(
 // POST /api/jobs/:id/skills - Add a skill to a job
 router.post(
   "/:id/skills",
+  AuthMiddleware.authenticate,
   validation.requireFields(["skillId", "requiredLevel"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const { skillId, requiredLevel, evidence } = req.body;
 
@@ -268,7 +293,7 @@ router.post(
       });
     }
     //todo create addskillstojob taking in a list of skills
-    await jobService.addSkillToJob(id, skillId, requiredLevel, evidence);
+    await jobService.addSkillToJob(id, skillId, requiredLevel, evidence, req.user?.userId);
     res.json({ success: true, message: "Skill added to job successfully" });
   })
 );
@@ -276,8 +301,9 @@ router.post(
 // POST /api/jobs/:id/skills/bulk - Add multiple skills to a job
 router.post(
   "/:id/skills/bulk",
+  AuthMiddleware.authenticate,
   validation.requireFields(["skills"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const { skills } = req.body;
 
@@ -320,7 +346,7 @@ router.post(
       }
     }
 
-    await jobService.addSkillsToJob(id, skills);
+    await jobService.addSkillsToJob(id, skills, req.user?.userId);
 
     res.json({
       success: true,
@@ -332,8 +358,9 @@ router.post(
 // POST /api/jobs/:id/skills/bulk-by-name - Add multiple skills to a job by skill names
 router.post(
   "/:id/skills/bulk-by-name",
+  AuthMiddleware.authenticate,
   validation.requireFields(["skills"]),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const { skills } = req.body;
 
@@ -380,7 +407,7 @@ router.post(
       }
     }
 
-    await jobService.addSkillsToJobByName(id, skills);
+    await jobService.addSkillsToJobByName(id, skills, req.user?.userId);
 
     res.json({
       success: true,

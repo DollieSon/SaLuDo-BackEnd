@@ -4,6 +4,7 @@ export class Education {
     public startDate: Date;
     public endDate?: Date;
     public description?: string;
+    public addedBy: 'AI' | 'HUMAN';
     public isDeleted: boolean;
     public createdAt: Date;
     public updatedAt: Date;
@@ -13,6 +14,7 @@ export class Education {
         startDate: Date,
         endDate?: Date,
         description?: string,
+        addedBy: 'AI' | 'HUMAN' = 'AI',
         isDeleted?: boolean,
         createdAt?: Date,
         updatedAt?: Date
@@ -22,6 +24,7 @@ export class Education {
         this.startDate = startDate;
         this.endDate = endDate;
         this.description = description;
+        this.addedBy = addedBy;
         this.isDeleted = isDeleted || false;
         this.createdAt = createdAt || new Date();
         this.updatedAt = updatedAt || new Date();
@@ -33,6 +36,7 @@ export class Education {
             new Date(obj.startDate),
             obj.endDate ? new Date(obj.endDate) : undefined,
             obj.description,
+            obj.addedBy || 'AI',
             obj.isDeleted || false,
             obj.createdAt ? new Date(obj.createdAt) : undefined,
             obj.updatedAt ? new Date(obj.updatedAt) : undefined
@@ -45,6 +49,7 @@ export class Education {
             startDate: this.startDate,
             endDate: this.endDate,
             description: this.description,
+            addedBy: this.addedBy,
             isDeleted: this.isDeleted,
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
@@ -64,6 +69,7 @@ export interface EducationData {
     startDate: Date;
     endDate?: Date;
     description?: string;
+    addedBy: 'AI' | 'HUMAN';
     isDeleted: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -73,4 +79,5 @@ export interface CreateEducationData {
     startDate: Date;
     endDate?: Date;
     description?: string;
+    addedBy?: 'AI' | 'HUMAN';
 }

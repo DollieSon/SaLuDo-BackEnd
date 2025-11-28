@@ -13,6 +13,9 @@ import { CandidateAccessMiddleware } from "./middleware/candidateAccess";
 import { parseResumeWithGemini } from "../services/GeminiResumeService";
 import { AddedBy } from "../Models/Skill";
 import { UserRole } from "../Models/User";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType } from "../types/AuditEventTypes";
+import { connectDB } from "../mongo_db";
 import multer from "multer";
 import { CREATED, BAD_REQUEST } from "../constants/HttpStatusCodes";
 
@@ -73,8 +76,9 @@ router.post(
   validation.requireFields(["name", "email", "birthdate"]),
   validation.validateEmailMiddleware,
   validation.validateDatesMiddleware(["birthdate"]),
-  asyncHandler(async (req: Request, res: Response) => {
-    const { name, email, birthdate, roleApplied } = req.body;
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { name, email, birthdate, roleApplied, socialLinks } = req.body;
+    const user = req.user;
 
     if (!req.file) {
       return res
@@ -107,16 +111,37 @@ router.post(
     // Parse roleApplied (can be null, undefined, or a job ID)
     const jobId = roleApplied || null;
 
+    // Parse social links if provided
+    let parsedSocialLinks: any[] = [];
+    if (socialLinks) {
+      try {
+        parsedSocialLinks = typeof socialLinks === 'string' 
+          ? JSON.parse(socialLinks) 
+          : socialLinks;
+      } catch (e) {
+        console.error('Failed to parse social links:', e);
+      }
+    }
+
     const candidate = await candidateService.addCandidate(
       name,
       emailArray,
       new Date(birthdate),
       jobId,
-      req.file
+      req.file,
+      user?.userId,
+      user?.email,
+      parsedSocialLinks
     );
 
     // Use Gemini to parse resume
-    const parsedData = await parseResumeWithGemini(req.file.buffer);
+    const parsedData = await parseResumeWithGemini(
+      req.file.buffer,
+      candidate.candidateId,
+      name,
+      user?.userId,
+      user?.email
+    );
 
     // Save parsed data
     if (parsedData.skills.length) {
@@ -127,6 +152,21 @@ router.post(
           addedBy: AddedBy.AI,
         }))
       );
+      
+      // Log skill analysis completion
+      await AuditLogger.logAIOperation({
+        eventType: AuditEventType.SKILL_ANALYSIS_COMPLETED,
+        candidateId: candidate.candidateId,
+        userId: user?.userId,
+        userEmail: user?.email,
+        action: `AI completed skill analysis for ${name}`,
+        success: true,
+        metadata: {
+          candidateName: name,
+          skillCount: parsedData.skills.length,
+          averageScore: parsedData.skills.reduce((sum, s) => sum + (s.score || 0), 0) / parsedData.skills.length
+        }
+      });
     }
     for (const edu of parsedData.education)
       await educationService.addEducation(candidate.candidateId, edu);
@@ -145,6 +185,40 @@ router.post(
         weakness
       );
 
+    // Notify assigned HR users that AI analysis is complete
+    try {
+      const { NotificationService } = await import("../services/NotificationService");
+      const { NotificationRepository } = await import("../repositories/NotificationRepository");
+      const { NotificationPreferencesRepository } = await import("../repositories/NotificationPreferencesRepository");
+      const { WebhookRepository } = await import("../repositories/WebhookRepository");
+      const { getAssignedHRUsers } = await import("../utils/NotificationHelpers");
+      const { NotificationType } = await import("../Models/enums/NotificationTypes");
+      const db = await connectDB();
+      
+      const notificationRepo = new NotificationRepository(db.collection('notifications'));
+      const preferencesRepo = new NotificationPreferencesRepository(db.collection('notificationPreferences'));
+      const webhookRepo = new WebhookRepository(db.collection('webhooks'));
+      const notificationService = new NotificationService(notificationRepo, preferencesRepo, webhookRepo);
+      
+      const assignedUsers = await getAssignedHRUsers(candidate.candidateId);
+      for (const hrUser of assignedUsers) {
+        await notificationService.notifyCandidateEvent(
+          NotificationType.CANDIDATE_AI_ANALYSIS_COMPLETE,
+          hrUser.userId,
+          candidate.candidateId,
+          name,
+          {
+            skillsFound: parsedData.skills.length,
+            educationFound: parsedData.education.length,
+            experienceFound: parsedData.experience.length,
+            certificationsFound: parsedData.certifications.length
+          }
+        );
+      }
+    } catch (notifError) {
+      console.error('Failed to send CANDIDATE_AI_ANALYSIS_COMPLETE notification:', notifError);
+    }
+
     res.status(CREATED).json({
       success: true,
       message: "Candidate created and resume parsed successfully",
@@ -160,12 +234,46 @@ router.get(
   CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
+    const user = req.user;
 
     const candidate = await candidateService.getCandidate(candidateId);
 
+    // Log candidate view
+    await AuditLogger.logCandidateOperation({
+      eventType: AuditEventType.CANDIDATE_VIEWED,
+      candidateId,
+      candidateName: candidate?.name,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'viewed',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        status: candidate?.status,
+        roleApplied: candidate?.roleApplied
+      }
+    });
+
+    // Log PII access (email, birthdate are considered sensitive personal data)
+    await AuditLogger.logCandidateOperation({
+      eventType: AuditEventType.PII_VIEWED,
+      candidateId,
+      candidateName: candidate?.name,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'accessed_pii',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        piiFields: ['email', 'birthdate', 'name'],
+        emailCount: candidate?.email?.length || 0,
+        status: candidate?.status
+      }
+    });
+
     res.json({
       success: true,
-      data: candidate,
+      data: candidate?.toObject(),
     });
   })
 );
@@ -180,6 +288,7 @@ router.put(
     const { candidateId } = req.params;
     const { name, email, birthdate, roleApplied } = req.body;
     const resumeFile = req.file;
+    const user = req.user;
 
     // Parse email array if it's a string
     let emailArray: string[];
@@ -194,16 +303,26 @@ router.put(
     }
 
     // Update candidate basic info
-    await candidateService.updateCandidate(candidateId, {
-      name,
-      email: emailArray,
-      birthdate: new Date(birthdate),
-      roleApplied,
-    });
+    await candidateService.updateCandidate(
+      candidateId, 
+      {
+        name,
+        email: emailArray,
+        birthdate: new Date(birthdate),
+        roleApplied,
+      },
+      user?.userId,
+      user?.email
+    );
 
     // Update resume if provided
     if (resumeFile) {
-      await candidateService.updateResumeFile(candidateId, resumeFile);
+      await candidateService.updateResumeFile(
+        candidateId, 
+        resumeFile, 
+        user?.userId, 
+        user?.email
+      );
     }
 
     // Get updated candidate data
@@ -220,9 +339,17 @@ router.put(
 // Delete a candidate
 router.delete(
   "/:candidateId",
-  asyncHandler(async (req: Request, res: Response) => {
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
-    await candidateService.deleteCandidate(candidateId);
+    const user = req.user;
+    
+    await candidateService.deleteCandidate(
+      candidateId,
+      user?.userId,
+      user?.email
+    );
 
     res.json({
       success: true,
@@ -405,6 +532,24 @@ router.post(
         );
       }
     }
+
+    // Log bulk operation audit
+    await AuditLogger.log({
+      eventType: AuditEventType.BULK_OPERATION_PERFORMED,
+      userId: user.userId,
+      userEmail: user.email,
+      resource: 'candidate',
+      resourceId: candidateId,
+      action: 'bulk_hr_assignment',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        operationType: 'assign_multiple_hr_users',
+        hrUserIds,
+        assignedCount: hrUserIds.length,
+        candidateId
+      }
+    });
 
     res.json({
       success: true,

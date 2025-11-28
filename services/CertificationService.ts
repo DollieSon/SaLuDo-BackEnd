@@ -11,7 +11,7 @@ export class CertificationService {
         const db = await connectDB();
         this.resumeRepo = new ResumeRepository(db);
     }
-    async addCertification(candidateId: string, certificationData: CreateCertificationData): Promise<void> {
+    async addCertification(candidateId: string, certificationData: any): Promise<void> {
         await this.init();
         try {
             const resumeData = await this.resumeRepo.findById(candidateId);
@@ -19,12 +19,14 @@ export class CertificationService {
                 throw new Error('Candidate resume data not found');
             }
             const certificationId = new ObjectId().toString();
+            const addedBy = certificationData.addedBy || 'AI';
             const certification = new Certification(
                 certificationId,
                 certificationData.name,
                 certificationData.issuingOrganization,
                 certificationData.issueDate,
-                certificationData.description
+                certificationData.description,
+                addedBy
             );
             const updatedCertifications = [...resumeData.certification.map(c => Certification.fromObject(c)), certification];
             await this.resumeRepo.update(candidateId, {
@@ -35,7 +37,7 @@ export class CertificationService {
             throw new Error('Failed to add certification');
         }
     }
-    async updateCertification(candidateId: string, certificationId: string, updatedCertification: Partial<CertificationData>): Promise<void> {
+    async updateCertification(candidateId: string, certificationId: string, updatedCertification: any): Promise<void> {
         await this.init();
         try {
             const resumeData = await this.resumeRepo.findById(candidateId);
@@ -52,6 +54,7 @@ export class CertificationService {
             if (updatedCertification.issuingOrganization) cert.issuingOrganization = updatedCertification.issuingOrganization;
             if (updatedCertification.issueDate) cert.issueDate = updatedCertification.issueDate;
             if (updatedCertification.description !== undefined) cert.description = updatedCertification.description;
+            if (updatedCertification.addedBy !== undefined) cert.addedBy = updatedCertification.addedBy;
             cert.updatedAt = new Date();
             await this.resumeRepo.update(candidateId, {
                 certification: certifications.map(c => c.toObject())

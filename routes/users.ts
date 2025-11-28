@@ -35,10 +35,24 @@ import {
   accountCreationRateLimit,
 } from "./middleware/rateLimiter";
 import { UserRole, User } from "../Models/User";
+import multer from "multer";
+import { validation } from "./middleware/validation";
+import ProfileService from "../services/ProfileService";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType as NewAuditEventType } from "../types/AuditEventTypes";
+import { NotificationService } from "../services/NotificationService";
+import { NotificationType, NotificationPriority, NotificationChannel } from "../Models/enums/NotificationTypes";
 
 const router = Router();
 let userService: UserService;
 let auditLogService: AuditLogService;
+let notificationService: NotificationService | null = null;
+
+// Multer configuration for profile photo uploads
+const photoUpload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
 
 // Initialize services
 const initializeService = async () => {
@@ -47,6 +61,17 @@ const initializeService = async () => {
   const auditLogRepository = new AuditLogRepository(db);
   userService = new UserService(userRepository);
   auditLogService = new AuditLogService(auditLogRepository);
+  
+  // Initialize NotificationService
+  const { NotificationRepository } = await import("../repositories/NotificationRepository");
+  const { NotificationPreferencesRepository } = await import("../repositories/NotificationPreferencesRepository");
+  const { WebhookRepository } = await import("../repositories/WebhookRepository");
+  
+  const notificationRepo = new NotificationRepository(db.collection('notifications'));
+  const preferencesRepo = new NotificationPreferencesRepository(db.collection('notificationPreferences'));
+  const webhookRepo = new WebhookRepository(db.collection('webhooks'));
+  notificationService = new NotificationService(notificationRepo, preferencesRepo, webhookRepo);
+  
   await AuthMiddleware.initialize();
 };
 
@@ -135,6 +160,43 @@ router.post(
           },
         }
       );
+
+      // Notify user of multiple failed login attempts
+      if (user.failedLoginAttempts >= 3 && notificationService) {
+        try {
+          await notificationService.notifySecurityEvent(
+            NotificationType.MULTIPLE_FAILED_LOGINS,
+            user.userId,
+            `Multiple failed login attempts detected on your account (${user.failedLoginAttempts} attempts)`,
+            {
+              attemptCount: user.failedLoginAttempts,
+              ipAddress: req.ip,
+              userAgent: req.get('user-agent'),
+              timestamp: new Date().toISOString()
+            }
+          );
+        } catch (notifError) {
+          console.error('Failed to send MULTIPLE_FAILED_LOGINS notification:', notifError);
+        }
+      }
+
+      // Notify user if account gets locked
+      if (user.isAccountLocked() && notificationService) {
+        try {
+          await notificationService.notifySecurityEvent(
+            NotificationType.ACCOUNT_LOCKED,
+            user.userId,
+            `Your account has been temporarily locked due to ${user.failedLoginAttempts} failed login attempts`,
+            {
+              lockedUntil: user.accountLockedUntil?.toISOString(),
+              failedAttempts: user.failedLoginAttempts,
+              ipAddress: req.ip
+            }
+          );
+        } catch (notifError) {
+          console.error('Failed to send ACCOUNT_LOCKED notification:', notifError);
+        }
+      }
 
       res.status(UNAUTHORIZED).json({
         success: false,
@@ -301,6 +363,26 @@ router.post(
       middleName,
     });
 
+    // Notify the new user that their account was created
+    if (notificationService) {
+      try {
+        await notificationService.createNotification({
+          userId: newUser.userId,
+          type: NotificationType.USER_CREATED,
+          title: 'Welcome to SaLuDo',
+          message: `Your account has been created by ${req.user?.email}. You must change your password on first login.`,
+          data: {
+            role: newUser.role,
+            createdBy: req.user?.userId,
+            createdByEmail: req.user?.email
+          },
+          channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL]
+        });
+      } catch (notifError) {
+        console.error('Failed to send USER_CREATED notification:', notifError);
+      }
+    }
+
     // Generate temporary token for immediate use (if needed)
     const token = PasswordUtils.generateToken(newUser.userId);
 
@@ -333,6 +415,25 @@ router.put(
 
     const hashedPassword = await PasswordUtils.hashPassword(newPassword);
     await userService.resetUserPassword(userId, hashedPassword);
+
+    // Notify user their password was reset by admin
+    if (notificationService) {
+      try {
+        await notificationService.notifySecurityEvent(
+          NotificationType.PASSWORD_CHANGED,
+          userId,
+          'Your password has been reset by an administrator. You must change it on your next login.',
+          {
+            resetBy: req.user?.userId,
+            resetByEmail: req.user?.email,
+            mustChangePassword: true,
+            timestamp: new Date().toISOString()
+          }
+        );
+      } catch (notifError) {
+        console.error('Failed to send PASSWORD_CHANGED notification:', notifError);
+      }
+    }
 
     res.json({
       success: true,
@@ -392,6 +493,9 @@ router.get(
   AuthMiddleware.requireOwnershipOrAdmin,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { userId } = req.params;
+    const viewerUserId = req.user?.userId;
+    const viewerEmail = req.user?.email;
+    
     const user = await userService.getUserProfile(userId);
 
     if (!user) {
@@ -401,6 +505,22 @@ router.get(
       });
       return;
     }
+
+    // Log profile view
+    await AuditLogger.logUserOperation({
+      eventType: NewAuditEventType.PROFILE_VIEWED,
+      targetUserId: userId,
+      performedBy: viewerUserId,
+      action: 'viewed',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        viewerEmail: viewerEmail,
+        targetUserEmail: user.email,
+        targetUserRole: user.role,
+        isSelfView: viewerUserId === userId
+      }
+    });
 
     res.json({
       success: true,
@@ -419,7 +539,11 @@ router.put(
   AuthMiddleware.requireOwnershipOrAdmin,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { userId } = req.params;
-    const { email, firstName, lastName, middleName, title } = req.body;
+    const { 
+      email, firstName, lastName, middleName, title, role,
+      phoneNumber, location, timezone, linkedInUrl, bio,
+      availability, roleSpecificData
+    } = req.body;
 
     // Check if user exists
     const existingUser = await userService.getUserProfile(userId);
@@ -453,11 +577,104 @@ router.put(
     if (lastName) updateData.lastName = lastName.trim();
     if (middleName !== undefined) updateData.middleName = middleName?.trim();
     if (title) updateData.title = title.trim();
+    
+    // Role change (admin only)
+    const isRoleChange = role && role !== existingUser.role;
+    if (role && req.user!.role === UserRole.ADMIN) {
+      updateData.role = role;
+    }
+    
+    // Extended profile fields
+    if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
+    if (location !== undefined) updateData.location = location;
+    if (timezone !== undefined) updateData.timezone = timezone;
+    if (linkedInUrl !== undefined) updateData.linkedInUrl = linkedInUrl;
+    if (bio !== undefined) updateData.bio = validation.sanitizeText(bio); // Sanitize to prevent XSS
+    if (availability !== undefined) updateData.availability = availability;
+    if (roleSpecificData !== undefined) updateData.roleSpecificData = roleSpecificData;
 
-    // Update user
-    const db = await connectDB();
-    const userRepository = new UserRepository(db);
-    await userRepository.updateUser(userId, updateData);
+    // Update user with audit trail
+    const performedBy = req.user!;
+    await userService.updateProfileWithAudit(userId, updateData, {
+      performedBy: performedBy.userId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    // Notify user of profile update (if significant changes)
+    const significantFields = ['email', 'role', 'isActive'];
+    const hasSignificantChanges = Object.keys(updateData).some(key => significantFields.includes(key));
+    
+    if (notificationService) {
+      // USER_ROLE_CHANGED - critical security notification
+      if (isRoleChange) {
+        try {
+          // Notify the affected user
+          await notificationService.createNotification({
+            userId: userId,
+            type: NotificationType.USER_ROLE_CHANGED,
+            priority: NotificationPriority.CRITICAL,
+            title: 'Your Role Has Changed',
+            message: `Your role has been changed from ${existingUser.role} to ${role} by ${performedBy.email}.`,
+            data: {
+              oldRole: existingUser.role,
+              newRole: role,
+              changedBy: performedBy.userId,
+              changedByEmail: performedBy.email
+            },
+            channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL]
+          });
+
+          // Notify all admins about the role change
+          const { getAdminUsers } = await import('../utils/NotificationHelpers');
+          const adminUsers = await getAdminUsers();
+          
+          for (const admin of adminUsers) {
+            if (admin.userId !== performedBy.userId) {
+              await notificationService.createNotification({
+                userId: admin.userId,
+                type: NotificationType.USER_ROLE_CHANGED,
+                priority: NotificationPriority.HIGH,
+                title: 'User Role Changed',
+                message: `${existingUser.firstName} ${existingUser.lastName}'s role was changed from ${existingUser.role} to ${role} by ${performedBy.email}.`,
+                data: {
+                  affectedUserId: userId,
+                  affectedUserEmail: existingUser.email,
+                  oldRole: existingUser.role,
+                  newRole: role,
+                  changedBy: performedBy.userId,
+                  changedByEmail: performedBy.email
+                },
+                channels: [NotificationChannel.IN_APP]
+              });
+            }
+          }
+        } catch (notifError) {
+          console.error('Failed to send USER_ROLE_CHANGED notification:', notifError);
+        }
+      }
+      
+      // USER_UPDATED - general profile update notification
+      if (hasSignificantChanges && !isRoleChange) {
+        try {
+          await notificationService.createNotification({
+            userId: userId,
+            type: NotificationType.USER_UPDATED,
+            title: 'Profile Updated',
+            message: `Your profile has been updated by ${performedBy.userId === userId ? 'you' : performedBy.email}.`,
+            data: {
+              updatedFields: Object.keys(updateData),
+              updatedBy: performedBy.userId,
+              updatedByEmail: performedBy.email,
+              isSelfUpdate: performedBy.userId === userId
+            },
+            channels: [NotificationChannel.IN_APP]
+          });
+        } catch (notifError) {
+          console.error('Failed to send USER_UPDATED notification:', notifError);
+        }
+      }
+    }
 
     // Get updated user profile
     const updatedUser = await userService.getUserProfile(userId);
@@ -466,6 +683,238 @@ router.put(
       success: true,
       message: "Profile updated successfully",
       data: updatedUser!.getProfile(),
+    });
+  })
+);
+
+// Upload profile photo
+router.post(
+  "/:userId/profile/photo",
+  userOperationRateLimit, // Rate limit photo uploads
+  AuthMiddleware.authenticate,
+  UserValidation.validateUserId,
+  AuthMiddleware.requireOwnershipOrAdmin,
+  photoUpload.single('photo'),
+  validation.validateProfilePhoto,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+    const file = req.file;
+
+    if (!file) {
+      res.status(BAD_REQUEST).json({
+        success: false,
+        message: "No photo file provided",
+      });
+      return;
+    }
+
+    // Check if user exists
+    const user = await userService.getUserProfile(userId);
+    if (!user) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    // Delete old photo if exists
+    if (user.photoMetadata?.fileId) {
+      try {
+        await ProfileService.deleteProfilePhoto(user.photoMetadata.fileId);
+      } catch (error) {
+        console.warn('Failed to delete old profile photo:', error);
+      }
+    }
+
+    // Upload new photo
+    const photoMetadata = await ProfileService.uploadProfilePhoto(userId, file);
+
+    // Update user with new photo metadata
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    await userRepository.updateUser(userId, { photoMetadata });
+
+    // Log the file upload
+    await AuditLogger.logFileOperation({
+      eventType: NewAuditEventType.FILE_UPLOADED,
+      fileId: photoMetadata.fileId,
+      fileName: photoMetadata.filename,
+      fileType: 'profile_photo',
+      userId: req.user?.userId,
+      userEmail: req.user?.email,
+      action: 'upload',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        targetUserId: userId,
+        contentType: photoMetadata.contentType,
+        size: photoMetadata.size
+      }
+    });
+
+    res.status(CREATED).json({
+      success: true,
+      message: "Profile photo uploaded successfully",
+      data: photoMetadata,
+    });
+  })
+);
+
+// Get profile photo
+router.get(
+  "/:userId/profile/photo",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId } = req.params;
+    const { thumbnail } = req.query;
+
+    // Get user
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    const userData = await userRepository.getUserById(userId);
+
+    if (!userData || !userData.photoMetadata) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "Profile photo not found",
+      });
+      return;
+    }
+
+    // Get photo from GridFS
+    const fileId = thumbnail === 'true' && userData.photoMetadata.thumbnailFileId
+      ? userData.photoMetadata.thumbnailFileId
+      : userData.photoMetadata.fileId;
+
+    const { stream, metadata } = await ProfileService.getProfilePhoto(fileId);
+
+    // Set content type header
+    res.set('Content-Type', metadata.contentType || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+
+    // Pipe the stream to response
+    stream.pipe(res);
+  })
+);
+
+// Delete profile photo
+router.delete(
+  "/:userId/profile/photo",
+  userOperationRateLimit,
+  AuthMiddleware.authenticate,
+  UserValidation.validateUserId,
+  AuthMiddleware.requireOwnershipOrAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+
+    // Check if user exists
+    const user = await userService.getUserProfile(userId);
+    if (!user) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    if (!user.photoMetadata?.fileId) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "No profile photo to delete",
+      });
+      return;
+    }
+
+    const fileIdToDelete = user.photoMetadata.fileId;
+    const fileNameToDelete = user.photoMetadata.filename;
+
+    // Delete photo from GridFS
+    await ProfileService.deleteProfilePhoto(fileIdToDelete);
+
+    // Update user to remove photo metadata
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    await userRepository.updateUser(userId, { photoMetadata: undefined });
+
+    // Log the file deletion
+    await AuditLogger.logFileOperation({
+      eventType: NewAuditEventType.FILE_DELETED,
+      fileId: fileIdToDelete,
+      fileName: fileNameToDelete,
+      fileType: 'profile_photo',
+      userId: req.user?.userId,
+      userEmail: req.user?.email,
+      action: 'delete',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        targetUserId: userId
+      }
+    });
+
+    res.json({
+      success: true,
+      message: "Profile photo deleted successfully",
+    });
+  })
+);
+
+// Get user profile stats
+router.get(
+  "/:userId/profile/stats",
+  AuthMiddleware.authenticate,
+  UserValidation.validateUserId,
+  AuthMiddleware.requireOwnershipOrAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+
+    // Check if user exists
+    const user = await userService.getUserProfile(userId);
+    if (!user) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    // Get stats
+    const stats = await userService.getUserStats(userId);
+
+    res.json({
+      success: true,
+      data: stats,
+    });
+  })
+);
+
+// Get user profile activity
+router.get(
+  "/:userId/profile/activity",
+  AuthMiddleware.authenticate,
+  UserValidation.validateUserId,
+  AuthMiddleware.requireOwnershipOrAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+    const limit = parseInt(req.query.limit as string) || 10;
+
+    // Check if user exists
+    const user = await userService.getUserProfile(userId);
+    if (!user) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    // Get activity
+    const activity = await userService.getProfileActivity(userId, limit);
+
+    res.json({
+      success: true,
+      data: activity,
+      count: activity.length,
     });
   })
 );
@@ -720,6 +1169,25 @@ router.post(
       passwordChangedAt: new Date(),
       failedLoginAttempts: 0, // Reset failed attempts on successful password change
     });
+
+    // Notify user of successful password change
+    if (notificationService) {
+      try {
+        await notificationService.notifySecurityEvent(
+          NotificationType.PASSWORD_CHANGED,
+          userId,
+          'Your password has been changed successfully. If you did not make this change, please contact support immediately.',
+          {
+            changedBy: 'self',
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent'),
+            timestamp: new Date().toISOString()
+          }
+        );
+      } catch (notifError) {
+        console.error('Failed to send PASSWORD_CHANGED notification:', notifError);
+      }
+    }
 
     // Log password change event
     const auditContext = AuditLogService.createAuditContext(req, req.user);

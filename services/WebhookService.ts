@@ -12,6 +12,8 @@ import {
   WebhookEvent 
 } from '../Models/WebhookConfig';
 import { Notification } from '../Models/Notification';
+import { AuditLogger } from '../utils/AuditLogger';
+import { AuditEventType, AuditSeverity } from '../types/AuditEventTypes';
 
 export class WebhookService {
   private webhookRepository: WebhookRepository;
@@ -92,6 +94,24 @@ export class WebhookService {
 
       if (!response.ok) {
         attemptData.error = `HTTP ${response.status}: ${response.statusText}`;
+
+        // Log webhook failure
+        await AuditLogger.log({
+          eventType: AuditEventType.WEBHOOK_FAILED,
+          userId: webhook.userId,
+          resource: 'webhook',
+          resourceId: webhook.webhookId,
+          action: 'trigger',
+          severity: AuditSeverity.MEDIUM,
+          metadata: {
+            url: webhook.url,
+            event: payload.event,
+            statusCode: response.status,
+            error: attemptData.error,
+            attempt: attempt + 1,
+            maxRetries: webhook.maxRetries
+          }
+        });
         
         // Retry on 5xx errors or 429 (rate limit)
         if ((response.status >= 500 || response.status === 429) && attempt < webhook.maxRetries) {
@@ -101,6 +121,22 @@ export class WebhookService {
           await new Promise(resolve => setTimeout(resolve, delay));
           return await this.sendWebhookRequest(webhook, payload, attempt + 1);
         }
+      } else {
+        // Log successful webhook trigger
+        await AuditLogger.log({
+          eventType: AuditEventType.WEBHOOK_TRIGGERED,
+          userId: webhook.userId,
+          resource: 'webhook',
+          resourceId: webhook.webhookId,
+          action: 'trigger',
+          severity: AuditSeverity.LOW,
+          metadata: {
+            url: webhook.url,
+            event: payload.event,
+            statusCode: response.status,
+            responseTime: attemptData.responseTime
+          }
+        });
       }
 
     } catch (error) {
@@ -116,6 +152,23 @@ export class WebhookService {
       } else {
         attemptData.error = 'Unknown error';
       }
+
+      // Log webhook failure
+      await AuditLogger.log({
+        eventType: AuditEventType.WEBHOOK_FAILED,
+        userId: webhook.userId,
+        resource: 'webhook',
+        resourceId: webhook.webhookId,
+        action: 'trigger',
+        severity: AuditSeverity.MEDIUM,
+        metadata: {
+          url: webhook.url,
+          event: payload.event,
+          error: attemptData.error,
+          attempt: attempt + 1,
+          maxRetries: webhook.maxRetries
+        }
+      });
 
       // Retry on network errors
       if (attempt < webhook.maxRetries) {

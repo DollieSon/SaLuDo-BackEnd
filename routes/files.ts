@@ -2,6 +2,8 @@ import { Router, Request, Response } from "express";
 import { asyncHandler, errorHandler } from "./middleware/errorHandler";
 import { connectDB } from "../mongo_db";
 import { GridFSBucket, ObjectId } from "mongodb";
+import { AuditLogger } from "../utils/AuditLogger";
+import { AuditEventType } from "../types/AuditEventTypes";
 
 const router = Router();
 
@@ -26,6 +28,24 @@ router.get(
       }
 
       const file = files[0];
+
+      // Log file download
+      await AuditLogger.logFileOperation({
+        eventType: AuditEventType.FILE_DOWNLOADED,
+        fileId: fileId,
+        fileName: file.filename,
+        fileType: 'resume',
+        candidateId: file.metadata?.candidateId,
+        userId: (req as any).user?.userId || 'anonymous',
+        userEmail: (req as any).user?.email || 'anonymous',
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        action: 'download',
+        metadata: {
+          contentType: file.contentType,
+          size: file.length
+        }
+      });
 
       // Set appropriate headers for download
       res.set({
@@ -81,6 +101,24 @@ router.get(
       }
 
       const file = files[0];
+
+      // Log transcript file download
+      await AuditLogger.logFileOperation({
+        eventType: AuditEventType.FILE_DOWNLOADED,
+        fileId: fileId,
+        fileName: file.filename,
+        fileType: 'transcript',
+        candidateId: file.metadata?.candidateId,
+        userId: (req as any).user?.userId || 'anonymous',
+        userEmail: (req as any).user?.email || 'anonymous',
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        action: 'download',
+        metadata: {
+          contentType: file.contentType,
+          size: file.length
+        }
+      });
 
       // Set appropriate headers for download
       res.set({

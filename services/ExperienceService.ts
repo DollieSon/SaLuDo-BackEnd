@@ -11,7 +11,7 @@ export class ExperienceService {
         const db = await connectDB();
         this.resumeRepo = new ResumeRepository(db);
     }
-    async addExperience(candidateId: string, experienceData: CreateExperienceData): Promise<void> {
+    async addExperience(candidateId: string, experienceData: any): Promise<void> {
         await this.init();
         try {
             const resumeData = await this.resumeRepo.findById(candidateId);
@@ -19,11 +19,14 @@ export class ExperienceService {
                 throw new Error('Candidate resume data not found');
             }
             const experienceId = new ObjectId().toString();
+            const addedBy = experienceData.addedBy || 'AI';
+            
             const experience = new Experience(
                 experienceId,
                 experienceData.title,
                 experienceData.role,
-                experienceData.description
+                experienceData.description,
+                addedBy
             );
             const updatedExperience = [...resumeData.experience.map(e => Experience.fromObject(e)), experience];
             await this.resumeRepo.update(candidateId, {
@@ -34,7 +37,7 @@ export class ExperienceService {
             throw new Error('Failed to add experience');
         }
     }
-    async updateExperience(candidateId: string, experienceId: string, updatedExperience: Partial<ExperienceData>): Promise<void> {
+    async updateExperience(candidateId: string, experienceId: string, updatedExperience: any): Promise<void> {
         await this.init();
         try {
             const resumeData = await this.resumeRepo.findById(candidateId);
@@ -47,9 +50,12 @@ export class ExperienceService {
                 throw new Error('Experience not found');
             }
             const exp = experiences[expIndex];
-            if (updatedExperience.title) exp.title = updatedExperience.title;
-            if (updatedExperience.role) exp.role = updatedExperience.role;
+            
+            if (updatedExperience.title !== undefined) exp.title = updatedExperience.title;
+            if (updatedExperience.role !== undefined) exp.role = updatedExperience.role;
             if (updatedExperience.description !== undefined) exp.description = updatedExperience.description;
+            if (updatedExperience.addedBy !== undefined) exp.addedBy = updatedExperience.addedBy;
+            
             exp.updatedAt = new Date();
             await this.resumeRepo.update(candidateId, {
                 experience: experiences.map(e => e.toObject())

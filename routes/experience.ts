@@ -21,8 +21,6 @@ router.get('/:candidateId/experience',
 );
 router.post('/:candidateId/experience',
     candidateExists,
-    validation.requireFields(['company', 'position', 'startDate']),
-    validation.validateDatesMiddleware(['startDate', 'endDate']),
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId } = req.params;
         const experienceData = req.body;
@@ -35,7 +33,6 @@ router.post('/:candidateId/experience',
 );
 router.put('/:candidateId/experience/:expId',
     candidateExists,
-    validation.validateDatesMiddleware(['startDate', 'endDate']),
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, expId } = req.params;
         const updateData = req.body;

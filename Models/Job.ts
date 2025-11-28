@@ -107,7 +107,7 @@ export class Job {
         this.validateJob();
     }
 
-    addSkill(skill: JobSkillRequirement): void {
+    addSkill(skill: JobSkillRequirement, addedBy?: string): void {
         // Check if skill already exists
         const existingSkillIndex = this.skills.findIndex(
             s => s.skillId === skill.skillId
@@ -115,10 +115,20 @@ export class Job {
         
         if (existingSkillIndex !== -1) {
             // Update existing skill and mark as not deleted
-            this.skills[existingSkillIndex] = { ...skill, isDeleted: false };
+            this.skills[existingSkillIndex] = { 
+                ...skill, 
+                isDeleted: false,
+                addedBy: addedBy || skill.addedBy,
+                addedAt: new Date()
+            };
         } else {
             // Add new skill with isDeleted defaulting to false
-            this.skills.push({ ...skill, isDeleted: false });
+            this.skills.push({ 
+                ...skill, 
+                isDeleted: false,
+                addedBy: addedBy,
+                addedAt: new Date()
+            });
         }
         
         this.updatedAt = new Date();
