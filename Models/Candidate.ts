@@ -58,6 +58,47 @@ export interface SocialLink {
   platform: string; // e.g., "LinkedIn", "GitHub", "Portfolio", etc.
   url: string; // Full URL to the social profile
 }
+
+// =======================
+// PREDICTIVE SCORE INTERFACES
+// =======================
+
+/**
+ * Breakdown of score by category
+ */
+export interface ScoreBreakdown {
+  skillMatch: number;       // 0-100 scaled contribution
+  personalityFit: number;   // 0-100 scaled contribution
+  experience: number;       // 0-100 scaled contribution
+  education: number;        // 0-100 scaled contribution
+  profileQuality: number;   // 0-100 scaled contribution
+}
+
+/**
+ * Score history entry for tracking over time
+ */
+export interface ScoreHistoryEntry {
+  historyId: string;
+  candidateId: string;
+  jobId?: string;
+  overallScore: number;
+  breakdown: ScoreBreakdown;
+  confidence: number;
+  mode: 'job-specific' | 'general';
+  calculatedAt: Date;
+  calculatedBy?: string;
+}
+
+/**
+ * AI-generated insights stored on candidate
+ */
+export interface CandidateAIInsights {
+  summary: string;
+  strengths: string[];
+  areasForImprovement: string[];
+  recommendations: string[];
+  generatedAt: Date;
+}
 export class Candidate {
   // Personal Information (PersonalInfo Database)
   public candidateId: string;
@@ -89,6 +130,12 @@ export class Candidate {
   public introductionVideos: VideoMetadata[]; // Introduction video files metadata
   public personality: Personality; // Comprehensive personality assessment
   public interviewAssessment?: string;
+
+  // Predictive Score Information
+  public scoreHistory: ScoreHistoryEntry[]; // History of calculated scores (max 50)
+  public aiInsights?: CandidateAIInsights;  // Cached AI-generated insights
+  public insightsGeneratedAt?: Date;        // When AI insights were last generated
+  public lastScoreCalculatedAt?: Date;      // When score was last calculated
   constructor(
     candidateId: string,
     name: string,
@@ -130,6 +177,7 @@ export class Candidate {
     this.interviewVideos = [];
     this.introductionVideos = [];
     this.personality = new Personality(); // Create empty personality for new candidate
+    this.scoreHistory = []; // Initialize empty score history
   }
 
   // =======================
@@ -168,6 +216,12 @@ export class Candidate {
     candidate.personality = data.personality ? Personality.fromObject(data.personality) : new Personality();
     candidate.resumeAssessment = data.resumeAssessment;
     candidate.interviewAssessment = data.interviewAssessment;
+
+    // Populate score-related fields
+    candidate.scoreHistory = data.scoreHistory || [];
+    candidate.aiInsights = data.aiInsights;
+    candidate.insightsGeneratedAt = data.insightsGeneratedAt ? new Date(data.insightsGeneratedAt) : undefined;
+    candidate.lastScoreCalculatedAt = data.lastScoreCalculatedAt ? new Date(data.lastScoreCalculatedAt) : undefined;
 
     return candidate;
   }
@@ -267,6 +321,10 @@ export class Candidate {
       introductionVideos: this.introductionVideos,
       personality: this.personality.toObject(),
       interviewAssessment: this.interviewAssessment,
+      scoreHistory: this.scoreHistory,
+      aiInsights: this.aiInsights,
+      insightsGeneratedAt: this.insightsGeneratedAt,
+      lastScoreCalculatedAt: this.lastScoreCalculatedAt,
     };
   }
   getPersonalInfo(): PersonalInfoData {
@@ -520,6 +578,108 @@ export class Candidate {
     ];
     return allTraits.filter((trait) => trait.score > 0).length;
   }
+
+  // =======================
+  // PREDICTIVE SCORE METHODS
+  // =======================
+
+  /**
+   * Check if candidate has any score history
+   */
+  hasScoreHistory(): boolean {
+    return this.scoreHistory.length > 0;
+  }
+
+  /**
+   * Get the most recent score entry
+   */
+  getLatestScore(): ScoreHistoryEntry | null {
+    if (this.scoreHistory.length === 0) return null;
+    return this.scoreHistory[this.scoreHistory.length - 1];
+  }
+
+  /**
+   * Get the most recent score for a specific job
+   */
+  getLatestScoreForJob(jobId: string): ScoreHistoryEntry | null {
+    const jobScores = this.scoreHistory.filter(s => s.jobId === jobId);
+    if (jobScores.length === 0) return null;
+    return jobScores[jobScores.length - 1];
+  }
+
+  /**
+   * Get score history count
+   */
+  getScoreHistoryCount(): number {
+    return this.scoreHistory.length;
+  }
+
+  /**
+   * Check if AI insights are available
+   */
+  hasAIInsights(): boolean {
+    return this.aiInsights !== undefined && this.aiInsights.summary !== '';
+  }
+
+  /**
+   * Get AI insights age in hours
+   */
+  getInsightsAgeHours(): number | null {
+    if (!this.insightsGeneratedAt) return null;
+    const now = new Date();
+    const diffMs = now.getTime() - new Date(this.insightsGeneratedAt).getTime();
+    return Math.floor(diffMs / (1000 * 60 * 60));
+  }
+
+  /**
+   * Check if AI insights are stale (older than specified hours)
+   */
+  areInsightsStale(maxAgeHours: number = 24): boolean {
+    const age = this.getInsightsAgeHours();
+    if (age === null) return true;
+    return age > maxAgeHours;
+  }
+
+  /**
+   * Get score trend (comparing last two scores)
+   */
+  getScoreTrend(): 'improving' | 'declining' | 'stable' | 'unknown' {
+    if (this.scoreHistory.length < 2) return 'unknown';
+    
+    const latest = this.scoreHistory[this.scoreHistory.length - 1];
+    const previous = this.scoreHistory[this.scoreHistory.length - 2];
+    
+    const diff = latest.overallScore - previous.overallScore;
+    
+    if (diff > 2) return 'improving';
+    if (diff < -2) return 'declining';
+    return 'stable';
+  }
+
+  /**
+   * Get average score from history
+   */
+  getAverageScore(): number {
+    if (this.scoreHistory.length === 0) return 0;
+    
+    const total = this.scoreHistory.reduce((sum, entry) => sum + entry.overallScore, 0);
+    return Number((total / this.scoreHistory.length).toFixed(1));
+  }
+
+  /**
+   * Get score summary string
+   */
+  getScoreSummary(): string {
+    const latest = this.getLatestScore();
+    if (!latest) {
+      return 'No score calculated yet';
+    }
+
+    const trend = this.getScoreTrend();
+    const trendText = trend === 'unknown' ? '' : ` (${trend})`;
+    
+    return `Score: ${latest.overallScore}/100 | Confidence: ${latest.confidence}%${trendText}`;
+  }
 }
 // =======================
 // ENUMS AND INTERFACES
@@ -559,6 +719,11 @@ export interface CandidateData {
   introductionVideos: VideoMetadata[];
   personality: PersonalityData;
   interviewAssessment?: string;
+  // Predictive Score fields
+  scoreHistory?: ScoreHistoryEntry[];
+  aiInsights?: CandidateAIInsights;
+  insightsGeneratedAt?: Date;
+  lastScoreCalculatedAt?: Date;
 }
 export interface PersonalInfoData {
   candidateId: string;

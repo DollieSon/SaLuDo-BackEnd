@@ -17,6 +17,7 @@ import notificationsRouter from "./routes/notifications";
 import commentsRouter from "./routes/comments";
 import webhooksRouter from "./routes/webhooks";
 import dashboardRouter from "./routes/dashboard";
+import settingsRouter from "./routes/settings";
 import dotenv from "dotenv";
 import { connectDB } from "./mongo_db";
 import { TokenBlacklistRepository } from "./repositories/TokenBlacklistRepository";
@@ -141,6 +142,7 @@ app.use("/api/notifications", notificationsRouter); // Notification routes
 app.use("/api/comments", commentsRouter); // Comment routes
 app.use("/api/webhooks", webhooksRouter); // Webhook configuration routes
 app.use("/api/dashboard", dashboardRouter); // Dashboard statistics routes (admin-only)
+app.use("/api/settings", settingsRouter); // Scoring settings and preferences routes
 
 // Function to start the server with database connection
 async function startServer() {

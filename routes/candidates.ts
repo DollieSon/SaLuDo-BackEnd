@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { CandidateService } from "../services/CandidateService";
 import { CandidateComparisonService } from "../services/CandidateComparisonService";
+import { PredictiveScoreService } from "../services/PredictiveScoreService";
 import { SkillService } from "../services/SkillService";
 import { EducationService } from "../services/EducationService";
 import { ExperienceService } from "../services/ExperienceService";
@@ -23,6 +24,7 @@ const router = Router({ mergeParams: true });
 const upload = multer();
 const candidateService = new CandidateService();
 const candidateComparisonService = new CandidateComparisonService();
+const predictiveScoreService = new PredictiveScoreService();
 const skillService = new SkillService();
 const educationService = new EducationService();
 const experienceService = new ExperienceService();
@@ -554,6 +556,149 @@ router.post(
     res.json({
       success: true,
       message: `HR users assigned to candidate successfully`,
+    });
+  })
+);
+
+// ====================
+// PREDICTIVE SCORE ENDPOINTS
+// ====================
+
+/**
+ * GET /api/candidates/:candidateId/success-score
+ * Calculate predictive success score for a candidate
+ * Query param: ?jobId= for job-specific scoring
+ */
+router.get(
+  "/:candidateId/success-score",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const { jobId } = req.query;
+    const user = req.user!;
+
+    const scoreResult = await predictiveScoreService.calculateScore(
+      candidateId,
+      jobId as string | undefined,
+      user.userId
+    );
+
+    // Log score calculation
+    await AuditLogger.log({
+      eventType: AuditEventType.CANDIDATE_VIEWED,
+      userId: user.userId,
+      userEmail: user.email,
+      resource: 'candidate_score',
+      resourceId: candidateId,
+      action: 'calculate_predictive_score',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        jobId: jobId || null,
+        mode: scoreResult.mode,
+        overallScore: scoreResult.overallScore,
+        confidence: scoreResult.confidence
+      }
+    });
+
+    res.json({
+      success: true,
+      data: scoreResult
+    });
+  })
+);
+
+/**
+ * GET /api/candidates/:candidateId/success-score/history
+ * Get score history for a candidate
+ * Query param: ?limit= (default 50)
+ */
+router.get(
+  "/:candidateId/success-score/history",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    const history = await predictiveScoreService.getScoreHistory(candidateId, limit);
+
+    res.json({
+      success: true,
+      data: history,
+      count: history.length
+    });
+  })
+);
+
+/**
+ * POST /api/candidates/:candidateId/success-score/insights
+ * Generate AI insights for a candidate (on-demand)
+ * Query param: ?jobId= for job-specific context
+ */
+router.post(
+  "/:candidateId/success-score/insights",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const { jobId } = req.query;
+    const user = req.user!;
+
+    const insights = await predictiveScoreService.generateAIInsights(
+      candidateId,
+      jobId as string | undefined,
+      user.userId
+    );
+
+    // Log AI insights generation
+    await AuditLogger.log({
+      eventType: AuditEventType.AI_ANALYSIS_COMPLETED,
+      userId: user.userId,
+      userEmail: user.email,
+      resource: 'candidate_insights',
+      resourceId: candidateId,
+      action: 'generate_ai_insights',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        jobId: jobId || null,
+        insightsGenerated: true
+      }
+    });
+
+    res.json({
+      success: true,
+      data: insights,
+      message: 'AI insights generated successfully'
+    });
+  })
+);
+
+/**
+ * GET /api/candidates/:candidateId/success-score/insights
+ * Get cached AI insights for a candidate
+ */
+router.get(
+  "/:candidateId/success-score/insights",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+
+    const insights = await predictiveScoreService.getCachedInsights(candidateId);
+
+    if (!insights) {
+      return res.status(404).json({
+        success: false,
+        message: 'No cached insights found. Use POST to generate insights.'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: insights
     });
   })
 );
