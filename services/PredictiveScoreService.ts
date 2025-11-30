@@ -4,7 +4,7 @@
  * Supports both job-specific matching and general candidate strength evaluation
  */
 
-import { Db } from 'mongodb';
+import { Db, ObjectId } from 'mongodb';
 import { connectDB } from '../mongo_db';
 import { CandidateService } from './CandidateService';
 import { JobService } from './JobService';
@@ -124,7 +124,8 @@ export interface ScoreHistoryEntry {
 export interface AIInsights {
   summary: string;
   strengths: string[];
-  areasForImprovement: string[];
+  areasForDevelopment: string[];
+  cultureFitAssessment: string;
   recommendations: string[];
   generatedAt: Date;
 }
@@ -181,20 +182,32 @@ export class PredictiveScoreService {
       throw new Error(`Candidate not found: ${candidateId}`);
     }
 
+    // If no explicit jobId provided, use candidate's roleApplied (the job they're applying for)
+    // This ensures candidates are scored against their applied job's specific settings
+    let effectiveJobId = jobId;
+    if (!effectiveJobId && candidate.roleApplied) {
+      effectiveJobId = candidate.roleApplied;
+    }
+
     // Fetch personality data
     const personality = await this.candidateService.getCandidatePersonality(candidateId);
 
     // Fetch job data if job-specific
     let job: JobData | null = null;
-    if (jobId) {
-      job = await this.jobService.getJob(jobId);
-      if (!job) {
+    if (effectiveJobId) {
+      job = await this.jobService.getJob(effectiveJobId);
+      if (!job && jobId) {
+        // Only throw error if jobId was explicitly provided
         throw new Error(`Job not found: ${jobId}`);
+      }
+      // If job came from roleApplied and wasn't found, continue with general scoring
+      if (!job) {
+        effectiveJobId = undefined;
       }
     }
 
     // Get effective scoring preferences (job-specific or global)
-    const preferences = await this.scoringPreferencesRepo!.getEffectiveSettings(jobId, userId);
+    const preferences = await this.scoringPreferencesRepo!.getEffectiveSettings(effectiveJobId, userId);
 
     // Calculate each component score
     const skillMatchResult = await this.calculateSkillMatchScore(
@@ -259,7 +272,7 @@ export class PredictiveScoreService {
 
     const result: PredictiveScoreResult = {
       candidateId,
-      jobId,
+      jobId: effectiveJobId,
       overallScore: Number(overallScore.toFixed(1)),
       breakdown,
       confidence,
@@ -268,7 +281,7 @@ export class PredictiveScoreService {
       factors,
       missingSkillsPenalty: skillMatchResult.penalty,
       missingSkills: skillMatchResult.missingSkills,
-      mode: jobId ? 'job-specific' : 'general',
+      mode: effectiveJobId ? 'job-specific' : 'general',
       calculatedAt: new Date(),
       weightsUsed: preferences.weights,
       modifiersUsed: preferences.modifiers
@@ -685,7 +698,7 @@ export class PredictiveScoreService {
     await this.init();
 
     const historyEntry: ScoreHistoryEntry = {
-      historyId: require('mongodb').ObjectId().toString(),
+      historyId: new ObjectId().toString(),
       candidateId: result.candidateId,
       jobId: result.jobId,
       overallScore: result.overallScore,
@@ -697,7 +710,7 @@ export class PredictiveScoreService {
     };
 
     // Update candidate with new history entry (limit to 50)
-    const collection = this.db!.collection('candidates_personal_info');
+    const collection = this.db!.collection('personalInfo');
     await collection.updateOne(
       { candidateId: result.candidateId },
       {
@@ -720,7 +733,7 @@ export class PredictiveScoreService {
   async getScoreHistory(candidateId: string, limit: number = 50): Promise<ScoreHistoryEntry[]> {
     await this.init();
 
-    const collection = this.db!.collection('candidates_personal_info');
+    const collection = this.db!.collection('personalInfo');
     const candidate = await collection.findOne({ candidateId });
 
     if (!candidate || !candidate.scoreHistory) {
@@ -833,7 +846,8 @@ Provide a JSON response with:
 {
   "summary": "2-3 sentence professional assessment of the candidate",
   "strengths": ["3-5 key strengths"],
-  "areasForImprovement": ["2-4 areas for improvement"],
+  "areasForDevelopment": ["2-4 areas for development or improvement"],
+  "cultureFitAssessment": "1-2 sentence assessment of cultural fit potential",
   "recommendations": ["3-5 specific actionable recommendations for the HR team"]
 }`;
   }
@@ -881,18 +895,20 @@ Provide a JSON response with:
     try {
       const parsed = JSON.parse(cleanedText);
       return {
-        summary: parsed.summary || 'No summary generated',
-        strengths: parsed.strengths || [],
-        areasForImprovement: parsed.areasForImprovement || [],
-        recommendations: parsed.recommendations || [],
+        summary: this.stripMarkdown(parsed.summary || 'No summary generated'),
+        strengths: (parsed.strengths || []).map((s: string) => this.stripMarkdown(s)),
+        areasForDevelopment: (parsed.areasForDevelopment || parsed.areasForImprovement || []).map((s: string) => this.stripMarkdown(s)),
+        cultureFitAssessment: this.stripMarkdown(parsed.cultureFitAssessment || ''),
+        recommendations: (parsed.recommendations || []).map((s: string) => this.stripMarkdown(s)),
         generatedAt: new Date()
       };
     } catch (e) {
       // If JSON parsing fails, create a basic response
       return {
-        summary: cleanedText.substring(0, 500),
+        summary: this.stripMarkdown(cleanedText.substring(0, 500)),
         strengths: [],
-        areasForImprovement: [],
+        areasForDevelopment: [],
+        cultureFitAssessment: '',
         recommendations: [],
         generatedAt: new Date()
       };
@@ -900,10 +916,47 @@ Provide a JSON response with:
   }
 
   /**
+   * Strip markdown formatting from text
+   * Converts markdown syntax to plain text
+   */
+  private stripMarkdown(text: string): string {
+    if (!text || typeof text !== 'string') return '';
+    
+    return text
+      // Bold: **text** or __text__
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/__(.+?)__/g, '$1')
+      // Italic: *text* or _text_
+      .replace(/\*(.+?)\*/g, '$1')
+      .replace(/_(.+?)_/g, '$1')
+      // Strikethrough: ~~text~~
+      .replace(/~~(.+?)~~/g, '$1')
+      // Inline code: `code`
+      .replace(/`([^`]+)`/g, '$1')
+      // Headers: # Header
+      .replace(/^#{1,6}\s+/gm, '')
+      // Links: [text](url) -> text
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      // Images: ![alt](url) -> alt
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+      // Blockquotes: > text
+      .replace(/^>\s+/gm, '')
+      // Horizontal rules: --- or *** or ___
+      .replace(/^[-*_]{3,}$/gm, '')
+      // Unordered list markers: - or * or +
+      .replace(/^[\s]*[-*+]\s+/gm, '')
+      // Ordered list markers: 1. 2. etc
+      .replace(/^[\s]*\d+\.\s+/gm, '')
+      // Clean up extra whitespace
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  /**
    * Save AI insights to candidate record
    */
   private async saveInsights(candidateId: string, insights: AIInsights): Promise<void> {
-    const collection = this.db!.collection('candidates_personal_info');
+    const collection = this.db!.collection('personalInfo');
     await collection.updateOne(
       { candidateId },
       {
@@ -921,7 +974,7 @@ Provide a JSON response with:
   async getCachedInsights(candidateId: string): Promise<AIInsights | null> {
     await this.init();
 
-    const collection = this.db!.collection('candidates_personal_info');
+    const collection = this.db!.collection('personalInfo');
     const candidate = await collection.findOne({ candidateId });
 
     if (!candidate || !candidate.aiInsights) {
@@ -929,10 +982,19 @@ Provide a JSON response with:
     }
 
     try {
-      const insights = JSON.parse(candidate.aiInsights);
-      insights.generatedAt = candidate.insightsGeneratedAt;
-      return insights;
-    } catch {
+      const parsed = JSON.parse(candidate.aiInsights);
+      // Handle both old (areasForImprovement) and new (areasForDevelopment) field names
+      const generatedAt = candidate.insightsGeneratedAt || parsed.generatedAt;
+      return {
+        summary: parsed.summary || '',
+        strengths: parsed.strengths || [],
+        areasForDevelopment: parsed.areasForDevelopment || parsed.areasForImprovement || [],
+        cultureFitAssessment: parsed.cultureFitAssessment || '',
+        recommendations: parsed.recommendations || [],
+        generatedAt: generatedAt instanceof Date ? generatedAt : new Date(generatedAt)
+      };
+    } catch (err) {
+      console.error('Error parsing cached insights:', err);
       return null;
     }
   }
@@ -951,7 +1013,7 @@ Provide a JSON response with:
     await this.init();
 
     // Get all candidates for this job via direct query
-    const collection = this.db!.collection('candidates_personal_info');
+    const collection = this.db!.collection('personalInfo');
     const candidateDocs = await collection.find({ 
       roleApplied: jobId, 
       isDeleted: { $ne: true } 
