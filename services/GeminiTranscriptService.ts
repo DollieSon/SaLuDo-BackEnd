@@ -3,6 +3,8 @@ import fetch from 'node-fetch';
 import { PersonalityData, Trait } from '../Models/PersonalityTypes';
 import { AuditLogger } from '../utils/AuditLogger';
 import { AuditEventType } from '../types/AuditEventTypes';
+import { GeminiClientService } from './GeminiClientService';
+import { AIServiceType } from '../Models/AIMetrics';
 
 function cleanGeminiJson(raw: string): string {
   return raw
@@ -283,32 +285,15 @@ Transcript:
 ${transcriptText}
 """`;
 
-  const requestPayload = {
-    contents: [
-      {
-        parts: [{ text: prompt }]
-      }
-    ]
-  };
+  // Call Gemini API using centralized client with metrics tracking
+  const geminiClient = GeminiClientService.getInstance();
+  const result = await geminiClient.callGemini(prompt, {
+    service: AIServiceType.TRANSCRIPT_ANALYSIS,
+    candidateId,
+    userId
+  });
 
-  if (!process.env.GOOGLE_API_KEY) {
-    throw new Error('GOOGLE_API_KEY environment variable is not set. AI transcript processing will fail.');
-  }
-
-  console.log('=== DEBUG: Sending request to Gemini ===');
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestPayload)
-    }
-  );
-
-  const result = await response.json();
-  console.log('=== DEBUG: Gemini raw response status:', response.status);
-  
-  const contentText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const contentText = result.rawText;
   console.log('=== DEBUG: Gemini content text length:', contentText?.length || 0);
   console.log('=== DEBUG: Gemini content preview:', contentText?.substring(0, 500) || 'No content');
 
@@ -344,7 +329,8 @@ ${transcriptText}
         metadata: {
           candidateName,
           transcriptLength: transcriptText.length,
-          categoriesAnalyzed: Object.keys(processedData).length
+          categoriesAnalyzed: Object.keys(processedData).length,
+          metricsId: result.metricsId
         }
       });
     }

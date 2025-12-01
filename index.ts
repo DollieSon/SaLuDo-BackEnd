@@ -18,6 +18,7 @@ import commentsRouter from "./routes/comments";
 import webhooksRouter from "./routes/webhooks";
 import dashboardRouter from "./routes/dashboard";
 import settingsRouter from "./routes/settings";
+import aiMetricsRouter from "./routes/ai-metrics";
 import dotenv from "dotenv";
 import { connectDB } from "./mongo_db";
 import { TokenBlacklistRepository } from "./repositories/TokenBlacklistRepository";
@@ -143,6 +144,7 @@ app.use("/api/comments", commentsRouter); // Comment routes
 app.use("/api/webhooks", webhooksRouter); // Webhook configuration routes
 app.use("/api/dashboard", dashboardRouter); // Dashboard statistics routes (admin-only)
 app.use("/api/settings", settingsRouter); // Scoring settings and preferences routes
+app.use("/api/ai-metrics", aiMetricsRouter); // AI metrics and performance tracking routes (admin-only)
 
 // Function to start the server with database connection
 async function startServer() {
@@ -173,6 +175,20 @@ async function startServer() {
     const digestScheduler = new DigestScheduler(db);
     digestScheduler.start();
     console.log(' Digest scheduler started successfully');
+    
+    // Initialize AI Metrics service and indexes
+    console.log(' Setting up AI Metrics service...');
+    const { AIMetricsService } = await import('./services/AIMetricsService');
+    const aiMetricsService = new AIMetricsService(db);
+    await aiMetricsService.initializeIndexes();
+    console.log(' AI Metrics indexes created successfully');
+    
+    // Start AI Alert monitoring service
+    console.log(' Starting AI Alert monitoring service...');
+    const { AIAlertService } = await import('./services/AIAlertService');
+    const aiAlertService = new AIAlertService(db);
+    aiAlertService.startMonitoring();
+    console.log(' AI Alert monitoring service started successfully');
     
     // Start the server
     httpServer.listen(PORT, () => {

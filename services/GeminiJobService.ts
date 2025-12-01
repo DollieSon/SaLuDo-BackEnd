@@ -1,10 +1,14 @@
 import { Buffer } from "buffer";
 import fetch from "node-fetch";
 import { InferredJobSkill, GeminiResponse } from './types/GeminiTypes';
+import { GeminiClientService } from './GeminiClientService';
+import { AIServiceType } from '../Models/AIMetrics';
 
 export async function parseJobWithGemini(
   jobName: string,
-  jobDescription: string
+  jobDescription: string,
+  jobId?: string,
+  userId?: string
 ): Promise<InferredJobSkill[]> {
   const prompt = `You are an AI assistant that helps parse job descriptions and extract the required skills.
 
@@ -24,40 +28,18 @@ Job Title: ${jobName}
 Job Description:
 ${jobDescription}`;
 
-  const requestPayload = {
-    contents: [
-      {
-        parts: [{ text: prompt }],
-      },
-    ],
-  };
+  // Call Gemini API using centralized client with metrics tracking
+  const geminiClient = GeminiClientService.getInstance();
+  const result = await geminiClient.callGemini(prompt, {
+    service: AIServiceType.JOB_ANALYSIS,
+    jobId,
+    userId
+  });
 
-  if (!process.env.GOOGLE_API_KEY) {
-    throw new Error('GOOGLE_API_KEY environment variable is not set. AI job analysis will fail.');
-  }
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestPayload),
-    }
-  );
-
-  const result = (await response.json()) as GeminiResponse;
-
-  // Log the full response for debugging
-  if (!response.ok) {
-    console.error('Gemini API Error Response:', JSON.stringify(result, null, 2));
-    throw new Error(`Gemini API returned status ${response.status}: ${JSON.stringify(result)}`);
-  }
-
-  const contentText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const contentText = result.rawText;
 
   if (!contentText) {
-    console.error('Gemini Response Structure:', JSON.stringify(result, null, 2));
-    throw new Error("No content returned by Gemini. Full response logged above.");
+    throw new Error("No content returned by Gemini.");
   }
 
   try {

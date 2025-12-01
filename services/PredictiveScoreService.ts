@@ -24,6 +24,8 @@ import { PersonalityData } from '../Models/PersonalityTypes';
 import { SkillData, AddedBy } from '../Models/Skill';
 import { AuditLogger } from '../utils/AuditLogger';
 import { AuditEventType } from '../types/AuditEventTypes';
+import { GeminiClientService } from './GeminiClientService';
+import { AIServiceType } from '../Models/AIMetrics';
 
 // ============================================================================
 // Result Interfaces
@@ -781,8 +783,8 @@ export class PredictiveScoreService {
     // Build prompt for Gemini
     const prompt = this.buildInsightsPrompt(candidate, scoreResult, jobContext);
 
-    // Call Gemini API
-    const insights = await this.callGeminiForInsights(prompt);
+    // Call Gemini API using centralized client with metrics tracking
+    const insights = await this.callGeminiForInsights(prompt, candidateId, userId);
 
     // Save insights to candidate record
     await this.saveInsights(candidateId, insights);
@@ -853,33 +855,18 @@ Provide a JSON response with:
   }
 
   /**
-   * Call Gemini API for insights
+   * Call Gemini API for insights using centralized client with metrics tracking
    */
-  private async callGeminiForInsights(prompt: string): Promise<AIInsights> {
-    if (!process.env.GOOGLE_API_KEY) {
-      throw new Error('GOOGLE_API_KEY environment variable is not set');
-    }
+  private async callGeminiForInsights(prompt: string, candidateId?: string, userId?: string): Promise<AIInsights> {
+    const geminiClient = GeminiClientService.getInstance();
+    
+    const result = await geminiClient.callGemini(prompt, {
+      service: AIServiceType.PREDICTIVE_INSIGHTS,
+      candidateId,
+      userId
+    });
 
-    const requestPayload = {
-      contents: [{ parts: [{ text: prompt }] }]
-    };
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestPayload)
-      }
-    );
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`Gemini API error: ${response.status} - ${JSON.stringify(errorData)}`);
-    }
-
-    const result = await response.json();
-    const contentText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const contentText = result.rawText;
 
     if (!contentText) {
       throw new Error('No content returned by Gemini');
