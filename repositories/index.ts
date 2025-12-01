@@ -8,3 +8,4 @@ export { AuditLogRepository } from './AuditLogRepository';
 export { TokenBlacklistRepository } from './TokenBlacklistRepository';
 export { NotificationRepository } from './NotificationRepository';
 export { NotificationPreferencesRepository } from './NotificationPreferencesRepository';
+export { ScoringPreferencesRepository } from './ScoringPreferencesRepository';
