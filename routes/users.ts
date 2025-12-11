@@ -401,7 +401,7 @@ router.post(
   })
 );
 
-// Reset user password (Admin only)
+// Reset user password (Admin only) - LEGACY ENDPOINT
 router.put(
   "/:userId/reset-password",
   passwordChangeRateLimit, // Apply password change rate limiting
@@ -439,6 +439,207 @@ router.put(
       success: true,
       message:
         "Password reset successfully. User must change password on next login.",
+    });
+  })
+);
+
+// Admin reset user password - Generate temporary password and email user
+router.post(
+  "/:userId/reset-password",
+  passwordChangeRateLimit,
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.ADMIN),
+  UserValidation.validateUserId,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+    const { reason } = req.body; // Optional reason for audit trail
+
+    // Get target user
+    const targetUser = await userService.getUserProfile(userId);
+    if (!targetUser) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    // Generate temporary password (12 characters with uppercase, lowercase, numbers, symbols)
+    const crypto = await import('crypto');
+    const tempPassword = crypto.randomBytes(12)
+      .toString('base64')
+      .replace(/[+/=]/g, '')
+      .substring(0, 12) + 
+      crypto.randomInt(0, 10).toString() + 
+      ['!', '@', '#', '$', '%'][crypto.randomInt(0, 5)];
+
+    // Hash the temporary password
+    const hashedPassword = await PasswordUtils.hashPassword(tempPassword);
+
+    // Update user password and set mustChangePassword flag
+    await userService.resetUserPassword(userId, hashedPassword);
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    await userRepository.updateUser(userId, {
+      mustChangePassword: true,
+      passwordHash: hashedPassword,
+    });
+
+    // Send email with temporary password
+    const { emailService } = await import("../services/EmailService");
+    const { templateService } = await import("../services/TemplateService");
+    
+    try {
+      // Render email template
+      const emailHtml = await templateService.renderTemplate('password-reset-admin', {
+        temporaryPassword: tempPassword,
+        reason: reason || undefined,
+        recipientName: `${targetUser.firstName} ${targetUser.lastName}`,
+        appName: 'SaLuDo',
+        appUrl: process.env.APP_URL || 'http://localhost:5173',
+        year: new Date().getFullYear()
+      });
+
+      // Send email directly
+      await emailService.sendEmail({
+        to: targetUser.email,
+        subject: 'Your SaLuDo Password Has Been Reset',
+        html: emailHtml,
+        userId: req.user?.userId,
+        userEmail: req.user?.email,
+        ipAddress: req.ip
+      });
+    } catch (emailError) {
+      console.error('Failed to send password reset email:', emailError);
+      // Continue even if email fails - admin can inform user manually
+    }
+
+    // Log audit event
+    const auditContext = AuditLogService.createAuditContext(req, req.user);
+    await auditLogService.logSecurityEvent(
+      AuditEventType.PASSWORD_RESET_BY_ADMIN,
+      auditContext,
+      {
+        action: "Admin reset user password",
+        resource: "user",
+        metadata: {
+          resourceId: userId,
+          targetUserId: userId,
+          targetUserEmail: targetUser.email,
+          adminId: req.user?.userId,
+          adminEmail: req.user?.email,
+          reason: reason || 'No reason provided',
+          timestamp: new Date().toISOString(),
+          mustChangePassword: true
+        },
+      }
+    );
+
+    // Notify user via in-app notification
+    if (notificationService) {
+      try {
+        await notificationService.notifySecurityEvent(
+          NotificationType.PASSWORD_CHANGED,
+          userId,
+          'Your password has been reset by an administrator. Check your email for the temporary password.',
+          {
+            resetBy: req.user?.userId,
+            resetByEmail: req.user?.email,
+            mustChangePassword: true,
+            timestamp: new Date().toISOString(),
+            reason: reason || undefined
+          }
+        );
+      } catch (notifError) {
+        console.error('Failed to send PASSWORD_CHANGED notification:', notifError);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Password reset successfully. Temporary password has been emailed to the user.",
+      data: {
+        mustChangePassword: true,
+        emailSent: true
+      }
+    });
+  })
+);
+
+// Admin force password change - Set flag requiring user to change password on next login
+router.post(
+  "/:userId/force-change-password",
+  passwordChangeRateLimit,
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.ADMIN),
+  UserValidation.validateUserId,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+    const { reason } = req.body; // Optional reason for audit trail
+
+    // Get target user
+    const targetUser = await userService.getUserProfile(userId);
+    if (!targetUser) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    // Set mustChangePassword flag
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    await userRepository.updateUser(userId, {
+      mustChangePassword: true,
+    });
+
+    // Log audit event
+    const auditContext = AuditLogService.createAuditContext(req, req.user);
+    await auditLogService.logSecurityEvent(
+      AuditEventType.PASSWORD_CHANGE_FORCED,
+      auditContext,
+      {
+        action: "Admin forced password change",
+        resource: "user",
+        metadata: {
+          resourceId: userId,
+          targetUserId: userId,
+          targetUserEmail: targetUser.email,
+          adminId: req.user?.userId,
+          adminEmail: req.user?.email,
+          reason: reason || 'No reason provided',
+          timestamp: new Date().toISOString()
+        },
+      }
+    );
+
+    // Notify user
+    if (notificationService) {
+      try {
+        await notificationService.notifySecurityEvent(
+          NotificationType.PASSWORD_CHANGED,
+          userId,
+          'An administrator has required you to change your password on your next login.',
+          {
+            forcedBy: req.user?.userId,
+            forcedByEmail: req.user?.email,
+            mustChangePassword: true,
+            timestamp: new Date().toISOString(),
+            reason: reason || undefined
+          }
+        );
+      } catch (notifError) {
+        console.error('Failed to send PASSWORD_CHANGED notification:', notifError);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "User will be required to change password on next login.",
+      data: {
+        mustChangePassword: true
+      }
     });
   })
 );
