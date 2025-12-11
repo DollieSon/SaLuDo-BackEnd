@@ -568,15 +568,19 @@ router.get('/trends/seasonality', AuthMiddleware.authenticate, AuthMiddleware.re
     const startDate = getStartDate(days);
     const endDate = new Date();
     
-    const service = req.query.service as AIServiceType | undefined;
+    const serviceParam = req.query.service as string | undefined;
     
-    // Validate service if provided
-    if (service && !Object.values(AIServiceType).includes(service)) {
-      res.status(400).json({
-        success: false,
-        message: `Invalid service type. Valid types: ${Object.values(AIServiceType).join(', ')}`
-      });
-      return;
+    // Validate and normalize service parameter (empty string means "all")
+    let service: AIServiceType | undefined;
+    if (serviceParam && serviceParam !== "") {
+      if (!Object.values(AIServiceType).includes(serviceParam as AIServiceType)) {
+        res.status(400).json({
+          success: false,
+          message: `Invalid service type. Valid types: ${Object.values(AIServiceType).join(', ')}`
+        });
+        return;
+      }
+      service = serviceParam as AIServiceType;
     }
     
     const seasonalityData = await metricsService.getSeasonalityAnalysis(
@@ -639,15 +643,19 @@ router.get('/trends/quality', AuthMiddleware.authenticate, AuthMiddleware.requir
     const startDate = getStartDate(days);
     const endDate = new Date();
     
-    const service = req.query.service as AIServiceType | undefined;
+    const serviceParam = req.query.service as string | undefined;
     
-    // Validate service if provided
-    if (service && !Object.values(AIServiceType).includes(service)) {
-      res.status(400).json({
-        success: false,
-        message: `Invalid service type. Valid types: ${Object.values(AIServiceType).join(', ')}`
-      });
-      return;
+    // Validate and normalize service parameter (empty string means "all")
+    let service: AIServiceType | undefined;
+    if (serviceParam && serviceParam !== "") {
+      if (!Object.values(AIServiceType).includes(serviceParam as AIServiceType)) {
+        res.status(400).json({
+          success: false,
+          message: `Invalid service type. Valid types: ${Object.values(AIServiceType).join(', ')}`
+        });
+        return;
+      }
+      service = serviceParam as AIServiceType;
     }
     
     const qualityData = await metricsService.getQualityTrends(
