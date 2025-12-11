@@ -85,6 +85,7 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  thoughtsTokens?: number;  // Thinking tokens (Gemini 2.0 thinking mode)
   isEstimated: boolean;  // True if tokens were estimated, false if from API
 }
 
@@ -316,6 +317,10 @@ export const GEMINI_PRICING = {
     inputPer1M: 0.075,   // $0.075 per 1M input tokens
     outputPer1M: 0.30    // $0.30 per 1M output tokens
   },
+  'gemini-2.5-pro': {
+    inputPer1M: 1.25,    // $1.25 per 1M input tokens
+    outputPer1M: 5.00    // $5.00 per 1M output tokens
+  },
   'gemini-pro': {
     inputPer1M: 0.50,
     outputPer1M: 1.50
@@ -329,7 +334,7 @@ export const GEMINI_PRICING = {
 /**
  * Default model version
  */
-export const DEFAULT_MODEL_VERSION = 'gemini-2.5-flash';
+export const DEFAULT_MODEL_VERSION = 'gemini-2.5-pro';
 
 /**
  * Token estimation constants (average chars per token)
@@ -354,3 +359,20 @@ export const AI_METRICS_COLLECTIONS = {
   ALERTS: 'ai_alerts',
   DAILY_SUMMARIES: 'ai_daily_summaries'
 } as const;
+
+// Export trend analysis types
+export type {
+  TrendComparison,
+  SeasonalityPattern,
+  QualityTrend,
+  DashboardWithTrends,
+  MetricTrend,
+  DayOfWeekPattern,
+  QualityScore
+} from '../types/AITrendTypes';
+
+export {
+  TrendDirection,
+  ComparisonType,
+  QualityBand
+} from '../types/AITrendTypes';

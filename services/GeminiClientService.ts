@@ -41,6 +41,7 @@ export interface GeminiResponse {
     promptTokenCount: number;
     candidatesTokenCount: number;
     totalTokenCount: number;
+    thoughtsTokenCount?: number;
   };
   error?: {
     code: number;
@@ -358,6 +359,7 @@ export class GeminiClientService {
         promptTokens: response.usageMetadata.promptTokenCount,
         completionTokens: response.usageMetadata.candidatesTokenCount,
         totalTokens: response.usageMetadata.totalTokenCount,
+        thoughtsTokens: response.usageMetadata.thoughtsTokenCount,
         isEstimated: false
       };
     }

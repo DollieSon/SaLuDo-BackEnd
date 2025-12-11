@@ -63,8 +63,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
       isDeleted: false,
       createdAt: now,
       updatedAt: now,
-      // Security fields - new accounts require password change
-      mustChangePassword: true,
+      // Security fields
       failedLoginAttempts: 0,
     };
 
@@ -225,18 +224,10 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   // SECURITY MANAGEMENT METHODS
   // =======================
 
-  async setMustChangePassword(userId: string, mustChange: boolean): Promise<void> {
-    await this.getCollection().updateOne(
-      { userId },
-      { $set: { mustChangePassword: mustChange, updatedAt: new Date() } }
-    );
-  }
-
   async recordPasswordChange(userId: string, newPasswordHash: string, passwordHistory?: string[]): Promise<void> {
     const updateFields: any = {
       passwordHash: newPasswordHash,
       passwordChangedAt: new Date(),
-      mustChangePassword: false,
       updatedAt: new Date()
     };
 
@@ -305,16 +296,6 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
     const results = await this.getCollection()
       .find({
         accountLockedUntil: { $exists: true, $gt: now },
-        isDeleted: { $ne: true }
-      })
-      .toArray();
-    return results as unknown as UserData[];
-  }
-
-  async findAccountsRequiringPasswordChange(): Promise<UserData[]> {
-    const results = await this.getCollection()
-      .find({
-        mustChangePassword: true,
         isDeleted: { $ne: true }
       })
       .toArray();

@@ -45,7 +45,6 @@ export class User {
   public passwordResetToken?: string;
   public passwordResetExpires?: Date;
   // Security fields
-  public mustChangePassword: boolean;
   public failedLoginAttempts: number;
   public accountLockedUntil?: Date;
   public passwordChangedAt?: Date;
@@ -88,7 +87,6 @@ export class User {
     this.createdAt = createdAt || new Date();
     this.updatedAt = updatedAt || new Date();
     // Initialize security fields
-    this.mustChangePassword = true; // Default: require password change for new accounts
     this.failedLoginAttempts = 0;
   }
 
@@ -224,16 +222,6 @@ export class User {
   // ACCOUNT SECURITY METHODS
   // =======================
 
-  requirePasswordChange(): void {
-    this.mustChangePassword = true;
-    this.updatedAt = new Date();
-  }
-
-  clearPasswordChangeRequirement(): void {
-    this.mustChangePassword = false;
-    this.updatedAt = new Date();
-  }
-
   recordPasswordChange(newPasswordHash: string, maxPasswordHistory: number = 5): void {
     // Initialize password history if it doesn't exist
     if (!this.passwordHistory) {
@@ -248,10 +236,9 @@ export class User {
       this.passwordHistory = this.passwordHistory.slice(0, maxPasswordHistory);
     }
 
-    // Update password and clear change requirement
+    // Update password
     this.passwordHash = newPasswordHash;
     this.passwordChangedAt = new Date();
-    this.mustChangePassword = false;
     this.updatedAt = new Date();
   }
 
@@ -327,7 +314,6 @@ export class User {
       refreshToken: this.refreshToken,
       passwordResetToken: this.passwordResetToken,
       passwordResetExpires: this.passwordResetExpires,
-      mustChangePassword: this.mustChangePassword,
       failedLoginAttempts: this.failedLoginAttempts,
       accountLockedUntil: this.accountLockedUntil,
       passwordChangedAt: this.passwordChangedAt,
@@ -365,7 +351,6 @@ export class User {
     user.refreshToken = data.refreshToken;
     user.passwordResetToken = data.passwordResetToken;
     user.passwordResetExpires = data.passwordResetExpires;
-    user.mustChangePassword = data.mustChangePassword;
     user.failedLoginAttempts = data.failedLoginAttempts;
     user.accountLockedUntil = data.accountLockedUntil;
     user.passwordChangedAt = data.passwordChangedAt;

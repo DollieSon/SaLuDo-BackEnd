@@ -32,6 +32,7 @@ import {
   authRateLimit,
   userOperationRateLimit,
   passwordChangeRateLimit,
+  adminPasswordResetRateLimit,
   accountCreationRateLimit,
 } from "./middleware/rateLimiter";
 import { UserRole, User } from "../Models/User";
@@ -256,7 +257,6 @@ router.post(
         refreshToken,
         accessTokenExpiry,
         refreshTokenExpiry,
-        mustChangePassword: user.mustChangePassword,
         // Legacy field for backward compatibility
         token: accessToken,
       },
@@ -389,22 +389,21 @@ router.post(
     res.status(CREATED).json({
       success: true,
       message:
-        "User created successfully. Password change required on first login.",
+        "User created successfully.",
       data: {
         userId: newUser.userId,
         email: newUser.email,
         fullName: newUser.getFullName(),
         role: newUser.role,
-        mustChangePassword: newUser.mustChangePassword,
       },
     });
   })
 );
 
-// Reset user password (Admin only)
+// Reset user password (Admin only) - LEGACY ENDPOINT
 router.put(
   "/:userId/reset-password",
-  passwordChangeRateLimit, // Apply password change rate limiting
+  adminPasswordResetRateLimit, // Apply admin password reset rate limiting
   AuthMiddleware.authenticate,
   AuthMiddleware.requireRole(UserRole.ADMIN),
   UserValidation.validateUserId,
@@ -439,6 +438,155 @@ router.put(
       success: true,
       message:
         "Password reset successfully. User must change password on next login.",
+    });
+  })
+);
+
+// Admin reset user password - Set custom password or generate random
+router.post(
+  "/:userId/reset-password",
+  adminPasswordResetRateLimit,
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.ADMIN),
+  UserValidation.validateUserId,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId } = req.params;
+    const { reason, customPassword } = req.body; // Optional reason and custom password
+
+    // Get target user
+    const targetUser = await userService.getUserProfile(userId);
+    if (!targetUser) {
+      res.status(NOT_FOUND).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    let newPassword: string;
+
+    // Use custom password if provided, otherwise generate random
+    if (customPassword) {
+      // Validate custom password
+      if (customPassword.length < 8) {
+        res.status(BAD_REQUEST).json({
+          success: false,
+          message: "Password must be at least 8 characters long"
+        });
+        return;
+      }
+      // Additional validation: uppercase, lowercase, number, special char
+      if (!/[A-Z]/.test(customPassword) || !/[a-z]/.test(customPassword) || 
+          !/[0-9]/.test(customPassword) || !/[!@#$%^&*(),.?":{}|<>]/.test(customPassword)) {
+        res.status(BAD_REQUEST).json({
+          success: false,
+          message: "Password must contain uppercase, lowercase, number, and special character"
+        });
+        return;
+      }
+      newPassword = customPassword;
+    } else {
+      // Generate random password (12 characters with uppercase, lowercase, numbers, symbols)
+      const crypto = await import('crypto');
+      newPassword = crypto.randomBytes(12)
+        .toString('base64')
+        .replace(/[+/=]/g, '')
+        .substring(0, 12) + 
+        crypto.randomInt(0, 10).toString() + 
+        ['!', '@', '#', '$', '%'][crypto.randomInt(0, 5)];
+    }
+
+    // Hash the password
+    const hashedPassword = await PasswordUtils.hashPassword(newPassword);
+
+    // Update user password - NO mustChangePassword flag
+    const db = await connectDB();
+    const userRepository = new UserRepository(db);
+    await userRepository.updateUser(userId, {
+      passwordHash: hashedPassword,
+      passwordChangedAt: new Date(),
+    });
+
+    // Send email with new password
+    const { emailService } = await import("../services/EmailService");
+    const { templateService } = await import("../services/TemplateService");
+    
+    let emailSent = false;
+    try {
+      // Render email template
+      const emailHtml = await templateService.renderTemplate('password-reset-admin', {
+        temporaryPassword: newPassword,
+        reason: reason || undefined,
+        recipientName: `${targetUser.firstName} ${targetUser.lastName}`,
+        appName: 'SaLuDo',
+        appUrl: process.env.APP_URL || 'http://localhost:5173',
+        year: new Date().getFullYear()
+      });
+
+      // Send email directly
+      await emailService.sendEmail({
+        to: targetUser.email,
+        subject: 'Your SaLuDo Password Has Been Reset',
+        html: emailHtml,
+        userId: req.user?.userId,
+        userEmail: req.user?.email,
+        ipAddress: req.ip
+      });
+      emailSent = true;
+    } catch (emailError) {
+      console.error('Failed to send password reset email:', emailError);
+      // Continue even if email fails - admin can inform user manually
+    }
+
+    // Log audit event
+    const auditContext = AuditLogService.createAuditContext(req, req.user);
+    await auditLogService.logSecurityEvent(
+      AuditEventType.PASSWORD_RESET_BY_ADMIN,
+      auditContext,
+      {
+        action: "Admin reset user password",
+        resource: "user",
+        metadata: {
+          resourceId: userId,
+          targetUserId: userId,
+          targetUserEmail: targetUser.email,
+          adminId: req.user?.userId,
+          adminEmail: req.user?.email,
+          reason: reason || 'No reason provided',
+          wasCustomPassword: !!customPassword,
+          timestamp: new Date().toISOString(),
+        },
+      }
+    );
+
+    // Notify user via in-app notification
+    if (notificationService) {
+      try {
+        await notificationService.notifySecurityEvent(
+          NotificationType.PASSWORD_CHANGED,
+          userId,
+          'Your password has been reset by an administrator.' + 
+          (emailSent ? ' Check your email for the new password.' : ' Please contact your administrator for the new password.'),
+          {
+            resetBy: req.user?.userId,
+            resetByEmail: req.user?.email,
+            timestamp: new Date().toISOString(),
+            reason: reason || undefined
+          }
+        );
+      } catch (notifError) {
+        console.error('Failed to send notification:', notifError);
+      }
+    }
+
+    // Return the password to admin
+    res.json({
+      success: true,
+      message: "Password reset successfully.",
+      data: {
+        password: newPassword, // Return plaintext password to admin
+        emailSent: emailSent
+      }
     });
   })
 );
@@ -1165,7 +1313,6 @@ router.post(
     // Update password in database
     await userRepository.updateUser(userId, {
       passwordHash: newPasswordHash,
-      mustChangePassword: false,
       passwordChangedAt: new Date(),
       failedLoginAttempts: 0, // Reset failed attempts on successful password change
     });
