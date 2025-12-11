@@ -5,7 +5,7 @@ import { AIAlertService } from '../services/AIAlertService';
 import { connectDB } from '../mongo_db';
 import { AuditLogger } from '../utils/AuditLogger';
 import { AuditEventType } from '../types/AuditEventTypes';
-import { AIServiceType } from '../Models/AIMetrics';
+import { AIServiceType, ComparisonType } from '../Models/AIMetrics';
 
 const router = Router();
 
@@ -38,8 +38,10 @@ function getStartDate(days: number): Date {
 
 /**
  * @route   GET /api/ai-metrics/dashboard
- * @desc    Get AI metrics dashboard data
+ * @desc    Get AI metrics dashboard data (with optional trend comparison)
  * @access  Private (Admin)
+ * @query   range - Date range (30d, 90d, 1y)
+ * @query   compare - Comparison type (previous, year_ago) for trend analysis
  */
 router.get('/dashboard', AuthMiddleware.authenticate, AuthMiddleware.requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -50,7 +52,23 @@ router.get('/dashboard', AuthMiddleware.authenticate, AuthMiddleware.requireAdmi
     const startDate = getStartDate(days);
     const endDate = new Date();
     
-    const dashboardData = await metricsService.getDashboardData(startDate, endDate);
+    // Check if trend comparison is requested
+    const compare = req.query.compare as string;
+    let dashboardData;
+
+    if (compare === 'previous' || compare === 'year_ago') {
+      const comparisonType = compare === 'previous' 
+        ? ComparisonType.PREVIOUS 
+        : ComparisonType.YEAR_AGO;
+      
+      dashboardData = await metricsService.getDashboardWithTrends(
+        startDate,
+        endDate,
+        comparisonType
+      );
+    } else {
+      dashboardData = await metricsService.getDashboardData(startDate, endDate);
+    }
     
     await AuditLogger.log({
       eventType: AuditEventType.REPORT_GENERATED,
@@ -65,7 +83,8 @@ router.get('/dashboard', AuthMiddleware.authenticate, AuthMiddleware.requireAdmi
         reportType: 'ai_metrics_dashboard',
         dateRange: `${days}d`,
         startDate: startDate.toISOString(),
-        endDate: endDate.toISOString()
+        endDate: endDate.toISOString(),
+        withTrends: !!compare
       }
     });
     
@@ -528,6 +547,149 @@ router.get('/latency', AuthMiddleware.authenticate, AuthMiddleware.requireAdmin,
     res.status(500).json({
       success: false,
       message: 'Failed to fetch latency statistics',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/ai-metrics/trends/seasonality
+ * @desc    Get seasonality patterns (day-of-week analysis)
+ * @access  Private (Admin)
+ * @query   range - Date range (30d, 90d, 1y)
+ * @query   service - Optional AI service filter
+ */
+router.get('/trends/seasonality', AuthMiddleware.authenticate, AuthMiddleware.requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const db = await connectDB();
+    const metricsService = new AIMetricsService(db);
+    
+    const days = parseDateRange(req.query.range as string);
+    const startDate = getStartDate(days);
+    const endDate = new Date();
+    
+    const service = req.query.service as AIServiceType | undefined;
+    
+    // Validate service if provided
+    if (service && !Object.values(AIServiceType).includes(service)) {
+      res.status(400).json({
+        success: false,
+        message: `Invalid service type. Valid types: ${Object.values(AIServiceType).join(', ')}`
+      });
+      return;
+    }
+    
+    const seasonalityData = await metricsService.getSeasonalityAnalysis(
+      startDate,
+      endDate,
+      service
+    );
+    
+    await AuditLogger.log({
+      eventType: AuditEventType.REPORT_GENERATED,
+      userId: req.user?.userId,
+      userEmail: req.user?.email,
+      resource: 'ai-metrics',
+      resourceId: 'seasonality',
+      action: 'viewed',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        reportType: 'seasonality_analysis',
+        dateRange: `${days}d`,
+        service: service || 'all'
+      }
+    });
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        ...seasonalityData,
+        dateRange: {
+          days,
+          startDate,
+          endDate
+        },
+        service: service || 'all'
+      }
+    });
+  } catch (error: any) {
+    console.error('Error fetching seasonality analysis:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch seasonality analysis',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/ai-metrics/trends/quality
+ * @desc    Get quality trends based on edit behavior
+ * @access  Private (Admin)
+ * @query   range - Date range (30d, 90d, 1y)
+ * @query   service - Optional AI service filter
+ */
+router.get('/trends/quality', AuthMiddleware.authenticate, AuthMiddleware.requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const db = await connectDB();
+    const metricsService = new AIMetricsService(db);
+    
+    const days = parseDateRange(req.query.range as string);
+    const startDate = getStartDate(days);
+    const endDate = new Date();
+    
+    const service = req.query.service as AIServiceType | undefined;
+    
+    // Validate service if provided
+    if (service && !Object.values(AIServiceType).includes(service)) {
+      res.status(400).json({
+        success: false,
+        message: `Invalid service type. Valid types: ${Object.values(AIServiceType).join(', ')}`
+      });
+      return;
+    }
+    
+    const qualityData = await metricsService.getQualityTrends(
+      startDate,
+      endDate,
+      service
+    );
+    
+    await AuditLogger.log({
+      eventType: AuditEventType.REPORT_GENERATED,
+      userId: req.user?.userId,
+      userEmail: req.user?.email,
+      resource: 'ai-metrics',
+      resourceId: 'quality',
+      action: 'viewed',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        reportType: 'quality_trends',
+        dateRange: `${days}d`,
+        service: service || 'all',
+        overallScore: qualityData.overall.score || 0
+      }
+    });
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        ...qualityData,
+        dateRange: {
+          days,
+          startDate,
+          endDate
+        },
+        service: service || 'all'
+      }
+    });
+  } catch (error: any) {
+    console.error('Error fetching quality trends:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch quality trends',
       error: error.message
     });
   }

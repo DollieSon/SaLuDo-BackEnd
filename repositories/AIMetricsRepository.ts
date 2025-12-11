@@ -689,4 +689,181 @@ export class AIMetricsRepository {
 
     return result[0]?.totalCost || 0;
   }
+
+  // ============================================================================
+  // Trend Analysis Methods
+  // ============================================================================
+
+  /**
+   * Get metrics for two time periods for trend comparison
+   */
+  async getTrendComparisonData(
+    currentStart: Date,
+    currentEnd: Date,
+    previousStart: Date,
+    previousEnd: Date,
+    service?: AIServiceType
+  ): Promise<{
+    current: AIMetricsAggregation;
+    previous: AIMetricsAggregation;
+  }> {
+    const [current, previous] = await Promise.all([
+      this.getAggregatedMetrics(currentStart, currentEnd, service),
+      this.getAggregatedMetrics(previousStart, previousEnd, service)
+    ]);
+
+    return { current, previous };
+  }
+
+  /**
+   * Get seasonality patterns by day of week
+   */
+  async getSeasonalityPatterns(
+    startDate: Date,
+    endDate: Date,
+    service?: AIServiceType
+  ): Promise<Array<{
+    dayOfWeek: number;
+    metrics: {
+      requestCount: number;
+      errorCount: number;
+      successCount: number;
+      avgLatency: number;
+      totalCost: number;
+      avgErrorRate: number;
+      successRate: number;
+    };
+  }>> {
+    const matchStage: any = {
+      timestamp: { $gte: startDate, $lte: endDate }
+    };
+    if (service) matchStage.service = service;
+
+    const pipeline = [
+      { $match: matchStage },
+      {
+        $group: {
+          _id: { $dayOfWeek: '$timestamp' }, // 1=Sunday, 7=Saturday
+          requestCount: { $sum: 1 },
+          errorCount: { $sum: { $cond: ['$success', 0, 1] } },
+          successCount: { $sum: { $cond: ['$success', 1, 0] } },
+          totalLatency: { $sum: '$latencyMs' },
+          totalCost: { $sum: '$costEstimate.totalCostUsd' }
+        }
+      },
+      { $sort: { '_id': 1 } }
+    ];
+
+    const results = await this.metricsCollection.aggregate(pipeline).toArray();
+
+    return results.map(r => {
+      const requestCount = r.requestCount || 1;
+      const avgLatency = requestCount > 0 ? r.totalLatency / requestCount : 0;
+      const avgErrorRate = requestCount > 0 ? (r.errorCount / requestCount) * 100 : 0;
+      const successRate = requestCount > 0 ? (r.successCount / requestCount) * 100 : 0;
+
+      return {
+        dayOfWeek: r._id - 1, // Convert to 0=Sunday, 6=Saturday
+        metrics: {
+          requestCount,
+          errorCount: r.errorCount,
+          successCount: r.successCount,
+          avgLatency,
+          totalCost: r.totalCost,
+          avgErrorRate,
+          successRate
+        }
+      };
+    });
+  }
+
+  /**
+   * Get edit-based quality metrics from feedback
+   */
+  async getEditBasedQuality(
+    startDate: Date,
+    endDate: Date,
+    service?: AIServiceType
+  ): Promise<{
+    overall: {
+      avgEditPercentage: number;
+      feedbackCount: number;
+      editedCount: number;
+      deleteCount: number;
+    };
+    byService: Record<AIServiceType, {
+      avgEditPercentage: number;
+      feedbackCount: number;
+      editedCount: number;
+    }>;
+  }> {
+    const matchStage: any = {
+      ratedAt: { $gte: startDate, $lte: endDate }
+    };
+    if (service) matchStage.service = service;
+
+    // Overall aggregation
+    const overallPipeline = [
+      { $match: matchStage },
+      {
+        $group: {
+          _id: null,
+          avgEditPercentage: { $avg: '$editPercentage' },
+          feedbackCount: { $sum: 1 },
+          editedCount: { $sum: { $cond: ['$wasEdited', 1, 0] } }
+        }
+      }
+    ];
+
+    // By service aggregation
+    const byServicePipeline = [
+      { $match: matchStage },
+      {
+        $group: {
+          _id: '$service',
+          avgEditPercentage: { $avg: '$editPercentage' },
+          feedbackCount: { $sum: 1 },
+          editedCount: { $sum: { $cond: ['$wasEdited', 1, 0] } }
+        }
+      }
+    ];
+
+    const [overallResult, byServiceResult] = await Promise.all([
+      this.feedbackCollection.aggregate(overallPipeline).toArray(),
+      this.feedbackCollection.aggregate(byServicePipeline).toArray()
+    ]);
+
+    const overall = overallResult[0] || {
+      avgEditPercentage: 0,
+      feedbackCount: 0,
+      editedCount: 0
+    };
+
+    const byService: Record<AIServiceType, any> = {} as any;
+    for (const svc of Object.values(AIServiceType)) {
+      byService[svc] = {
+        avgEditPercentage: 0,
+        feedbackCount: 0,
+        editedCount: 0
+      };
+    }
+
+    for (const result of byServiceResult) {
+      byService[result._id as AIServiceType] = {
+        avgEditPercentage: result.avgEditPercentage || 0,
+        feedbackCount: result.feedbackCount,
+        editedCount: result.editedCount
+      };
+    }
+
+    return {
+      overall: {
+        avgEditPercentage: overall.avgEditPercentage || 0,
+        feedbackCount: overall.feedbackCount,
+        editedCount: overall.editedCount,
+        deleteCount: 0 // TODO: Track deletes separately if needed
+      },
+      byService
+    };
+  }
 }

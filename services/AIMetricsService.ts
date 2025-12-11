@@ -18,8 +18,25 @@ import {
   CostEstimate,
   GEMINI_PRICING,
   DEFAULT_MODEL_VERSION,
-  TOKEN_ESTIMATION
+  TOKEN_ESTIMATION,
+  TrendComparison,
+  SeasonalityPattern,
+  QualityTrend,
+  DashboardWithTrends,
+  ComparisonType
 } from '../Models/AIMetrics';
+import {
+  calculatePercentageChange,
+  determineTrendDirection,
+  createMetricTrend,
+  calculateDeviation,
+  getQualityBand,
+  calculateQualityScore,
+  generateTrendInsights,
+  generateSeasonalityInsights,
+  generateQualityInsights,
+  getDayName
+} from '../utils/TrendCalculators';
 
 // ============================================================================
 // Types
@@ -919,6 +936,309 @@ export class AIMetricsService {
       overall: worstStatus,
       byService
     };
+  }
+
+  // ============================================================================
+  // Trend Analysis
+  // ============================================================================
+
+  /**
+   * Get dashboard data with trend comparisons
+   */
+  async getDashboardWithTrends(
+    startDate: Date,
+    endDate: Date,
+    comparisonType: ComparisonType = ComparisonType.PREVIOUS,
+    service?: AIServiceType
+  ): Promise<DashboardWithTrends> {
+    await this.init();
+
+    // Calculate previous period dates based on comparison type
+    const periodLength = endDate.getTime() - startDate.getTime();
+    let previousStart: Date, previousEnd: Date;
+
+    if (comparisonType === ComparisonType.YEAR_AGO) {
+      previousStart = new Date(startDate);
+      previousStart.setFullYear(startDate.getFullYear() - 1);
+      previousEnd = new Date(endDate);
+      previousEnd.setFullYear(endDate.getFullYear() - 1);
+    } else {
+      previousEnd = new Date(startDate.getTime() - 1);
+      previousStart = new Date(previousEnd.getTime() - periodLength);
+    }
+
+    // Get trend comparison data from repository
+    const trendData = await this.metricsRepo!.getTrendComparisonData(
+      startDate,
+      endDate,
+      previousStart,
+      previousEnd,
+      service
+    );
+
+    // Calculate success rate from aggregation
+    const currentSuccessRate = trendData.current.totalRequests > 0
+      ? (trendData.current.successfulRequests / trendData.current.totalRequests) * 100
+      : 0;
+    const previousSuccessRate = trendData.previous.totalRequests > 0
+      ? (trendData.previous.successfulRequests / trendData.previous.totalRequests) * 100
+      : 0;
+
+    const currentErrorRate = 100 - currentSuccessRate;
+    const previousErrorRate = 100 - previousSuccessRate;
+
+    // Use latency average from aggregation
+    const currentAvgLatency = trendData.current.latencyAvg;
+    const previousAvgLatency = trendData.previous.latencyAvg;
+
+    // Use average feedback rating from aggregation
+    const currentAvgRating = trendData.current.avgFeedbackRating;
+    const previousAvgRating = trendData.previous.avgFeedbackRating;
+
+    // Calculate metric trends
+    const trends: TrendComparison = {
+      period: {
+        current: { startDate, endDate },
+        previous: { startDate: previousStart, endDate: previousEnd },
+        comparisonType
+      },
+      metrics: {
+        errorRate: createMetricTrend(currentErrorRate, previousErrorRate, true),
+        avgLatency: createMetricTrend(currentAvgLatency, previousAvgLatency, true),
+        totalCost: createMetricTrend(trendData.current.totalCostUsd, trendData.previous.totalCostUsd, true),
+        avgRating: createMetricTrend(currentAvgRating, previousAvgRating, false),
+        requestCount: createMetricTrend(trendData.current.totalRequests, trendData.previous.totalRequests, false)
+      },
+      byService: {} as any,
+      insights: []
+    };
+
+    // Calculate service-level trends
+    for (const svc of Object.values(AIServiceType)) {
+      const currSvc = trendData.current.byService[svc];
+      const prevSvc = trendData.previous.byService[svc];
+
+      const currSvcErrorRate = 100 - currSvc.successRate;
+      const prevSvcErrorRate = 100 - prevSvc.successRate;
+
+      trends.byService[svc] = {
+        errorRate: createMetricTrend(currSvcErrorRate, prevSvcErrorRate, true),
+        avgLatency: createMetricTrend(currSvc.avgLatency, prevSvc.avgLatency, true),
+        cost: createMetricTrend(currSvc.totalCost, prevSvc.totalCost, true)
+      };
+    }
+
+    // Get base dashboard data
+    const dashboardData = await this.getDashboardData(startDate, endDate, service);
+
+    // Generate insights
+    trends.insights = generateTrendInsights(trends.metrics);
+
+    return {
+      current: trendData.current,
+      previous: trendData.previous,
+      trends,
+      dateRange: {
+        days: Math.ceil(periodLength / (1000 * 60 * 60 * 24)),
+        startDate,
+        endDate
+      }
+    };
+  }
+
+  /**
+   * Get seasonality analysis (day-of-week patterns)
+   */
+  async getSeasonalityAnalysis(
+    startDate: Date,
+    endDate: Date,
+    service?: AIServiceType
+  ): Promise<{
+    patterns: SeasonalityPattern[];
+    insights: string[];
+    summary: {
+      busiestDay: string;
+      slowestDay: string;
+      avgErrorRateVariance: number;
+      avgLatencyVariance: number;
+    };
+  }> {
+    await this.init();
+
+    // Get raw patterns from repository
+    const patterns = await this.metricsRepo!.getSeasonalityPatterns(
+      startDate,
+      endDate,
+      service
+    );
+
+    if (patterns.length === 0) {
+      return {
+        patterns: [],
+        insights: ['Insufficient data for seasonality analysis'],
+        summary: {
+          busiestDay: 'N/A',
+          slowestDay: 'N/A',
+          avgErrorRateVariance: 0,
+          avgLatencyVariance: 0
+        }
+      };
+    }
+
+    // Calculate averages for deviation analysis
+    const avgRequests = patterns.reduce((sum, p) => sum + p.metrics.requestCount, 0) / patterns.length;
+    const avgErrorRate = patterns.reduce((sum, p) => sum + p.metrics.avgErrorRate, 0) / patterns.length;
+    const avgLatency = patterns.reduce((sum, p) => sum + p.metrics.avgLatency, 0) / patterns.length;
+
+    // Enrich patterns with day names and deviations
+    const enrichedPatterns = patterns.map(pattern => ({
+      dayName: getDayName(pattern.dayOfWeek === 0 ? 6 : pattern.dayOfWeek - 1), // Adjust MongoDB day numbering
+      avgErrorRate: pattern.metrics.avgErrorRate,
+      requestCount: pattern.metrics.requestCount,
+      avgLatency: pattern.metrics.avgLatency,
+      errorRateDeviation: calculateDeviation(pattern.metrics.avgErrorRate, avgErrorRate),
+      requestDeviation: calculateDeviation(pattern.metrics.requestCount, avgRequests),
+      latencyDeviation: calculateDeviation(pattern.metrics.avgLatency, avgLatency)
+    }));
+
+    // Find busiest and slowest days
+    const sortedByRequests = [...enrichedPatterns].sort((a, b) => b.requestCount - a.requestCount);
+    const busiestDay = sortedByRequests[0].dayName;
+    const slowestDay = sortedByRequests[sortedByRequests.length - 1].dayName;
+
+    // Calculate variances
+    const errorRateVariance = Math.sqrt(
+      patterns.reduce((sum, p) => sum + Math.pow(p.metrics.avgErrorRate - avgErrorRate, 2), 0) / patterns.length
+    );
+    const latencyVariance = Math.sqrt(
+      patterns.reduce((sum, p) => sum + Math.pow(p.metrics.avgLatency - avgLatency, 2), 0) / patterns.length
+    );
+
+    // Generate insights
+    const insights = generateSeasonalityInsights(enrichedPatterns, avgRequests);
+
+    // Build proper SeasonalityPattern structure
+    const sortedByError = [...enrichedPatterns].sort((a, b) => b.avgErrorRate - a.avgErrorRate);
+    const sortedByLatency = [...enrichedPatterns].sort((a, b) => b.avgLatency - a.avgLatency);
+
+    const result: SeasonalityPattern = {
+      dateRange: {
+        startDate,
+        endDate,
+        totalDays: Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+      },
+      service,
+      byDayOfWeek: patterns.map(p => {
+        const dayName = getDayName(p.dayOfWeek === 0 ? 6 : p.dayOfWeek - 1);
+        return {
+          dayOfWeek: p.dayOfWeek,
+          dayName,
+          metrics: {
+            requestCount: p.metrics.requestCount,
+            avgErrorRate: p.metrics.avgErrorRate,
+            avgLatency: p.metrics.avgLatency,
+            avgCost: p.metrics.totalCost / (p.metrics.requestCount || 1),
+            successRate: p.metrics.successRate
+          },
+          deviation: {
+            errorRateDeviation: calculateDeviation(p.metrics.avgErrorRate, avgErrorRate),
+            latencyDeviation: calculateDeviation(p.metrics.avgLatency, avgLatency),
+            requestDeviation: calculateDeviation(p.metrics.requestCount, avgRequests)
+          }
+        };
+      }),
+      weeklyAverages: {
+        avgErrorRate,
+        avgLatency,
+        avgRequestCount: avgRequests,
+        avgCost: patterns.reduce((sum, p) => sum + p.metrics.totalCost, 0) / patterns.length
+      },
+      insights,
+      outliers: {
+        highestErrorDay: sortedByError[0].dayName,
+        lowestErrorDay: sortedByError[sortedByError.length - 1].dayName,
+        busiestDay,
+        quietestDay: slowestDay
+      }
+    };
+
+    return {
+      patterns: [result],
+      insights,
+      summary: {
+        busiestDay,
+        slowestDay,
+        avgErrorRateVariance: errorRateVariance,
+        avgLatencyVariance: latencyVariance
+      }
+    };
+  }
+
+  /**
+   * Get quality trends based on edit behavior
+   */
+  async getQualityTrends(
+    startDate: Date,
+    endDate: Date,
+    service?: AIServiceType
+  ): Promise<QualityTrend> {
+    await this.init();
+
+    // Get edit-based quality data from repository
+    const qualityData = await this.metricsRepo!.getEditBasedQuality(
+      startDate,
+      endDate,
+      service
+    );
+
+    // Calculate overall quality score
+    const overallScore = calculateQualityScore(qualityData.overall.avgEditPercentage);
+    const overallBand = getQualityBand(overallScore);
+
+    // Calculate service scores for insights
+    const serviceScores = Object.entries(qualityData.byService).map(([svc, data]) => ({
+      service: svc,
+      score: calculateQualityScore(data.avgEditPercentage),
+      band: getQualityBand(calculateQualityScore(data.avgEditPercentage))
+    }));
+
+    // Build overall trend (mock trend for now, would need historical data for real trend)
+    const mockTrend = createMetricTrend(overallScore, overallScore, false);
+
+    const overall: QualityTrend = {
+      dateRange: { startDate, endDate },
+      overall: {
+        score: overallScore,
+        band: overallBand,
+        avgEditPercentage: qualityData.overall.avgEditPercentage,
+        deleteRate: 0, // Not tracked yet
+        feedbackCount: qualityData.overall.feedbackCount,
+        trend: mockTrend
+      },
+      byService: {} as any,
+      insights: [],
+      recommendations: []
+    };
+
+    // Calculate quality trends by service
+    for (const [svc, data] of Object.entries(qualityData.byService)) {
+      const score = calculateQualityScore(data.avgEditPercentage);
+      const trend = createMetricTrend(score, score, false);
+
+      overall.byService[svc as AIServiceType] = {
+        score,
+        band: getQualityBand(score),
+        avgEditPercentage: data.avgEditPercentage,
+        deleteRate: 0,
+        feedbackCount: data.feedbackCount,
+        trend
+      };
+    }
+
+    // Generate insights
+    overall.insights = generateQualityInsights(overallScore, mockTrend, serviceScores);
+
+    return overall;
   }
 }
 

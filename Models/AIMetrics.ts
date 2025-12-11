@@ -354,3 +354,20 @@ export const AI_METRICS_COLLECTIONS = {
   ALERTS: 'ai_alerts',
   DAILY_SUMMARIES: 'ai_daily_summaries'
 } as const;
+
+// Export trend analysis types
+export type {
+  TrendComparison,
+  SeasonalityPattern,
+  QualityTrend,
+  DashboardWithTrends,
+  MetricTrend,
+  DayOfWeekPattern,
+  QualityScore
+} from '../types/AITrendTypes';
+
+export {
+  TrendDirection,
+  ComparisonType,
+  QualityBand
+} from '../types/AITrendTypes';
