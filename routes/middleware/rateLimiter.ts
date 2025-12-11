@@ -78,7 +78,7 @@ export const generalApiRateLimit = rateLimit({
   },
 });
 
-// Aggressive rate limiting for password change operations
+// Aggressive rate limiting for password change operations (user self-service)
 export const passwordChangeRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3, // 3 password changes per hour per IP
@@ -90,6 +90,20 @@ export const passwordChangeRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: createRateLimitHandler("PASSWORD_CHANGE"),
+});
+
+// More lenient rate limiting for admin password reset operations
+export const adminPasswordResetRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20, // 20 password resets per hour per IP (for admins managing multiple users)
+  message: {
+    success: false,
+    message: "Too many password reset attempts. Please try again in 1 hour.",
+    retryAfter: "1 hour",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: createRateLimitHandler("ADMIN_PASSWORD_RESET"),
 });
 
 // Very strict rate limiting for account creation (admin only, but still protected)
@@ -142,7 +156,12 @@ export const getRateLimitInfo = () => {
     passwordChange: {
       windowMs: 60 * 60 * 1000,
       max: 3,
-      description: "Password change operations",
+      description: "Password change operations (user self-service)",
+    },
+    adminPasswordReset: {
+      windowMs: 60 * 60 * 1000,
+      max: 20,
+      description: "Admin password reset operations",
     },
     accountCreation: {
       windowMs: 60 * 60 * 1000,

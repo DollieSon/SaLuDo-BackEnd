@@ -30,7 +30,6 @@ export interface UserData {
   passwordResetToken?: string;
   passwordResetExpires?: Date;
   // Security fields for admin-created accounts
-  mustChangePassword: boolean;        // Force password change on first/next login
   failedLoginAttempts: number;        // Track consecutive failed login attempts
   accountLockedUntil?: Date;          // Temporary account lock timestamp
   passwordChangedAt?: Date;           // Last password change timestamp
@@ -70,7 +69,6 @@ export interface UpdateUserData {
   isActive?: boolean;
   isVerified?: boolean;
   passwordHash?: string; // For password updates
-  mustChangePassword?: boolean; // For enforcing password change
   passwordChangedAt?: Date; // For recording password change timestamp
   failedLoginAttempts?: number; // For tracking login attempts
   accountLockedUntil?: Date; // For account lockout

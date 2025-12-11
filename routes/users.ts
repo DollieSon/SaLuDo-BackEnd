@@ -32,6 +32,7 @@ import {
   authRateLimit,
   userOperationRateLimit,
   passwordChangeRateLimit,
+  adminPasswordResetRateLimit,
   accountCreationRateLimit,
 } from "./middleware/rateLimiter";
 import { UserRole, User } from "../Models/User";
@@ -256,7 +257,6 @@ router.post(
         refreshToken,
         accessTokenExpiry,
         refreshTokenExpiry,
-        mustChangePassword: user.mustChangePassword,
         // Legacy field for backward compatibility
         token: accessToken,
       },
@@ -389,13 +389,12 @@ router.post(
     res.status(CREATED).json({
       success: true,
       message:
-        "User created successfully. Password change required on first login.",
+        "User created successfully.",
       data: {
         userId: newUser.userId,
         email: newUser.email,
         fullName: newUser.getFullName(),
         role: newUser.role,
-        mustChangePassword: newUser.mustChangePassword,
       },
     });
   })
@@ -404,7 +403,7 @@ router.post(
 // Reset user password (Admin only) - LEGACY ENDPOINT
 router.put(
   "/:userId/reset-password",
-  passwordChangeRateLimit, // Apply password change rate limiting
+  adminPasswordResetRateLimit, // Apply admin password reset rate limiting
   AuthMiddleware.authenticate,
   AuthMiddleware.requireRole(UserRole.ADMIN),
   UserValidation.validateUserId,
@@ -443,16 +442,16 @@ router.put(
   })
 );
 
-// Admin reset user password - Generate temporary password and email user
+// Admin reset user password - Set custom password or generate random
 router.post(
   "/:userId/reset-password",
-  passwordChangeRateLimit,
+  adminPasswordResetRateLimit,
   AuthMiddleware.authenticate,
   AuthMiddleware.requireRole(UserRole.ADMIN),
   UserValidation.validateUserId,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { userId } = req.params;
-    const { reason } = req.body; // Optional reason for audit trail
+    const { reason, customPassword } = req.body; // Optional reason and custom password
 
     // Get target user
     const targetUser = await userService.getUserProfile(userId);
@@ -464,35 +463,59 @@ router.post(
       return;
     }
 
-    // Generate temporary password (12 characters with uppercase, lowercase, numbers, symbols)
-    const crypto = await import('crypto');
-    const tempPassword = crypto.randomBytes(12)
-      .toString('base64')
-      .replace(/[+/=]/g, '')
-      .substring(0, 12) + 
-      crypto.randomInt(0, 10).toString() + 
-      ['!', '@', '#', '$', '%'][crypto.randomInt(0, 5)];
+    let newPassword: string;
 
-    // Hash the temporary password
-    const hashedPassword = await PasswordUtils.hashPassword(tempPassword);
+    // Use custom password if provided, otherwise generate random
+    if (customPassword) {
+      // Validate custom password
+      if (customPassword.length < 8) {
+        res.status(BAD_REQUEST).json({
+          success: false,
+          message: "Password must be at least 8 characters long"
+        });
+        return;
+      }
+      // Additional validation: uppercase, lowercase, number, special char
+      if (!/[A-Z]/.test(customPassword) || !/[a-z]/.test(customPassword) || 
+          !/[0-9]/.test(customPassword) || !/[!@#$%^&*(),.?":{}|<>]/.test(customPassword)) {
+        res.status(BAD_REQUEST).json({
+          success: false,
+          message: "Password must contain uppercase, lowercase, number, and special character"
+        });
+        return;
+      }
+      newPassword = customPassword;
+    } else {
+      // Generate random password (12 characters with uppercase, lowercase, numbers, symbols)
+      const crypto = await import('crypto');
+      newPassword = crypto.randomBytes(12)
+        .toString('base64')
+        .replace(/[+/=]/g, '')
+        .substring(0, 12) + 
+        crypto.randomInt(0, 10).toString() + 
+        ['!', '@', '#', '$', '%'][crypto.randomInt(0, 5)];
+    }
 
-    // Update user password and set mustChangePassword flag
-    await userService.resetUserPassword(userId, hashedPassword);
+    // Hash the password
+    const hashedPassword = await PasswordUtils.hashPassword(newPassword);
+
+    // Update user password - NO mustChangePassword flag
     const db = await connectDB();
     const userRepository = new UserRepository(db);
     await userRepository.updateUser(userId, {
-      mustChangePassword: true,
       passwordHash: hashedPassword,
+      passwordChangedAt: new Date(),
     });
 
-    // Send email with temporary password
+    // Send email with new password
     const { emailService } = await import("../services/EmailService");
     const { templateService } = await import("../services/TemplateService");
     
+    let emailSent = false;
     try {
       // Render email template
       const emailHtml = await templateService.renderTemplate('password-reset-admin', {
-        temporaryPassword: tempPassword,
+        temporaryPassword: newPassword,
         reason: reason || undefined,
         recipientName: `${targetUser.firstName} ${targetUser.lastName}`,
         appName: 'SaLuDo',
@@ -509,6 +532,7 @@ router.post(
         userEmail: req.user?.email,
         ipAddress: req.ip
       });
+      emailSent = true;
     } catch (emailError) {
       console.error('Failed to send password reset email:', emailError);
       // Continue even if email fails - admin can inform user manually
@@ -529,8 +553,8 @@ router.post(
           adminId: req.user?.userId,
           adminEmail: req.user?.email,
           reason: reason || 'No reason provided',
+          wasCustomPassword: !!customPassword,
           timestamp: new Date().toISOString(),
-          mustChangePassword: true
         },
       }
     );
@@ -541,104 +565,27 @@ router.post(
         await notificationService.notifySecurityEvent(
           NotificationType.PASSWORD_CHANGED,
           userId,
-          'Your password has been reset by an administrator. Check your email for the temporary password.',
+          'Your password has been reset by an administrator.' + 
+          (emailSent ? ' Check your email for the new password.' : ' Please contact your administrator for the new password.'),
           {
             resetBy: req.user?.userId,
             resetByEmail: req.user?.email,
-            mustChangePassword: true,
             timestamp: new Date().toISOString(),
             reason: reason || undefined
           }
         );
       } catch (notifError) {
-        console.error('Failed to send PASSWORD_CHANGED notification:', notifError);
+        console.error('Failed to send notification:', notifError);
       }
     }
 
+    // Return the password to admin
     res.json({
       success: true,
-      message: "Password reset successfully. Temporary password has been emailed to the user.",
+      message: "Password reset successfully.",
       data: {
-        mustChangePassword: true,
-        emailSent: true
-      }
-    });
-  })
-);
-
-// Admin force password change - Set flag requiring user to change password on next login
-router.post(
-  "/:userId/force-change-password",
-  passwordChangeRateLimit,
-  AuthMiddleware.authenticate,
-  AuthMiddleware.requireRole(UserRole.ADMIN),
-  UserValidation.validateUserId,
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { userId } = req.params;
-    const { reason } = req.body; // Optional reason for audit trail
-
-    // Get target user
-    const targetUser = await userService.getUserProfile(userId);
-    if (!targetUser) {
-      res.status(NOT_FOUND).json({
-        success: false,
-        message: "User not found",
-      });
-      return;
-    }
-
-    // Set mustChangePassword flag
-    const db = await connectDB();
-    const userRepository = new UserRepository(db);
-    await userRepository.updateUser(userId, {
-      mustChangePassword: true,
-    });
-
-    // Log audit event
-    const auditContext = AuditLogService.createAuditContext(req, req.user);
-    await auditLogService.logSecurityEvent(
-      AuditEventType.PASSWORD_CHANGE_FORCED,
-      auditContext,
-      {
-        action: "Admin forced password change",
-        resource: "user",
-        metadata: {
-          resourceId: userId,
-          targetUserId: userId,
-          targetUserEmail: targetUser.email,
-          adminId: req.user?.userId,
-          adminEmail: req.user?.email,
-          reason: reason || 'No reason provided',
-          timestamp: new Date().toISOString()
-        },
-      }
-    );
-
-    // Notify user
-    if (notificationService) {
-      try {
-        await notificationService.notifySecurityEvent(
-          NotificationType.PASSWORD_CHANGED,
-          userId,
-          'An administrator has required you to change your password on your next login.',
-          {
-            forcedBy: req.user?.userId,
-            forcedByEmail: req.user?.email,
-            mustChangePassword: true,
-            timestamp: new Date().toISOString(),
-            reason: reason || undefined
-          }
-        );
-      } catch (notifError) {
-        console.error('Failed to send PASSWORD_CHANGED notification:', notifError);
-      }
-    }
-
-    res.json({
-      success: true,
-      message: "User will be required to change password on next login.",
-      data: {
-        mustChangePassword: true
+        password: newPassword, // Return plaintext password to admin
+        emailSent: emailSent
       }
     });
   })
@@ -1366,7 +1313,6 @@ router.post(
     // Update password in database
     await userRepository.updateUser(userId, {
       passwordHash: newPasswordHash,
-      mustChangePassword: false,
       passwordChangedAt: new Date(),
       failedLoginAttempts: 0, // Reset failed attempts on successful password change
     });

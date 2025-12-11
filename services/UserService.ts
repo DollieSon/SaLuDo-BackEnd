@@ -41,11 +41,10 @@ export class UserService {
     return User.fromObject(userObj);
   }
 
-  // Admin-only: Reset user password and require change on next login
+  // Admin-only: Reset user password
   async resetUserPassword(userId: string, newPassword: string): Promise<void> {
     await this.userRepository.updateUser(userId, {
       passwordHash: newPassword, // hashed password
-      mustChangePassword: true,
       passwordChangedAt: new Date(),
     });
   }
