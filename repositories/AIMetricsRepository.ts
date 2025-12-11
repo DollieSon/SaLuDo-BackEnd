@@ -459,6 +459,32 @@ export class AIMetricsRepository {
   }
 
   /**
+   * Get min and max latency values
+   */
+  async getLatencyMinMax(
+    startDate: Date,
+    endDate: Date
+  ): Promise<{ min: number; max: number }> {
+    const result = await this.metricsCollection
+      .aggregate([
+        { $match: { timestamp: { $gte: startDate, $lte: endDate }, success: true } },
+        {
+          $group: {
+            _id: null,
+            minLatency: { $min: '$latencyMs' },
+            maxLatency: { $max: '$latencyMs' }
+          }
+        }
+      ])
+      .toArray();
+    
+    return {
+      min: result[0]?.minLatency || 0,
+      max: result[0]?.maxLatency || 0
+    };
+  }
+
+  /**
    * Get feedback statistics
    */
   private async getFeedbackStats(

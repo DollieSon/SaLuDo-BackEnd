@@ -598,27 +598,50 @@ export class AIMetricsService {
     endDate: Date
   ): Promise<{
     average: number;
+    min: number;
+    max: number;
     percentiles: { p50: number; p90: number; p95: number; p99: number };
-    byService: Record<AIServiceType, { avg: number; p95: number }>;
+    byService: Record<AIServiceType, { avg: number; p50: number; p95: number; p99: number }>;
     trends: { date: Date; avgLatency: number }[];
+    perServiceTrends: Record<AIServiceType, Array<{ date: Date; avgLatency: number }>>;
   }> {
     await this.init();
 
     const aggregation = await this.metricsRepo!.getAggregatedMetrics(startDate, endDate);
     const dailySummaries = await this.metricsRepo!.getDailySummaries({ startDate, endDate });
 
+    // Calculate min/max latency
+    const { min: minLatency, max: maxLatency } = await this.metricsRepo!.getLatencyMinMax(startDate, endDate);
+
     // Calculate by service
     const byService: Record<AIServiceType, any> = {} as any;
+    const perServiceTrends: Record<AIServiceType, Array<{ date: Date; avgLatency: number }>> = {} as any;
+    
     for (const svc of Object.values(AIServiceType)) {
       const svcAgg = await this.metricsRepo!.getAggregatedMetrics(startDate, endDate, svc);
       byService[svc] = {
         avg: svcAgg.latencyAvg,
-        p95: svcAgg.latencyP95
+        p50: svcAgg.latencyP50,
+        p95: svcAgg.latencyP95,
+        p99: svcAgg.latencyP99
       };
+      
+      // Get daily trends per service
+      const svcDailySummaries = await this.metricsRepo!.getDailySummaries({
+        startDate,
+        endDate,
+        service: svc
+      });
+      perServiceTrends[svc] = svcDailySummaries.map(d => ({
+        date: d.date,
+        avgLatency: d.avgLatencyMs
+      }));
     }
 
     return {
       average: aggregation.latencyAvg,
+      min: minLatency,
+      max: maxLatency,
       percentiles: {
         p50: aggregation.latencyP50,
         p90: aggregation.latencyP90,
@@ -629,7 +652,8 @@ export class AIMetricsService {
       trends: dailySummaries.map(d => ({
         date: d.date,
         avgLatency: d.avgLatencyMs
-      }))
+      })),
+      perServiceTrends
     };
   }
 
@@ -1184,16 +1208,37 @@ export class AIMetricsService {
   ): Promise<QualityTrend> {
     await this.init();
 
-    // Get edit-based quality data from repository
+    // Get edit-based quality data from repository for current period
     const qualityData = await this.metricsRepo!.getEditBasedQuality(
       startDate,
       endDate,
       service
     );
 
-    // Calculate overall quality score
+    // Calculate previous period dates for comparison
+    const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    const previousStartDate = new Date(startDate);
+    previousStartDate.setDate(previousStartDate.getDate() - daysDiff);
+    const previousEndDate = new Date(startDate);
+    previousEndDate.setDate(previousEndDate.getDate() - 1);
+
+    // Get previous period data for trend comparison
+    let previousQualityData;
+    try {
+      previousQualityData = await this.metricsRepo!.getEditBasedQuality(
+        previousStartDate,
+        previousEndDate,
+        service
+      );
+    } catch (err) {
+      // If no previous data exists, use current data (no trend)
+      previousQualityData = qualityData;
+    }
+
+    // Calculate overall quality scores
     const overallScore = calculateQualityScore(qualityData.overall.avgEditPercentage);
     const overallBand = getQualityBand(overallScore);
+    const previousOverallScore = calculateQualityScore(previousQualityData.overall.avgEditPercentage);
 
     // Calculate service scores for insights
     const serviceScores = Object.entries(qualityData.byService).map(([svc, data]) => ({
@@ -1202,8 +1247,8 @@ export class AIMetricsService {
       band: getQualityBand(calculateQualityScore(data.avgEditPercentage))
     }));
 
-    // Build overall trend (mock trend for now, would need historical data for real trend)
-    const mockTrend = createMetricTrend(overallScore, overallScore, false);
+    // Build overall trend with real comparison
+    const overallTrend = createMetricTrend(overallScore, previousOverallScore, false);
 
     const overall: QualityTrend = {
       dateRange: { startDate, endDate },
@@ -1213,7 +1258,7 @@ export class AIMetricsService {
         avgEditPercentage: qualityData.overall.avgEditPercentage,
         deleteRate: 0, // Not tracked yet
         feedbackCount: qualityData.overall.feedbackCount,
-        trend: mockTrend
+        trend: overallTrend
       },
       byService: {} as any,
       insights: [],
@@ -1223,7 +1268,9 @@ export class AIMetricsService {
     // Calculate quality trends by service
     for (const [svc, data] of Object.entries(qualityData.byService)) {
       const score = calculateQualityScore(data.avgEditPercentage);
-      const trend = createMetricTrend(score, score, false);
+      const previousData = previousQualityData.byService[svc as AIServiceType];
+      const previousScore = previousData ? calculateQualityScore(previousData.avgEditPercentage) : score;
+      const trend = createMetricTrend(score, previousScore, false);
 
       overall.byService[svc as AIServiceType] = {
         score,
@@ -1236,7 +1283,7 @@ export class AIMetricsService {
     }
 
     // Generate insights
-    overall.insights = generateQualityInsights(overallScore, mockTrend, serviceScores);
+    overall.insights = generateQualityInsights(overallScore, overallTrend, serviceScores);
 
     return overall;
   }

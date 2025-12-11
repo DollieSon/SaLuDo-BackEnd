@@ -695,4 +695,98 @@ router.get('/trends/quality', AuthMiddleware.authenticate, AuthMiddleware.requir
   }
 });
 
+/**
+ * @route   GET /api/ai-metrics/calls
+ * @desc    Get paginated AI call history with filters
+ * @access  Private (Admin)
+ * @query   page - Page number (default: 1)
+ * @query   limit - Items per page (default: 50, max: 200)
+ * @query   service - Filter by service type
+ * @query   success - Filter by success status (true/false)
+ * @query   candidateId - Filter by candidate ID
+ * @query   userId - Filter by user ID
+ * @query   startDate - Start date (ISO string)
+ * @query   endDate - End date (ISO string)
+ */
+router.get('/calls', AuthMiddleware.authenticate, AuthMiddleware.requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const db = await connectDB();
+    const metricsService = new AIMetricsService(db);
+    
+    // Parse pagination
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const offset = (page - 1) * limit;
+    
+    // Parse filters
+    const filters: any = {};
+    
+    if (req.query.service) {
+      filters.service = req.query.service as AIServiceType;
+    }
+    
+    if (req.query.success !== undefined) {
+      filters.success = req.query.success === 'true';
+    }
+    
+    if (req.query.candidateId) {
+      filters.candidateId = req.query.candidateId as string;
+    }
+    
+    if (req.query.userId) {
+      filters.userId = req.query.userId as string;
+    }
+    
+    if (req.query.startDate) {
+      filters.startDate = new Date(req.query.startDate as string);
+    }
+    
+    if (req.query.endDate) {
+      filters.endDate = new Date(req.query.endDate as string);
+    }
+    
+    filters.limit = limit;
+    filters.offset = offset;
+    
+    const result = await metricsService.getMetrics(filters);
+    
+    await AuditLogger.log({
+      eventType: AuditEventType.REPORT_GENERATED,
+      userId: req.user?.userId,
+      userEmail: req.user?.email,
+      resource: 'ai-metrics',
+      resourceId: 'calls',
+      action: 'viewed',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        reportType: 'call_history',
+        page,
+        limit,
+        filters
+      }
+    });
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        entries: result.entries,
+        pagination: {
+          page,
+          pageSize: limit,
+          total: result.total,
+          totalPages: Math.ceil(result.total / limit)
+        }
+      }
+    });
+  } catch (error: any) {
+    console.error('Error fetching call history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch call history',
+      error: error.message
+    });
+  }
+});
+
 export default router;
