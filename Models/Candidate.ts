@@ -801,6 +801,7 @@ export interface PersonalInfoData {
   lastAssignedBy: string | null;
   socialLinks: SocialLink[];
   statusHistory?: StatusHistoryEntry[];
+  scoreHistory?: ScoreHistoryEntry[];
 }
 export interface ResumeData {
   candidateId: string;

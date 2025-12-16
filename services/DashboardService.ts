@@ -159,7 +159,7 @@ export class DashboardService {
         // Get candidates who have scores for this job
         const candidatesForJob = await this.personalInfoRepo.findAll();
         const candidatesWithJobScores = candidatesForJob.filter(candidate => 
-          candidate.scoreHistory && candidate.scoreHistory.some(score => score.jobId === jobId)
+          candidate.scoreHistory && candidate.scoreHistory.some((score: any) => score.jobId === jobId)
         );
         
         // Calculate average score for this job
@@ -167,11 +167,11 @@ export class DashboardService {
         if (candidatesWithJobScores.length > 0) {
           const jobScores = candidatesWithJobScores.map(candidate => {
             // Find the most recent score for this specific job
-            const jobScore = candidate.scoreHistory
-              .filter(score => score.jobId === jobId)
-              .sort((a, b) => new Date(b.calculatedAt).getTime() - new Date(a.calculatedAt).getTime())[0];
+            const jobScore = candidate.scoreHistory!
+              .filter((score: any) => score.jobId === jobId)
+              .sort((a: any, b: any) => new Date(b.calculatedAt).getTime() - new Date(a.calculatedAt).getTime())[0];
             return jobScore ? jobScore.overallScore : 0;
-          }).filter(score => score > 0);
+          }).filter((score: number) => score > 0);
           
           if (jobScores.length > 0) {
             avgScore = Math.round((jobScores.reduce((sum, score) => sum + score, 0) / jobScores.length) * 10) / 10;
