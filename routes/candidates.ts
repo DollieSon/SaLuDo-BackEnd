@@ -703,5 +703,39 @@ router.get(
   })
 );
 
+// ====================
+// STATUS HISTORY ENDPOINT
+// ====================
+
+/**
+ * GET /api/candidates/:candidateId/status-history
+ * Get status change history for a candidate
+ */
+router.get(
+  "/:candidateId/status-history",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+
+    const candidate = await candidateService.getCandidate(candidateId);
+
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidate not found'
+      });
+    }
+
+    const statusHistory = candidate.getStatusHistory();
+
+    res.json({
+      success: true,
+      data: statusHistory,
+      count: statusHistory.length
+    });
+  })
+);
+
 router.use(errorHandler);
 export default router;

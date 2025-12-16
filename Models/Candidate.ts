@@ -84,9 +84,23 @@ export interface ScoreHistoryEntry {
   overallScore: number;
   breakdown: ScoreBreakdown;
   confidence: number;
-  mode: 'job-specific' | 'general';
+  scoringSettingsId: string; // References the ScoringPreferences used for calculation
+  scoringSettingsName: string; // Human-readable name (e.g., "Global Settings" or "Job-specific: Software Engineer")
   calculatedAt: Date;
   calculatedBy?: string;
+}
+
+/**
+ * Status history entry for tracking status transitions
+ */
+export interface StatusHistoryEntry {
+  historyId: string;
+  candidateId: string;
+  oldStatus: CandidateStatus;
+  newStatus: CandidateStatus;
+  changedAt: Date;
+  changedBy?: string;
+  changedByEmail?: string;
 }
 
 /**
@@ -136,6 +150,10 @@ export class Candidate {
   public aiInsights?: CandidateAIInsights;  // Cached AI-generated insights
   public insightsGeneratedAt?: Date;        // When AI insights were last generated
   public lastScoreCalculatedAt?: Date;      // When score was last calculated
+
+  // Status History Information
+  public statusHistory: StatusHistoryEntry[]; // History of status changes (max 50)
+
   constructor(
     candidateId: string,
     name: string,
@@ -178,6 +196,7 @@ export class Candidate {
     this.introductionVideos = [];
     this.personality = new Personality(); // Create empty personality for new candidate
     this.scoreHistory = []; // Initialize empty score history
+    this.statusHistory = []; // Initialize empty status history
   }
 
   // =======================
@@ -222,6 +241,9 @@ export class Candidate {
     candidate.aiInsights = data.aiInsights;
     candidate.insightsGeneratedAt = data.insightsGeneratedAt ? new Date(data.insightsGeneratedAt) : undefined;
     candidate.lastScoreCalculatedAt = data.lastScoreCalculatedAt ? new Date(data.lastScoreCalculatedAt) : undefined;
+
+    // Populate status history
+    candidate.statusHistory = data.statusHistory || [];
 
     return candidate;
   }
@@ -325,6 +347,7 @@ export class Candidate {
       aiInsights: this.aiInsights,
       insightsGeneratedAt: this.insightsGeneratedAt,
       lastScoreCalculatedAt: this.lastScoreCalculatedAt,
+      statusHistory: this.statusHistory,
     };
   }
   getPersonalInfo(): PersonalInfoData {
@@ -342,6 +365,7 @@ export class Candidate {
       lastAssignedAt: this.lastAssignedAt,
       lastAssignedBy: this.lastAssignedBy,
       socialLinks: this.socialLinks,
+      statusHistory: this.statusHistory,
     };
   }
   getResumeData(): ResumeData {
@@ -656,6 +680,41 @@ export class Candidate {
     return 'stable';
   }
 
+  // =======================
+  // STATUS HISTORY METHODS
+  // =======================
+
+  /**
+   * Get all status history entries
+   */
+  getStatusHistory(): StatusHistoryEntry[] {
+    return this.statusHistory || [];
+  }
+
+  /**
+   * Get the most recent status change
+   */
+  getLatestStatusChange(): StatusHistoryEntry | null {
+    if (!this.statusHistory || this.statusHistory.length === 0) {
+      return null;
+    }
+    return this.statusHistory[this.statusHistory.length - 1];
+  }
+
+  /**
+   * Get status history count
+   */
+  getStatusHistoryCount(): number {
+    return this.statusHistory?.length || 0;
+  }
+
+  /**
+   * Check if status has ever been changed
+   */
+  hasStatusHistory(): boolean {
+    return this.statusHistory && this.statusHistory.length > 0;
+  }
+
   /**
    * Get average score from history
    */
@@ -724,6 +783,8 @@ export interface CandidateData {
   aiInsights?: CandidateAIInsights;
   insightsGeneratedAt?: Date;
   lastScoreCalculatedAt?: Date;
+  // Status History
+  statusHistory?: StatusHistoryEntry[];
 }
 export interface PersonalInfoData {
   candidateId: string;
@@ -739,6 +800,7 @@ export interface PersonalInfoData {
   lastAssignedAt: Date | null;
   lastAssignedBy: string | null;
   socialLinks: SocialLink[];
+  statusHistory?: StatusHistoryEntry[];
 }
 export interface ResumeData {
   candidateId: string;

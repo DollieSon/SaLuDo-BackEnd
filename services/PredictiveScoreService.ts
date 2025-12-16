@@ -115,7 +115,8 @@ export interface ScoreHistoryEntry {
   overallScore: number;
   breakdown: ScoreBreakdown;
   confidence: number;
-  mode: 'job-specific' | 'general';
+  scoringSettingsId: string; // References the ScoringPreferences used for calculation
+  scoringSettingsName: string; // Human-readable name (e.g., "Global Settings" or "Job-specific: Software Engineer")
   calculatedAt: Date;
   calculatedBy?: string;
 }
@@ -289,8 +290,9 @@ export class PredictiveScoreService {
       modifiersUsed: preferences.modifiers
     };
 
-    // Save to history
-    await this.saveScoreHistory(result, userId);
+    // Save to history with scoring settings ID and job name
+    const jobName = job?.jobName;
+    await this.saveScoreHistory(result, userId, preferences.preferencesId, jobName);
 
     return result;
   }
@@ -696,8 +698,13 @@ export class PredictiveScoreService {
   /**
    * Save score to history
    */
-  private async saveScoreHistory(result: PredictiveScoreResult, userId?: string): Promise<void> {
+  private async saveScoreHistory(result: PredictiveScoreResult, userId?: string, scoringSettingsId?: string, jobName?: string): Promise<void> {
     await this.init();
+
+    // Build human-readable settings name
+    const scoringSettingsName = result.jobId && jobName
+      ? `Job-specific: ${jobName}`
+      : 'Global Settings';
 
     const historyEntry: ScoreHistoryEntry = {
       historyId: new ObjectId().toString(),
@@ -706,7 +713,8 @@ export class PredictiveScoreService {
       overallScore: result.overallScore,
       breakdown: result.breakdown,
       confidence: result.confidence,
-      mode: result.mode,
+      scoringSettingsId: scoringSettingsId || 'unknown',
+      scoringSettingsName,
       calculatedAt: result.calculatedAt,
       calculatedBy: userId
     };

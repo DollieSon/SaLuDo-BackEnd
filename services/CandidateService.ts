@@ -12,6 +12,7 @@ import {
   ResumeMetadata,
   TranscriptMetadata,
   VideoMetadata,
+  StatusHistoryEntry,
 } from "../Models/Candidate";
 import { Skill } from "../Models/Skill";
 import { Experience } from "../Models/Experience";
@@ -368,9 +369,25 @@ export class CandidateService {
         updatedData.status
       ) {
         if (updatedData.status && oldCandidate?.status !== updatedData.status) {
+          // Ensure oldCandidate has a status
+          if (!oldCandidate?.status) {
+            throw new Error('Cannot update status: candidate has no existing status');
+          }
+
           changes.status = {
-            old: oldCandidate?.status,
+            old: oldCandidate.status,
             new: updatedData.status,
+          };
+
+          // Create status history entry
+          const statusHistoryEntry: StatusHistoryEntry = {
+            historyId: new ObjectId().toHexString(),
+            candidateId,
+            oldStatus: oldCandidate.status,
+            newStatus: updatedData.status,
+            changedAt: new Date(),
+            changedBy: userId,
+            changedByEmail: userEmail,
           };
 
           await AuditLogger.logCandidateOperation({
@@ -379,8 +396,8 @@ export class CandidateService {
             candidateName: oldCandidate?.name,
             userId,
             userEmail,
-            action: `Changed candidate status from ${oldCandidate?.status} to ${updatedData.status}`,
-            oldValue: oldCandidate?.status,
+            action: `Changed candidate status from ${oldCandidate.status} to ${updatedData.status}`,
+            oldValue: oldCandidate.status,
             newValue: updatedData.status,
           });
 
@@ -394,7 +411,7 @@ export class CandidateService {
                   candidateId,
                   oldCandidate?.name || DEFAULT_VALUES.UNKNOWN_CANDIDATE,
                   {
-                    oldStatus: oldCandidate?.status,
+                    oldStatus: oldCandidate.status,
                     newStatus: updatedData.status,
                     roleApplied: oldCandidate?.roleApplied || DEFAULT_VALUES.ROLE_APPLIED,
                   }
@@ -407,15 +424,44 @@ export class CandidateService {
               );
             }
           }
-        }
 
-        await this.personalInfoRepo.update(candidateId, {
-          name: updatedData.name,
-          email: updatedData.email,
-          birthdate: updatedData.birthdate,
-          roleApplied: updatedData.roleApplied,
-          status: updatedData.status,
-        });
+          // Update status and add to status history using direct DB access
+          const db = await connectDB();
+          await db.collection('personalInfo').updateOne(
+            { candidateId },
+            {
+              $push: {
+                statusHistory: {
+                  $each: [statusHistoryEntry],
+                  $slice: -50  // Keep only last 50 entries
+                }
+              } as any,
+              $set: {
+                status: updatedData.status,
+                dateUpdated: new Date()
+              }
+            }
+          );
+
+          // Update other personal info fields separately if they exist
+          if (updatedData.name || updatedData.email || updatedData.birthdate || updatedData.roleApplied) {
+            await this.personalInfoRepo.update(candidateId, {
+              name: updatedData.name,
+              email: updatedData.email,
+              birthdate: updatedData.birthdate,
+              roleApplied: updatedData.roleApplied,
+            });
+          }
+        } else {
+          // No status change, just update other fields
+          await this.personalInfoRepo.update(candidateId, {
+            name: updatedData.name,
+            email: updatedData.email,
+            birthdate: updatedData.birthdate,
+            roleApplied: updatedData.roleApplied,
+            status: updatedData.status,
+          });
+        }
 
         if (updatedData.name) changes.name = updatedData.name;
         if (updatedData.email) changes.email = updatedData.email;
