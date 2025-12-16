@@ -62,20 +62,16 @@ router.get(
   })
 );
 
-// GET /api/jobs/search - Search jobs
-router.get(
+// POST /api/jobs/search - Search jobs (accepts body data)
+router.post(
   "/search",
   asyncHandler(async (req: Request, res: Response) => {
     const criteria = {
-      jobName: req.query.jobName as string,
-      skillIds: req.query.skillIds
-        ? (req.query.skillIds as string).split(",")
-        : undefined,
-      skillNames: req.query.skillNames
-        ? (req.query.skillNames as string).split(",")
-        : undefined,
-      page: parseInt(req.query.page as string) || 1,
-      limit: parseInt(req.query.limit as string) || 10,
+      jobName: req.body.jobName,
+      skillIds: req.body.skillIds,
+      skillNames: req.body.skillNames,
+      page: req.body.page || 1,
+      limit: req.body.limit || 10,
     };
 
     const result = await jobService.searchJobs(criteria);
@@ -119,6 +115,75 @@ router.get(
       success: true,
       data: jobs,
       count: jobs.length,
+    });
+  })
+);
+
+// ====================
+// SPECIFIC JOB ROUTES (Must come BEFORE generic /:id route)
+// ====================
+
+// GET /api/jobs/:id/skills/active - Get active (non-deleted) skills for a specific job
+router.get(
+  "/:id/skills/active",
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const activeSkills = await jobService.getJobActiveSkills(id);
+    res.json({ success: true, data: activeSkills });
+  })
+);
+
+// GET /api/jobs/:id/skills - Get skills for a specific job
+router.get(
+  "/:id/skills",
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const job = await jobService.getJob(id);
+
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+
+    res.json({ success: true, data: job.skills, count: job.skills.length });
+  })
+);
+
+// GET /api/jobs/:id/skills-detailed - Get job with detailed skill names
+router.get(
+  "/:id/skills-detailed",
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { id } = req.params;
+    const user = req.user;
+
+    const job = await jobService.getJobWithSkillNames(id);
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: "Job not found",
+      });
+    }
+
+    // Log job view
+    await AuditLogger.logJobOperation({
+      eventType: AuditEventType.JOB_VIEWED,
+      jobId: id,
+      jobTitle: job.jobName,
+      userId: user?.userId,
+      userEmail: user?.email,
+      action: 'viewed',
+      metadata: {
+        includeSkillNames: true,
+        skillCount: job.skills?.length || 0
+      }
+    });
+
+    res.json({
+      success: true,
+      data: job,
     });
   })
 );
@@ -419,6 +484,7 @@ router.post(
 // DELETE /api/jobs/:id/skills/:skillId - Soft delete a skill from a job
 router.delete(
   "/:id/skills/:skillId",
+  AuthMiddleware.authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id, skillId } = req.params;
     await jobService.removeSkillFromJob(id, skillId);
@@ -432,6 +498,7 @@ router.delete(
 // PATCH /api/jobs/:id/skills/:skillId/restore - Restore a soft deleted skill to a job
 router.patch(
   "/:id/skills/:skillId/restore",
+  AuthMiddleware.authenticate,
   asyncHandler(async (req: Request, res: Response) => {
     const { id, skillId } = req.params;
     await jobService.restoreSkillToJob(id, skillId);
@@ -442,35 +509,12 @@ router.patch(
 // DELETE /api/jobs/:id/skills/:skillId/hard - Hard delete (permanently remove) a skill from a job
 router.delete(
   "/:id/skills/:skillId/hard",
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.HR_MANAGER),
   asyncHandler(async (req: Request, res: Response) => {
     const { id, skillId } = req.params;
     await jobService.hardRemoveSkillFromJob(id, skillId);
     res.json({ success: true, message: "Skill permanently removed from job" });
-  })
-);
-
-// GET /api/jobs/:id/skills/active - Get active (non-deleted) skills for a specific job
-router.get(
-  "/:id/skills/active",
-  asyncHandler(async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const activeSkills = await jobService.getJobActiveSkills(id);
-    res.json({ success: true, data: activeSkills });
-  })
-);
-
-// GET /api/jobs/:id/skills - Get skills for a specific job
-router.get(
-  "/:id/skills",
-  asyncHandler(async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const job = await jobService.getJob(id);
-
-    if (!job) {
-      return res.status(404).json({ success: false, message: "Job not found" });
-    }
-
-    res.json({ success: true, data: job.skills, count: job.skills.length });
   })
 );
 

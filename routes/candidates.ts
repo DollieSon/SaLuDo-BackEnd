@@ -363,7 +363,9 @@ router.delete(
 // Get candidate personality
 router.get(
   "/:candidateId/personality",
-  asyncHandler(async (req: Request, res: Response) => {
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const personality = await candidateService.getCandidatePersonality(
       candidateId
@@ -379,7 +381,8 @@ router.get(
 // Compare two candidates
 router.get(
   "/:candidateId1/compare/:candidateId2",
-  asyncHandler(async (req: Request, res: Response) => {
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId1, candidateId2 } = req.params;
 
     if (candidateId1 === candidateId2) {
