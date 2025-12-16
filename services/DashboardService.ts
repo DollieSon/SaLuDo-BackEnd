@@ -146,18 +146,42 @@ export class DashboardService {
   private async getTopJobs(limit: number) {
     const jobs = await this.jobRepo.findAll();
     
-    // Get candidate counts for each job
+    // Get candidate counts and scores for each job
     const jobsWithCounts = await Promise.all(
       jobs.map(async (job) => {
+        const jobId = job._id?.toString();
+        
         // Count candidates in interviews for this job
         const interviews = await this.db.collection('interviews').find({
-          jobId: job._id?.toString()
+          jobId: jobId
         }).toArray();
+        
+        // Get candidates who have scores for this job
+        const candidatesForJob = await this.personalInfoRepo.findAll();
+        const candidatesWithJobScores = candidatesForJob.filter(candidate => 
+          candidate.scoreHistory && candidate.scoreHistory.some(score => score.jobId === jobId)
+        );
+        
+        // Calculate average score for this job
+        let avgScore = 0;
+        if (candidatesWithJobScores.length > 0) {
+          const jobScores = candidatesWithJobScores.map(candidate => {
+            // Find the most recent score for this specific job
+            const jobScore = candidate.scoreHistory
+              .filter(score => score.jobId === jobId)
+              .sort((a, b) => new Date(b.calculatedAt).getTime() - new Date(a.calculatedAt).getTime())[0];
+            return jobScore ? jobScore.overallScore : 0;
+          }).filter(score => score > 0);
+          
+          if (jobScores.length > 0) {
+            avgScore = Math.round((jobScores.reduce((sum, score) => sum + score, 0) / jobScores.length) * 10) / 10;
+          }
+        }
         
         return {
           job,
           applicantCount: interviews.length,
-          avgScore: 0 // Would need to calculate from actual match scores
+          avgScore
         };
       })
     );
@@ -196,7 +220,7 @@ export class DashboardService {
       id: job._id?.toString() || '',
       name: job.jobName,
       applicants: applicantCount,
-      avgScore: avgScore || 7.5 // Default score
+      avgScore: avgScore // Use calculated score (0 if no scores available)
     }));
   }
 
@@ -209,19 +233,38 @@ export class DashboardService {
   }
 
   private extractMatchScore(candidate: any): number {
-    // If match scores are stored, retrieve them
-    // For now, return a placeholder
-    return Math.random() * 3 + 7; // Random score between 7-10
+    // Get the most recent score from scoreHistory
+    if (candidate.scoreHistory && candidate.scoreHistory.length > 0) {
+      // Sort by calculatedAt to get the most recent score
+      const sortedScores = [...candidate.scoreHistory].sort((a, b) => {
+        const dateA = new Date(a.calculatedAt).getTime();
+        const dateB = new Date(b.calculatedAt).getTime();
+        return dateB - dateA; // Most recent first
+      });
+      
+      return Math.round(sortedScores[0].overallScore * 10) / 10; // Round to 1 decimal
+    }
+    
+    // If no score history exists, return 0 or null indicator
+    return 0;
   }
 
   private calculateAverageMatchScore(candidates: any[]): number {
     if (candidates.length === 0) return 0;
     
-    const total = candidates.reduce((sum, candidate) => {
+    // Only count candidates that have scores (non-zero)
+    const candidatesWithScores = candidates.filter(candidate => {
+      const score = this.extractMatchScore(candidate);
+      return score > 0;
+    });
+    
+    if (candidatesWithScores.length === 0) return 0;
+    
+    const total = candidatesWithScores.reduce((sum, candidate) => {
       return sum + this.extractMatchScore(candidate);
     }, 0);
     
-    return Math.round((total / candidates.length) * 10) / 10;
+    return Math.round((total / candidatesWithScores.length) * 10) / 10;
   }
 
   private buildActivityFeed(recentCandidates: any[], recentComments: any[]): Activity[] {

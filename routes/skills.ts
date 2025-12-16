@@ -19,7 +19,8 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId } = req.params;
     const includeUnaccepted = req.query.includeUnaccepted !== "false"; // Default to true
-    const skills = await skillService.getSkills(candidateId, includeUnaccepted);
+    const includeDeleted = req.query.includeDeleted === "true"; // Default to false
+    const skills = await skillService.getSkills(candidateId, includeUnaccepted, includeDeleted);
     res.json({
       success: true,
       data: skills,

@@ -11,6 +11,7 @@ const router = Router();
 
 // Valid date range options
 const DATE_RANGES = {
+  '7d': 7,
   '30d': 30,
   '90d': 90,
   '1y': 365
