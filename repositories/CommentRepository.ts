@@ -293,12 +293,35 @@ export class CommentRepository {
 
   /**
    * Update a comment
+   * WARNING: Use specific update methods (updateText, addMentions) instead
+   * This method is kept for backward compatibility but should be avoided
    */
-  async update(commentId: string, commentData: CommentData): Promise<void> {
-    await this.collection.updateOne(
+  async update(commentId: string, commentData: Partial<CommentData>): Promise<void> {
+    // Only set provided fields to prevent unintentional overwrites
+    const updateFields: any = {};
+    
+    if (commentData.text !== undefined) updateFields.text = commentData.text;
+    if (commentData.entityType !== undefined) updateFields.entityType = commentData.entityType;
+    if (commentData.entityId !== undefined) updateFields.entityId = commentData.entityId;
+    if (commentData.authorId !== undefined) updateFields.authorId = commentData.authorId;
+    if (commentData.authorName !== undefined) updateFields.authorName = commentData.authorName;
+    if (commentData.mentions !== undefined) updateFields.mentions = commentData.mentions;
+    if (commentData.parentCommentId !== undefined) updateFields.parentCommentId = commentData.parentCommentId;
+    if (commentData.editHistory !== undefined) updateFields.editHistory = commentData.editHistory;
+    if (commentData.isDeleted !== undefined) updateFields.isDeleted = commentData.isDeleted;
+    if (commentData.deletedAt !== undefined) updateFields.deletedAt = commentData.deletedAt;
+    if (commentData.deletedBy !== undefined) updateFields.deletedBy = commentData.deletedBy;
+    
+    updateFields.updatedAt = new Date();
+    
+    const result = await this.collection.updateOne(
       { commentId },
-      { $set: commentData }
+      { $set: updateFields }
     );
+    
+    if (result.matchedCount === 0) {
+      throw new Error('Comment not found');
+    }
   }
 
   /**

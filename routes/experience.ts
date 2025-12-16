@@ -3,6 +3,7 @@ import { ExperienceService } from '../services/ExperienceService';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { candidateExists } from './middleware/candidateExists';
 import { validation } from './middleware/validation';
+import { AuthMiddleware } from './middleware/auth';
 const router = Router();
 const experienceService = new ExperienceService();
 // ====================
@@ -32,6 +33,7 @@ router.post('/:candidateId/experience',
     })
 );
 router.put('/:candidateId/experience/:expId',
+    AuthMiddleware.authenticate,
     candidateExists,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, expId } = req.params;
@@ -44,6 +46,7 @@ router.put('/:candidateId/experience/:expId',
     })
 );
 router.delete('/:candidateId/experience/:expId',
+    AuthMiddleware.authenticate,
     candidateExists,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, expId } = req.params;
@@ -57,6 +60,7 @@ router.delete('/:candidateId/experience/:expId',
 
 // Restore soft deleted experience
 router.patch('/:candidateId/experience/:expId/restore',
+    AuthMiddleware.authenticate,
     candidateExists,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, expId } = req.params;
@@ -70,6 +74,7 @@ router.patch('/:candidateId/experience/:expId/restore',
 
 // Hard delete experience (permanent removal)
 router.delete('/:candidateId/experience/:expId/hard',
+    AuthMiddleware.authenticate,
     candidateExists,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, expId } = req.params;

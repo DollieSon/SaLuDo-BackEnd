@@ -71,26 +71,38 @@ export class StrengthWeaknessService {
     ): Promise<void> {
         await this.init();
         try {
-            const resumeData = await this.resumeRepo.findById(candidateId);
-            if (!resumeData) {
-                throw new Error('Candidate resume data not found');
+            // Use atomic MongoDB update with positional operator to avoid race conditions
+            const db = await connectDB();
+            const fieldName = type === 'Strength' ? 'strengths' : 'weaknesses';
+            const updateFields: any = {};
+            
+            if (updatedData.name !== undefined) {
+                updateFields[`${fieldName}.$.name`] = updatedData.name;
             }
-            const collection = type === 'Strength' ? resumeData.strengths : resumeData.weaknesses;
-            const items = collection.map(item => StrengthWeakness.fromObject(item));
-            const itemIndex = items.findIndex(item => item.strengthWeaknessId === strengthWeaknessId);
-            if (itemIndex === -1) {
+            if (updatedData.description !== undefined) {
+                updateFields[`${fieldName}.$.description`] = updatedData.description;
+            }
+            if (updatedData.type !== undefined) {
+                updateFields[`${fieldName}.$.type`] = updatedData.type;
+            }
+            if (updatedData.addedBy !== undefined) {
+                updateFields[`${fieldName}.$.addedBy`] = updatedData.addedBy;
+            }
+            
+            updateFields[`${fieldName}.$.updatedAt`] = new Date();
+            updateFields['dateUpdated'] = new Date();
+            
+            const result = await db.collection('resume').updateOne(
+                { 
+                    candidateId,
+                    [`${fieldName}.strengthWeaknessId`]: strengthWeaknessId
+                },
+                { $set: updateFields }
+            );
+            
+            if (result.matchedCount === 0) {
                 throw new Error(`${type} not found`);
             }
-            const item = items[itemIndex];
-            if (updatedData.name !== undefined) item.name = updatedData.name || item.description?.substring(0, 50) || 'Unnamed';
-            if (updatedData.description) item.description = updatedData.description;
-            if (updatedData.type) item.type = updatedData.type;
-            if (updatedData.addedBy !== undefined) item.addedBy = updatedData.addedBy;
-            item.updatedAt = new Date();
-            const updateField = type === 'Strength' ? 'strengths' : 'weaknesses';
-            await this.resumeRepo.update(candidateId, {
-                [updateField]: items.map(item => item.toObject())
-            });
         } catch (error) {
             console.error(`Error updating ${type.toLowerCase()}:`, error);
             throw new Error(`Failed to update ${type.toLowerCase()}`);

@@ -3,6 +3,7 @@ import { EducationService } from '../services/EducationService';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { candidateExists } from './middleware/candidateExists';
 import { validation } from './middleware/validation';
+import { AuthMiddleware } from './middleware/auth';
 const router = Router();
 const educationService = new EducationService();
 // ====================
@@ -34,6 +35,7 @@ router.post('/:candidateId/education',
     })
 );
 router.put('/:candidateId/education/:eduId',
+    AuthMiddleware.authenticate,
     candidateExists,
     validation.validateDatesMiddleware(['startDate', 'endDate']),
     asyncHandler(async (req: Request, res: Response) => {
@@ -47,6 +49,7 @@ router.put('/:candidateId/education/:eduId',
     })
 );
 router.delete('/:candidateId/education/:eduId',
+    AuthMiddleware.authenticate,
     candidateExists,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, eduId } = req.params;
@@ -59,6 +62,7 @@ router.delete('/:candidateId/education/:eduId',
 );
 // Restore soft deleted education
 router.patch('/:candidateId/education/:eduId/restore',
+    AuthMiddleware.authenticate,
     candidateExists,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, eduId } = req.params;
@@ -71,6 +75,7 @@ router.patch('/:candidateId/education/:eduId/restore',
 );
 // Hard delete education (permanent removal)
 router.delete('/:candidateId/education/:eduId/hard',
+    AuthMiddleware.authenticate,
     candidateExists,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, eduId } = req.params;

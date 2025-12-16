@@ -85,10 +85,13 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   }
 
   async update(userId: string, data: Partial<UpdateUserData>): Promise<void> {
-    await this.getCollection().updateOne(
+    const result = await this.getCollection().updateOne(
       { userId },
       { $set: { ...data, updatedAt: new Date() } }
     );
+    if (result.matchedCount === 0) {
+      throw new Error(`User with ID ${userId} not found`);
+    }
   }
 
   async delete(userId: string): Promise<void> {

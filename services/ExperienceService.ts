@@ -40,26 +40,49 @@ export class ExperienceService {
     async updateExperience(candidateId: string, experienceId: string, updatedExperience: any): Promise<void> {
         await this.init();
         try {
-            const resumeData = await this.resumeRepo.findById(candidateId);
-            if (!resumeData) {
-                throw new Error('Candidate resume data not found');
+            // Use atomic MongoDB update with positional operator to avoid race conditions
+            const db = await connectDB();
+            const updateFields: any = {};
+            
+            if (updatedExperience.title !== undefined) {
+                updateFields['experience.$.title'] = updatedExperience.title;
             }
-            const experiences = resumeData.experience.map(e => Experience.fromObject(e));
-            const expIndex = experiences.findIndex(e => e.experienceId === experienceId);
-            if (expIndex === -1) {
+            if (updatedExperience.role !== undefined) {
+                updateFields['experience.$.role'] = updatedExperience.role;
+            }
+            if (updatedExperience.description !== undefined) {
+                updateFields['experience.$.description'] = updatedExperience.description;
+            }
+            if (updatedExperience.addedBy !== undefined) {
+                updateFields['experience.$.addedBy'] = updatedExperience.addedBy;
+            }
+            if (updatedExperience.company !== undefined) {
+                updateFields['experience.$.company'] = updatedExperience.company;
+            }
+            if (updatedExperience.startDate !== undefined) {
+                updateFields['experience.$.startDate'] = updatedExperience.startDate;
+            }
+            if (updatedExperience.endDate !== undefined) {
+                updateFields['experience.$.endDate'] = updatedExperience.endDate;
+            }
+            if (updatedExperience.isCurrent !== undefined) {
+                updateFields['experience.$.isCurrent'] = updatedExperience.isCurrent;
+            }
+            
+            updateFields['experience.$.updatedAt'] = new Date();
+            updateFields['dateUpdated'] = new Date();
+            
+            const result = await db.collection('resume').updateOne(
+                { 
+                    candidateId,
+                    'experience.experienceId': experienceId
+                },
+                { $set: updateFields }
+            );
+            
+            if (result.matchedCount === 0) {
                 throw new Error('Experience not found');
             }
-            const exp = experiences[expIndex];
-            
-            if (updatedExperience.title !== undefined) exp.title = updatedExperience.title;
-            if (updatedExperience.role !== undefined) exp.role = updatedExperience.role;
-            if (updatedExperience.description !== undefined) exp.description = updatedExperience.description;
-            if (updatedExperience.addedBy !== undefined) exp.addedBy = updatedExperience.addedBy;
-            
-            exp.updatedAt = new Date();
-            await this.resumeRepo.update(candidateId, {
-                experience: experiences.map(e => e.toObject())
-            });
         } catch (error) {
             console.error('Error updating experience:', error);
             throw new Error('Failed to update experience');

@@ -23,10 +23,13 @@ export class PersonalInfoRepository extends BaseRepository<PersonalInfoData, Omi
         return result as PersonalInfoData | null;
     }
     async update(candidateId: string, data: Partial<PersonalInfoData>): Promise<void> {
-        await this.getCollection().updateOne(
+        const result = await this.getCollection().updateOne(
             { candidateId },
             { $set: { ...data, dateUpdated: new Date() } }
         );
+        if (result.matchedCount === 0) {
+            throw new Error(`Candidate with ID ${candidateId} not found`);
+        }
     }
     async delete(candidateId: string): Promise<void> {
         await this.getCollection().updateOne(
@@ -70,14 +73,21 @@ export class ResumeRepository extends BaseRepository<ResumeData, Omit<ResumeData
         return result as ResumeData | null;
     }
     async update(candidateId: string, data: Partial<ResumeData>): Promise<void> {
-        await this.getCollection().updateOne(
+        const result = await this.getCollection().updateOne(
             { candidateId },
             { $set: { ...data, dateUpdated: new Date() } }
         );
+        if (result.matchedCount === 0) {
+            throw new Error(`Resume for candidate ${candidateId} not found`);
+        }
     }
+    
     async delete(candidateId: string): Promise<void> {
-        await this.getCollection().deleteOne({ candidateId });
+        // Hard delete is disabled to prevent orphaned data.
+        // Use PersonalInfoRepository soft delete instead, which cascades properly.
+        throw new Error('Direct resume deletion is not supported. Use candidate soft delete instead.');
     }
+    
     async findAll(): Promise<ResumeData[]> {
         const results = await this.getCollection().find({}).toArray();
         return results as unknown as ResumeData[];
@@ -106,14 +116,21 @@ export class InterviewRepository extends BaseRepository<InterviewData, Omit<Inte
         return result as InterviewData | null;
     }
     async update(candidateId: string, data: Partial<InterviewData>): Promise<void> {
-        await this.getCollection().updateOne(
+        const result = await this.getCollection().updateOne(
             { candidateId },
             { $set: { ...data, dateUpdated: new Date() } }
         );
+        if (result.matchedCount === 0) {
+            throw new Error(`Interview data for candidate ${candidateId} not found`);
+        }
     }
+    
     async delete(candidateId: string): Promise<void> {
-        await this.getCollection().deleteOne({ candidateId });
+        // Hard delete is disabled to prevent orphaned data.
+        // Use PersonalInfoRepository soft delete instead, which cascades properly.
+        throw new Error('Direct interview deletion is not supported. Use candidate soft delete instead.');
     }
+    
     async findAll(): Promise<InterviewData[]> {
         const results = await this.getCollection().find({}).toArray();
         return results as unknown as InterviewData[];

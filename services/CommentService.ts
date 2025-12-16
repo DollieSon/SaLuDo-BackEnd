@@ -376,59 +376,72 @@ export class CommentService {
     updateData: UpdateCommentData,
     userId: string
   ): Promise<Comment> {
-    await this.init();
+    try {
+      await this.init();
 
-    const comment = await this.commentRepository!.findById(commentId);
-    if (!comment) {
-      throw new Error("Comment not found");
-    }
-
-    if (comment.isDeleted) {
-      throw new Error("Cannot edit deleted comment");
-    }
-
-    // Verify user is the author
-    if (comment.authorId !== userId) {
-      throw new Error("Only the comment author can edit");
-    }
-
-    // Sanitize HTML to prevent XSS attacks
-    const sanitizedText = this.sanitizeCommentText(updateData.text);
-
-    // Update the comment with sanitized text
-    comment.updateText(
-      sanitizedText,
-      updateData.editedBy,
-      updateData.editedByName
-    );
-
-    // Save to database
-    await this.commentRepository!.updateText(comment);
-
-    // Audit log
-    await AuditLogger.logCommentOperation({
-      eventType: NewAuditEventType.COMMENT_UPDATED,
-      commentId: commentId,
-      userId: userId,
-      userEmail: updateData.editedByName,
-      action: `Updated comment on ${comment.entityType} ${comment.entityId}`,
-      newValue: sanitizedText,
-      metadata: {
-        entityType: comment.entityType,
-        entityId: comment.entityId,
-        editCount: comment.getEditCount(),
-        textLength: sanitizedText.length
+      const comment = await this.commentRepository!.findById(commentId);
+      if (!comment) {
+        throw new Error("Comment not found");
       }
-    });
 
-    // Broadcast via WebSocket for real-time updates
-    this.broadcastCommentUpdated(
-      comment,
-      updateData.editedBy,
-      updateData.editedByName
-    );
+      if (comment.isDeleted) {
+        throw new Error("Cannot edit deleted comment");
+      }
 
-    return comment;
+      // Verify user is the author
+      if (comment.authorId !== userId) {
+        throw new Error("Only the comment author can edit");
+      }
+
+      // Sanitize HTML to prevent XSS attacks
+      const sanitizedText = this.sanitizeCommentText(updateData.text);
+
+      // Update the comment with sanitized text
+      comment.updateText(
+        sanitizedText,
+        updateData.editedBy,
+        updateData.editedByName
+      );
+
+      // Save to database
+      await this.commentRepository!.updateText(comment);
+
+      // Audit log (wrapped in try-catch to prevent audit failures from breaking main operation)
+      try {
+        await AuditLogger.logCommentOperation({
+          eventType: NewAuditEventType.COMMENT_UPDATED,
+          commentId: commentId,
+          userId: userId,
+          userEmail: updateData.editedByName,
+          action: `Updated comment on ${comment.entityType} ${comment.entityId}`,
+          newValue: sanitizedText,
+          metadata: {
+            entityType: comment.entityType,
+            entityId: comment.entityId,
+            editCount: comment.getEditCount(),
+            textLength: sanitizedText.length
+          }
+        });
+      } catch (auditError) {
+        console.error('CRITICAL: Audit log failed for comment update:', auditError);
+        // Continue - don't fail the operation if audit logging fails
+      }
+
+      // Broadcast via WebSocket for real-time updates
+      this.broadcastCommentUpdated(
+        comment,
+        updateData.editedBy,
+        updateData.editedByName
+      );
+
+      return comment;
+    } catch (error) {
+      console.error('Error updating comment:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Failed to update comment');
+    }
   }
 
   /**

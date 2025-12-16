@@ -40,25 +40,49 @@ export class CertificationService {
     async updateCertification(candidateId: string, certificationId: string, updatedCertification: any): Promise<void> {
         await this.init();
         try {
-            const resumeData = await this.resumeRepo.findById(candidateId);
-            if (!resumeData) {
-                throw new Error('Candidate resume data not found');
+            // Use atomic MongoDB update with positional operator to avoid race conditions
+            const db = await connectDB();
+            const updateFields: any = {};
+            
+            if (updatedCertification.name !== undefined) {
+                updateFields['certification.$.name'] = updatedCertification.name;
             }
-            const certifications = resumeData.certification.map(c => Certification.fromObject(c));
-            const certIndex = certifications.findIndex(c => c.certificationId === certificationId);
-            if (certIndex === -1) {
+            if (updatedCertification.issuingOrganization !== undefined) {
+                updateFields['certification.$.issuingOrganization'] = updatedCertification.issuingOrganization;
+            }
+            if (updatedCertification.issueDate !== undefined) {
+                updateFields['certification.$.issueDate'] = updatedCertification.issueDate;
+            }
+            if (updatedCertification.expirationDate !== undefined) {
+                updateFields['certification.$.expirationDate'] = updatedCertification.expirationDate;
+            }
+            if (updatedCertification.credentialId !== undefined) {
+                updateFields['certification.$.credentialId'] = updatedCertification.credentialId;
+            }
+            if (updatedCertification.credentialUrl !== undefined) {
+                updateFields['certification.$.credentialUrl'] = updatedCertification.credentialUrl;
+            }
+            if (updatedCertification.description !== undefined) {
+                updateFields['certification.$.description'] = updatedCertification.description;
+            }
+            if (updatedCertification.addedBy !== undefined) {
+                updateFields['certification.$.addedBy'] = updatedCertification.addedBy;
+            }
+            
+            updateFields['certification.$.updatedAt'] = new Date();
+            updateFields['dateUpdated'] = new Date();
+            
+            const result = await db.collection('resume').updateOne(
+                { 
+                    candidateId,
+                    'certification.certificationId': certificationId
+                },
+                { $set: updateFields }
+            );
+            
+            if (result.matchedCount === 0) {
                 throw new Error('Certification not found');
             }
-            const cert = certifications[certIndex];
-            if (updatedCertification.name) cert.name = updatedCertification.name;
-            if (updatedCertification.issuingOrganization) cert.issuingOrganization = updatedCertification.issuingOrganization;
-            if (updatedCertification.issueDate) cert.issueDate = updatedCertification.issueDate;
-            if (updatedCertification.description !== undefined) cert.description = updatedCertification.description;
-            if (updatedCertification.addedBy !== undefined) cert.addedBy = updatedCertification.addedBy;
-            cert.updatedAt = new Date();
-            await this.resumeRepo.update(candidateId, {
-                certification: certifications.map(c => c.toObject())
-            });
         } catch (error) {
             console.error('Error updating certification:', error);
             throw new Error('Failed to update certification');

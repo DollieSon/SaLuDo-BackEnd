@@ -3,6 +3,7 @@ import { CertificationService } from '../services/CertificationService';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { candidateExists } from './middleware/candidateExists';
 import { validation } from './middleware/validation';
+import { AuthMiddleware } from './middleware/auth';
 const router = Router();
 const certificationService = new CertificationService();
 // ====================
@@ -34,6 +35,7 @@ router.post('/:candidateId/certifications',
     })
 );
 router.put('/:candidateId/certifications/:certId',
+    AuthMiddleware.authenticate,
     candidateExists,
     validation.validateDatesMiddleware(['dateIssued', 'expiryDate']),
     asyncHandler(async (req: Request, res: Response) => {
@@ -47,6 +49,7 @@ router.put('/:candidateId/certifications/:certId',
     })
 );
 router.delete('/:candidateId/certifications/:certId',
+    AuthMiddleware.authenticate,
     candidateExists,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, certId } = req.params;

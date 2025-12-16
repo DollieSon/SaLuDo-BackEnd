@@ -107,27 +107,33 @@ export class SkillService {
   ): Promise<void> {
     await this.init();
     try {
-      const resumeData = await this.resumeRepo.findById(candidateId);
-      if (!resumeData) {
-        throw new Error("Candidate resume data not found");
+      // Use atomic MongoDB update with positional operator to avoid race conditions
+      const db = await connectDB();
+      const updateFields: any = {};
+      
+      if (updatedSkill.evidence !== undefined) {
+        updateFields['skills.$.evidence'] = updatedSkill.evidence;
       }
-      const skills = resumeData.skills.map((s) => Skill.fromObject(s));
-      const skillIndex = skills.findIndex(
-        (s) => s.candidateSkillId === candidateSkillId
+      if (updatedSkill.score !== undefined) {
+        updateFields['skills.$.score'] = updatedSkill.score;
+      }
+      if (updatedSkill.addedBy !== undefined) {
+        updateFields['skills.$.addedBy'] = updatedSkill.addedBy;
+      }
+      
+      updateFields['dateUpdated'] = new Date();
+      
+      const result = await db.collection('resume').updateOne(
+        { 
+          candidateId,
+          'skills.candidateSkillId': candidateSkillId
+        },
+        { $set: updateFields }
       );
-      if (skillIndex === -1) {
-        throw new Error("Skill not found");
+      
+      if (result.matchedCount === 0) {
+        throw new Error('Skill not found');
       }
-      const skill = skills[skillIndex];
-      // Update allowed properties
-      if (updatedSkill.evidence !== undefined)
-        skill.evidence = updatedSkill.evidence;
-      if (updatedSkill.score !== undefined) skill.score = updatedSkill.score;
-      if (updatedSkill.addedBy !== undefined)
-        skill.addedBy = updatedSkill.addedBy;
-      await this.resumeRepo.update(candidateId, {
-        skills: skills.map((s) => s.toObject()),
-      });
     } catch (error) {
       console.error("Error updating skill:", error);
       throw new Error("Failed to update skill");

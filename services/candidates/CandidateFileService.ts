@@ -92,49 +92,64 @@ export class CandidateFileService {
       const db = await connectDB();
       const bucket = new GridFSBucket(db, { bucketName: BUCKET_NAMES.RESUMES });
 
-      // Delete old file if exists
-      if (resumeData.resume?.fileId) {
-        try {
-          await bucket.delete(new ObjectId(resumeData.resume.fileId));
-        } catch (error) {
-          console.log(LOG_MESSAGES.OLD_RESUME_FILE_NOT_FOUND);
-        }
-      }
+      let newFileId: ObjectId | null = null;
+      const oldFileId = resumeData.resume?.fileId;
 
-      // Upload new file
-      const uploadStream = bucket.openUploadStream(resumeFile.originalname, {
-        metadata: {
+      try {
+        // Step 1: Upload new file first
+        const uploadStream = bucket.openUploadStream(resumeFile.originalname, {
+          metadata: {
+            contentType: resumeFile.mimetype,
+            uploadedBy: DEFAULT_VALUES.UPLOADED_BY,
+            candidateId: candidateId,
+          },
+        });
+        newFileId = uploadStream.id;
+        uploadStream.end(resumeFile.buffer);
+
+        // Wait for upload to complete
+        await new Promise((resolve, reject) => {
+          uploadStream.on("finish", resolve);
+          uploadStream.on("error", reject);
+        });
+
+        // Step 2: Update resume metadata in database
+        const newResumeMetadata: ResumeMetadata = {
+          fileId: newFileId.toString(),
+          filename: resumeFile.originalname,
           contentType: resumeFile.mimetype,
-          uploadedBy: DEFAULT_VALUES.UPLOADED_BY,
-          candidateId: candidateId,
-        },
-      });
-      const fileId = uploadStream.id;
-      uploadStream.end(resumeFile.buffer);
+          size: resumeFile.size,
+          uploadedAt: new Date(),
+          parseStatus: PROCESSING_STATUS.PENDING,
+        };
+        await this.resumeRepo.update(candidateId, {
+          resume: newResumeMetadata,
+        });
 
-      // Wait for upload to complete
-      await new Promise((resolve, reject) => {
-        uploadStream.on("finish", resolve);
-        uploadStream.on("error", reject);
-      });
-
-      // Update resume metadata
-      const newResumeMetadata: ResumeMetadata = {
-        fileId: fileId.toString(),
-        filename: resumeFile.originalname,
-        contentType: resumeFile.mimetype,
-        size: resumeFile.size,
-        uploadedAt: new Date(),
-        parseStatus: PROCESSING_STATUS.PENDING,
-      };
-      await this.resumeRepo.update(candidateId, {
-        resume: newResumeMetadata,
-      });
+        // Step 3: Success! Now safe to delete old file
+        if (oldFileId) {
+          try {
+            await bucket.delete(new ObjectId(oldFileId));
+          } catch (error) {
+            console.log(LOG_MESSAGES.OLD_RESUME_FILE_NOT_FOUND);
+          }
+        }
+      } catch (error) {
+        // Rollback: Delete newly uploaded file if metadata update failed
+        if (newFileId) {
+          try {
+            await bucket.delete(newFileId);
+          } catch (rollbackError) {
+            console.error('Failed to rollback new file upload:', rollbackError);
+          }
+        }
+        throw error;
+      }
 
       // Log document upload
       await AuditLogger.logFileOperation({
         eventType: AuditEventType.CANDIDATE_DOCUMENT_UPLOADED,
-        fileId: fileId.toString(),
+        fileId: newFileId.toString(),
         fileName: resumeFile.originalname,
         fileType: FILE_TYPES.RESUME,
         candidateId: candidateId,
@@ -192,13 +207,18 @@ export class CandidateFileService {
       const db = await connectDB();
       const bucket = new GridFSBucket(db, { bucketName: "resumes" });
 
-      // Delete file from GridFS
-      await bucket.delete(new ObjectId(resumeData.resume.fileId));
-
-      // Update resume data to remove metadata
+      // Step 1: Update metadata first to remove file reference
       await this.resumeRepo.update(candidateId, {
         resume: undefined,
       });
+
+      // Step 2: Delete file from GridFS (if this fails, file becomes orphaned but unreferenced)
+      try {
+        await bucket.delete(new ObjectId(resumeData.resume.fileId));
+      } catch (fileError) {
+        console.warn(`Failed to delete resume file ${resumeData.resume.fileId} from GridFS:`, fileError);
+        // Metadata already updated, so file is unreferenced (acceptable)
+      }
 
       // Log audit event
       await AuditLogger.logFileOperation({
@@ -300,13 +320,24 @@ export class CandidateFileService {
       // Add new transcript metadata
       const updatedTranscripts = [...currentTranscripts, transcriptMetadata];
 
-      // Update interview data
-      await this.interviewRepo.update(candidateId, {
-        transcripts: updatedTranscripts,
-        dateUpdated: new Date(),
-      });
-
-      return transcriptMetadata;
+      // Update interview data - rollback on failure
+      try {
+        await this.interviewRepo.update(candidateId, {
+          transcripts: updatedTranscripts,
+          dateUpdated: new Date(),
+        });
+        
+        return transcriptMetadata;
+      } catch (updateError) {
+        // Rollback: Delete the uploaded GridFS file
+        try {
+          await bucket.delete(new ObjectId(fileId));
+          console.error('Rolled back transcript file upload due to metadata update failure');
+        } catch (deleteError) {
+          console.error('Failed to rollback transcript file:', deleteError);
+        }
+        throw updateError;
+      }
     } catch (error) {
       console.error(LOG_MESSAGES.ERROR_ADDING_TRANSCRIPT_FILE, error);
       throw new Error(ERROR_MESSAGES.FAILED_TO_ADD_TRANSCRIPT_FILE);
@@ -421,10 +452,7 @@ export class CandidateFileService {
       const db = await connectDB();
       const bucket = new GridFSBucket(db, { bucketName: BUCKET_NAMES.TRANSCRIPTS });
 
-      // Delete file from GridFS
-      await bucket.delete(new ObjectId(transcriptId));
-
-      // Update interview data
+      // Step 1: Update interview data to remove transcript reference first
       const interviewData = await this.interviewRepo.findById(candidateId);
       const currentTranscripts = interviewData?.transcripts || [];
       const updatedTranscripts = currentTranscripts.filter(
@@ -435,6 +463,14 @@ export class CandidateFileService {
         transcripts: updatedTranscripts,
         dateUpdated: new Date(),
       });
+
+      // Step 2: Delete file from GridFS (if this fails, file becomes orphaned but unreferenced)
+      try {
+        await bucket.delete(new ObjectId(transcriptId));
+      } catch (fileError) {
+        console.warn(`Failed to delete transcript file ${transcriptId} from GridFS:`, fileError);
+        // Metadata already updated, so file is unreferenced (acceptable)
+      }
     } catch (error) {
       console.error(LOG_MESSAGES.ERROR_DELETING_TRANSCRIPT_FILE, error);
       throw new Error(ERROR_MESSAGES.FAILED_TO_DELETE_TRANSCRIPT_FILE);
@@ -595,15 +631,27 @@ export class CandidateFileService {
         dateUpdated: new Date(),
       };
 
-      const existingData = await this.interviewRepo.findById(candidateId);
-      if (existingData) {
-        await this.interviewRepo.update(candidateId, updatedInterviewData);
-      } else {
-        await this.interviewRepo.create({
-          ...updatedInterviewData,
-          transcripts: [],
-          personality: new Personality().toObject(),
-        });
+      // Update interview data - rollback on failure
+      try {
+        const existingData = await this.interviewRepo.findById(candidateId);
+        if (existingData) {
+          await this.interviewRepo.update(candidateId, updatedInterviewData);
+        } else {
+          await this.interviewRepo.create({
+            ...updatedInterviewData,
+            transcripts: [],
+            personality: new Personality().toObject(),
+          });
+        }
+      } catch (updateError) {
+        // Rollback: Delete the uploaded GridFS file
+        try {
+          await bucket.delete(new ObjectId(fileId));
+          console.error('Rolled back video file upload due to metadata update failure');
+        } catch (deleteError) {
+          console.error('Failed to rollback video file:', deleteError);
+        }
+        throw updateError;
       }
 
       // Log video upload
@@ -759,8 +807,7 @@ export class CandidateFileService {
         videoType === "interview" ? BUCKET_NAMES.INTERVIEW_VIDEOS : BUCKET_NAMES.INTRODUCTION_VIDEOS;
       const bucket = new GridFSBucket(db, { bucketName });
 
-      await bucket.delete(new ObjectId(videoId));
-
+      // Step 1: Update metadata first to remove video reference
       const interviewData = await this.interviewRepo.findById(candidateId);
       if (videoType === "interview") {
         const updatedVideos =
@@ -779,6 +826,14 @@ export class CandidateFileService {
           introductionVideos: updatedVideos,
           dateUpdated: new Date(),
         });
+      }
+
+      // Step 2: Delete file from GridFS (if this fails, file becomes orphaned but unreferenced)
+      try {
+        await bucket.delete(new ObjectId(videoId));
+      } catch (fileError) {
+        console.warn(`Failed to delete ${videoType} video ${videoId} from GridFS:`, fileError);
+        // Metadata already updated, so file is unreferenced (acceptable)
       }
     } catch (error) {
       console.error(LOG_MESSAGES.ERROR_DELETING_VIDEO_FILE, error);

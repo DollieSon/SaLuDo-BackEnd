@@ -3,6 +3,7 @@ import { JobWithSkillNames, JobSkillRequirement } from '../Models/JobTypes';
 import { JobRepository } from '../repositories/JobRepository';
 import { SkillMasterRepository } from '../repositories/SkillMasterRepository';
 import { connectDB } from '../mongo_db';
+import { ObjectId } from 'mongodb';
 import { AuditLogger } from '../utils/AuditLogger';
 import { AuditEventType } from '../types/AuditEventTypes';
 import { NotificationService } from './NotificationService';
@@ -347,12 +348,34 @@ export class JobService {
                 throw new Error('Skill not found');
             }
 
-            // Create job instance and add skill
-            const job = Job.fromObject(existingJob);
-            job.addSkill({ skillId, requiredLevel, evidence }, addedBy);
+            // Check for duplicate skill using atomic operation to prevent race conditions
+            const db = await connectDB();
+            const result = await db.collection('jobs').updateOne(
+                { 
+                    _id: new ObjectId(jobId),
+                    'skills.skillId': { $ne: skillId } // Only update if skill doesn't exist
+                },
+                { 
+                    $push: { 
+                        skills: {
+                            skillId,
+                            requiredLevel,
+                            evidence,
+                            addedBy: addedBy || 'HUMAN',
+                            addedAt: new Date()
+                        }
+                    } as any
+                }
+            );
 
-            // Update in database
-            await this.jobRepo.update(jobId, { skills: job.skills });
+            if (result.matchedCount === 0) {
+                // Either job not found or skill already exists
+                const jobCheck = await db.collection('jobs').findOne({ _id: new ObjectId(jobId) } as any);
+                if (!jobCheck) {
+                    throw new Error('Job not found');
+                }
+                throw new Error('Skill already exists in this job. Use update instead.');
+            }
         } catch (error) {
             console.error('Error adding skill to job:', error);
             if (error instanceof Error) {

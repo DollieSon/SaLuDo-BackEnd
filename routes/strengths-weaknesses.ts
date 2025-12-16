@@ -3,6 +3,7 @@ import { StrengthWeaknessService } from '../services/StrengthWeaknessService';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { candidateExists } from './middleware/candidateExists';
 import { validation } from './middleware/validation';
+import { AuthMiddleware } from './middleware/auth';
 const router = Router();
 import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const strengthWeaknessService = new StrengthWeaknessService();
@@ -44,6 +45,7 @@ router.post('/:candidateId/strengths-weaknesses',
     })
 );
 router.put('/:candidateId/strengths-weaknesses/:id',
+    AuthMiddleware.authenticate,
     candidateExists,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, id } = req.params;
@@ -63,6 +65,7 @@ router.put('/:candidateId/strengths-weaknesses/:id',
     })
 );
 router.delete('/:candidateId/strengths-weaknesses/:id',
+    AuthMiddleware.authenticate,
     candidateExists,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, id } = req.params;

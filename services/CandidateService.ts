@@ -359,6 +359,12 @@ export class CandidateService {
     await this.init();
     try {
       const oldCandidate = await this.getCandidate(candidateId);
+      
+      // Validate candidate exists before proceeding
+      if (!oldCandidate) {
+        throw new Error('Candidate not found');
+      }
+      
       const changes: Record<string, any> = {};
 
       if (
@@ -368,9 +374,9 @@ export class CandidateService {
         updatedData.roleApplied ||
         updatedData.status
       ) {
-        if (updatedData.status && oldCandidate?.status !== updatedData.status) {
+        if (updatedData.status && oldCandidate.status !== updatedData.status) {
           // Ensure oldCandidate has a status
-          if (!oldCandidate?.status) {
+          if (!oldCandidate.status) {
             throw new Error('Cannot update status: candidate has no existing status');
           }
 
@@ -425,10 +431,13 @@ export class CandidateService {
             }
           }
 
-          // Update status and add to status history using direct DB access
+          // Update status and add to status history using atomic operation
           const db = await connectDB();
-          await db.collection('personalInfo').updateOne(
-            { candidateId },
+          const result = await db.collection('personalInfo').updateOne(
+            { 
+              candidateId,
+              status: oldCandidate.status  // Ensure status hasn't changed
+            },
             {
               $push: {
                 statusHistory: {
@@ -442,6 +451,11 @@ export class CandidateService {
               }
             }
           );
+
+          // Check if update succeeded (document was found and matched)
+          if (result.matchedCount === 0) {
+            throw new Error(`Failed to update status: candidate ${candidateId} not found or status has changed concurrently`);
+          }
 
           // Update other personal info fields separately if they exist
           if (updatedData.name || updatedData.email || updatedData.birthdate || updatedData.roleApplied) {
@@ -532,6 +546,75 @@ export class CandidateService {
     await this.init();
     try {
       const candidate = await this.getCandidate(candidateId);
+      
+      // Clean up associated files from GridFS before soft delete
+      const db = await connectDB();
+      
+      // Delete resume file
+      if (candidate?.resumeMetadata?.fileId) {
+        try {
+          const resumeBucket = new GridFSBucket(db, { bucketName: 'resumes' });
+          await resumeBucket.delete(new ObjectId(candidate.resumeMetadata.fileId));
+        } catch (fileError) {
+          console.warn(`Failed to delete resume file for candidate ${candidateId}:`, fileError);
+          // Continue with soft delete even if file deletion fails
+        }
+      }
+      
+      // Delete transcript files
+      if (candidate?.transcripts && candidate.transcripts.length > 0) {
+        try {
+          const transcriptBucket = new GridFSBucket(db, { bucketName: 'transcripts' });
+          for (const transcript of candidate.transcripts) {
+            if (transcript.fileId) {
+              try {
+                await transcriptBucket.delete(new ObjectId(transcript.fileId));
+              } catch (err) {
+                console.warn(`Failed to delete transcript ${transcript.fileId}:`, err);
+              }
+            }
+          }
+        } catch (fileError) {
+          console.warn(`Failed to delete transcript files for candidate ${candidateId}:`, fileError);
+        }
+      }
+      
+      // Delete introduction videos
+      if (candidate?.introductionVideos && candidate.introductionVideos.length > 0) {
+        try {
+          const introBucket = new GridFSBucket(db, { bucketName: 'introduction_videos' });
+          for (const video of candidate.introductionVideos) {
+            if (video.fileId) {
+              try {
+                await introBucket.delete(new ObjectId(video.fileId));
+              } catch (err) {
+                console.warn(`Failed to delete introduction video ${video.fileId}:`, err);
+              }
+            }
+          }
+        } catch (fileError) {
+          console.warn(`Failed to delete introduction videos for candidate ${candidateId}:`, fileError);
+        }
+      }
+      
+      // Delete interview videos
+      if (candidate?.interviewVideos && candidate.interviewVideos.length > 0) {
+        try {
+          const interviewBucket = new GridFSBucket(db, { bucketName: 'interview_videos' });
+          for (const video of candidate.interviewVideos) {
+            if (video.fileId) {
+              try {
+                await interviewBucket.delete(new ObjectId(video.fileId));
+              } catch (err) {
+                console.warn(`Failed to delete interview video ${video.fileId}:`, err);
+              }
+            }
+          }
+        } catch (fileError) {
+          console.warn(`Failed to delete interview videos for candidate ${candidateId}:`, fileError);
+        }
+      }
+      
       await this.personalInfoRepo.update(candidateId, {
         isDeleted: true,
         dateUpdated: new Date(),
@@ -544,7 +627,7 @@ export class CandidateService {
         userId,
         userEmail,
         action: `${ACTIONS.DELETED_CANDIDATE}: ${candidate?.name}`,
-        metadata: { softDelete: true },
+        metadata: { softDelete: true, filesDeleted: true },
       });
     } catch (error) {
       console.error(LOG_MESSAGES.ERROR_DELETING_CANDIDATE, error);

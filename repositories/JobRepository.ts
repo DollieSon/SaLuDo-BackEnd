@@ -131,6 +131,30 @@ export class JobRepository {
         await this.init();
         
         try {
+            // Check if job exists
+            const job = await this.collection!.findOne({ _id: new ObjectId(jobId) } as any);
+            if (!job) {
+                throw new Error('Job not found');
+            }
+
+            // Cascade delete: Remove associated data using this.db
+            if (!this.db) {
+                throw new Error('Database not initialized');
+            }
+            
+            // Delete scoring preferences for this job
+            await this.db.collection('scoringPreferences').deleteMany({ jobId });
+            
+            // Delete comments associated with this job
+            await this.db.collection('comments').deleteMany({ jobId });
+            
+            // Remove job references from candidates (if any)
+            await this.db.collection('personalInfo').updateMany(
+                { appliedJobs: jobId },
+                { $pull: { appliedJobs: jobId } } as any
+            );
+            
+            // Finally, delete the job
             const result = await this.collection!.deleteOne({ _id: new ObjectId(jobId) } as any);
             
             if (result.deletedCount === 0) {

@@ -42,25 +42,46 @@ export class EducationService {
     async updateEducation(candidateId: string, educationId: string, updatedEducation: any): Promise<void> {
         await this.init();
         try {
-            const resumeData = await this.resumeRepo.findById(candidateId);
-            if (!resumeData) {
-                throw new Error('Candidate resume data not found');
+            // Use atomic MongoDB update with positional operator to avoid race conditions
+            const db = await connectDB();
+            const updateFields: any = {};
+            
+            if (updatedEducation.institution !== undefined) {
+                updateFields['education.$.institution'] = updatedEducation.institution;
             }
-            const educations = resumeData.education.map(e => Education.fromObject(e));
-            const eduIndex = educations.findIndex(e => e.educationId === educationId);
-            if (eduIndex === -1) {
+            if (updatedEducation.degree !== undefined) {
+                updateFields['education.$.degree'] = updatedEducation.degree;
+            }
+            if (updatedEducation.fieldOfStudy !== undefined) {
+                updateFields['education.$.fieldOfStudy'] = updatedEducation.fieldOfStudy;
+            }
+            if (updatedEducation.startDate !== undefined) {
+                updateFields['education.$.startDate'] = updatedEducation.startDate;
+            }
+            if (updatedEducation.endDate !== undefined) {
+                updateFields['education.$.endDate'] = updatedEducation.endDate;
+            }
+            if (updatedEducation.description !== undefined) {
+                updateFields['education.$.description'] = updatedEducation.description;
+            }
+            if (updatedEducation.addedBy !== undefined) {
+                updateFields['education.$.addedBy'] = updatedEducation.addedBy;
+            }
+            
+            updateFields['education.$.updatedAt'] = new Date();
+            updateFields['dateUpdated'] = new Date();
+            
+            const result = await db.collection('resume').updateOne(
+                { 
+                    candidateId,
+                    'education.educationId': educationId
+                },
+                { $set: updateFields }
+            );
+            
+            if (result.matchedCount === 0) {
                 throw new Error('Education not found');
             }
-            const edu = educations[eduIndex];
-            if (updatedEducation.institution) edu.institution = updatedEducation.institution;
-            if (updatedEducation.startDate) edu.startDate = updatedEducation.startDate;
-            if (updatedEducation.endDate !== undefined) edu.endDate = updatedEducation.endDate;
-            if (updatedEducation.description !== undefined) edu.description = updatedEducation.description;
-            if (updatedEducation.addedBy !== undefined) edu.addedBy = updatedEducation.addedBy;
-            edu.updatedAt = new Date();
-            await this.resumeRepo.update(candidateId, {
-                education: educations.map(e => e.toObject())
-            });
         } catch (error) {
             console.error('Error updating education:', error);
             throw new Error('Failed to update education');

@@ -348,6 +348,8 @@ router.get(
 );
 router.put(
   "/master/:skillId",
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const { skillId } = req.params;
     const updateData = req.body;
