@@ -18,14 +18,14 @@ import { connectDB } from "../mongo_db";
 import { asyncHandler, errorHandler } from "./middleware/errorHandler";
 import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
 import { UserValidation } from "./middleware/userValidation";
-import { 
-  OK, 
-  CREATED, 
-  BAD_REQUEST, 
-  UNAUTHORIZED, 
-  NOT_FOUND, 
-  CONFLICT, 
-  INTERNAL_SERVER_ERROR 
+import {
+  OK,
+  CREATED,
+  BAD_REQUEST,
+  UNAUTHORIZED,
+  NOT_FOUND,
+  CONFLICT,
+  INTERNAL_SERVER_ERROR,
 } from "../constants/HttpStatusCodes";
 import { PasswordUtils } from "./middleware/passwordUtils";
 import {
@@ -42,7 +42,11 @@ import ProfileService from "../services/ProfileService";
 import { AuditLogger } from "../utils/AuditLogger";
 import { AuditEventType as NewAuditEventType } from "../types/AuditEventTypes";
 import { NotificationService } from "../services/NotificationService";
-import { NotificationType, NotificationPriority, NotificationChannel } from "../Models/enums/NotificationTypes";
+import {
+  NotificationType,
+  NotificationPriority,
+  NotificationChannel,
+} from "../Models/enums/NotificationTypes";
 
 const router = Router();
 let userService: UserService;
@@ -50,9 +54,9 @@ let auditLogService: AuditLogService;
 let notificationService: NotificationService | null = null;
 
 // Multer configuration for profile photo uploads
-const photoUpload = multer({ 
+const photoUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
 });
 
 // Initialize services
@@ -62,17 +66,31 @@ const initializeService = async () => {
   const auditLogRepository = new AuditLogRepository(db);
   userService = new UserService(userRepository);
   auditLogService = new AuditLogService(auditLogRepository);
-  
+
   // Initialize NotificationService
-  const { NotificationRepository } = await import("../repositories/NotificationRepository");
-  const { NotificationPreferencesRepository } = await import("../repositories/NotificationPreferencesRepository");
-  const { WebhookRepository } = await import("../repositories/WebhookRepository");
-  
-  const notificationRepo = new NotificationRepository(db.collection('notifications'));
-  const preferencesRepo = new NotificationPreferencesRepository(db.collection('notificationPreferences'));
-  const webhookRepo = new WebhookRepository(db.collection('webhooks'));
-  notificationService = new NotificationService(notificationRepo, preferencesRepo, webhookRepo);
-  
+  const { NotificationRepository } = await import(
+    "../repositories/NotificationRepository"
+  );
+  const { NotificationPreferencesRepository } = await import(
+    "../repositories/NotificationPreferencesRepository"
+  );
+  const { WebhookRepository } = await import(
+    "../repositories/WebhookRepository"
+  );
+
+  const notificationRepo = new NotificationRepository(
+    db.collection("notifications")
+  );
+  const preferencesRepo = new NotificationPreferencesRepository(
+    db.collection("notificationPreferences")
+  );
+  const webhookRepo = new WebhookRepository(db.collection("webhooks"));
+  notificationService = new NotificationService(
+    notificationRepo,
+    preferencesRepo,
+    webhookRepo
+  );
+
   await AuthMiddleware.initialize();
 };
 
@@ -172,12 +190,15 @@ router.post(
             {
               attemptCount: user.failedLoginAttempts,
               ipAddress: req.ip,
-              userAgent: req.get('user-agent'),
-              timestamp: new Date().toISOString()
+              userAgent: req.get("user-agent"),
+              timestamp: new Date().toISOString(),
             }
           );
         } catch (notifError) {
-          console.error('Failed to send MULTIPLE_FAILED_LOGINS notification:', notifError);
+          console.error(
+            "Failed to send MULTIPLE_FAILED_LOGINS notification:",
+            notifError
+          );
         }
       }
 
@@ -191,11 +212,14 @@ router.post(
             {
               lockedUntil: user.accountLockedUntil?.toISOString(),
               failedAttempts: user.failedLoginAttempts,
-              ipAddress: req.ip
+              ipAddress: req.ip,
             }
           );
         } catch (notifError) {
-          console.error('Failed to send ACCOUNT_LOCKED notification:', notifError);
+          console.error(
+            "Failed to send ACCOUNT_LOCKED notification:",
+            notifError
+          );
         }
       }
 
@@ -363,38 +387,73 @@ router.post(
       middleName,
     });
 
-    // Notify the new user that their account was created
+    // Send welcome email with temporary password
+    const { emailService } = await import("../services/EmailService");
+    const { templateService } = await import("../services/TemplateService");
+
+    let emailSent = false;
+    try {
+      // Render email template
+      const emailHtml = await templateService.renderTemplate(
+        "new-user-created",
+        {
+          temporaryPassword: password,
+          userEmail: email,
+          recipientName: `${firstName} ${lastName}`,
+          appName: process.env.APP_NAME || "SaLuDo",
+          appUrl: process.env.APP_URL || "http://localhost:5173",
+          year: new Date().getFullYear(),
+        }
+      );
+
+      // Send email
+      await emailService.sendEmail({
+        to: email,
+        subject: "Welcome to SaLuDo - Your Account Has Been Created",
+        html: emailHtml,
+        userId: req.user?.userId,
+        userEmail: req.user?.email,
+        ipAddress: req.ip,
+      });
+      emailSent = true;
+      console.log(`Welcome email sent successfully to ${email}`);
+    } catch (emailError) {
+      console.error("Failed to send welcome email:", emailError);
+      // Continue even if email fails - admin can inform user manually
+    }
+
+    // Also create in-app notification
     if (notificationService) {
       try {
         await notificationService.createNotification({
           userId: newUser.userId,
           type: NotificationType.USER_CREATED,
-          title: 'Welcome to SaLuDo',
-          message: `Your account has been created by ${req.user?.email}. You must change your password on first login.`,
+          title: "Welcome to SaLuDo",
+          message: `Your account has been created. Check your email (${email}) for your temporary password.`,
           data: {
             role: newUser.role,
             createdBy: req.user?.userId,
-            createdByEmail: req.user?.email
+            createdByEmail: req.user?.email,
+            emailSent,
           },
-          channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL]
+          channels: [NotificationChannel.IN_APP],
         });
       } catch (notifError) {
-        console.error('Failed to send USER_CREATED notification:', notifError);
+        console.error("Failed to send USER_CREATED notification:", notifError);
       }
     }
 
-    // Generate temporary token for immediate use (if needed)
-    const token = PasswordUtils.generateToken(newUser.userId);
-
     res.status(CREATED).json({
       success: true,
-      message:
-        "User created successfully.",
+      message: emailSent
+        ? `User created successfully. Welcome email sent to ${email}`
+        : "User created successfully. Warning: Email could not be sent - please provide credentials manually.",
       data: {
         userId: newUser.userId,
         email: newUser.email,
         fullName: newUser.getFullName(),
         role: newUser.role,
+        emailSent,
       },
     });
   })
@@ -421,16 +480,19 @@ router.put(
         await notificationService.notifySecurityEvent(
           NotificationType.PASSWORD_CHANGED,
           userId,
-          'Your password has been reset by an administrator. You must change it on your next login.',
+          "Your password has been reset by an administrator. You must change it on your next login.",
           {
             resetBy: req.user?.userId,
             resetByEmail: req.user?.email,
             mustChangePassword: true,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           }
         );
       } catch (notifError) {
-        console.error('Failed to send PASSWORD_CHANGED notification:', notifError);
+        console.error(
+          "Failed to send PASSWORD_CHANGED notification:",
+          notifError
+        );
       }
     }
 
@@ -471,29 +533,36 @@ router.post(
       if (customPassword.length < 8) {
         res.status(BAD_REQUEST).json({
           success: false,
-          message: "Password must be at least 8 characters long"
+          message: "Password must be at least 8 characters long",
         });
         return;
       }
       // Additional validation: uppercase, lowercase, number, special char
-      if (!/[A-Z]/.test(customPassword) || !/[a-z]/.test(customPassword) || 
-          !/[0-9]/.test(customPassword) || !/[!@#$%^&*(),.?":{}|<>]/.test(customPassword)) {
+      if (
+        !/[A-Z]/.test(customPassword) ||
+        !/[a-z]/.test(customPassword) ||
+        !/[0-9]/.test(customPassword) ||
+        !/[!@#$%^&*(),.?":{}|<>]/.test(customPassword)
+      ) {
         res.status(BAD_REQUEST).json({
           success: false,
-          message: "Password must contain uppercase, lowercase, number, and special character"
+          message:
+            "Password must contain uppercase, lowercase, number, and special character",
         });
         return;
       }
       newPassword = customPassword;
     } else {
       // Generate random password (12 characters with uppercase, lowercase, numbers, symbols)
-      const crypto = await import('crypto');
-      newPassword = crypto.randomBytes(12)
-        .toString('base64')
-        .replace(/[+/=]/g, '')
-        .substring(0, 12) + 
-        crypto.randomInt(0, 10).toString() + 
-        ['!', '@', '#', '$', '%'][crypto.randomInt(0, 5)];
+      const crypto = await import("crypto");
+      newPassword =
+        crypto
+          .randomBytes(12)
+          .toString("base64")
+          .replace(/[+/=]/g, "")
+          .substring(0, 12) +
+        crypto.randomInt(0, 10).toString() +
+        ["!", "@", "#", "$", "%"][crypto.randomInt(0, 5)];
     }
 
     // Hash the password
@@ -510,31 +579,34 @@ router.post(
     // Send email with new password
     const { emailService } = await import("../services/EmailService");
     const { templateService } = await import("../services/TemplateService");
-    
+
     let emailSent = false;
     try {
       // Render email template
-      const emailHtml = await templateService.renderTemplate('password-reset-admin', {
-        temporaryPassword: newPassword,
-        reason: reason || undefined,
-        recipientName: `${targetUser.firstName} ${targetUser.lastName}`,
-        appName: 'SaLuDo',
-        appUrl: process.env.APP_URL || 'http://localhost:5173',
-        year: new Date().getFullYear()
-      });
+      const emailHtml = await templateService.renderTemplate(
+        "password-reset-admin",
+        {
+          temporaryPassword: newPassword,
+          reason: reason || undefined,
+          recipientName: `${targetUser.firstName} ${targetUser.lastName}`,
+          appName: "SaLuDo",
+          appUrl: process.env.APP_URL || "http://localhost:5173",
+          year: new Date().getFullYear(),
+        }
+      );
 
       // Send email directly
       await emailService.sendEmail({
         to: targetUser.email,
-        subject: 'Your SaLuDo Password Has Been Reset',
+        subject: "Your SaLuDo Password Has Been Reset",
         html: emailHtml,
         userId: req.user?.userId,
         userEmail: req.user?.email,
-        ipAddress: req.ip
+        ipAddress: req.ip,
       });
       emailSent = true;
     } catch (emailError) {
-      console.error('Failed to send password reset email:', emailError);
+      console.error("Failed to send password reset email:", emailError);
       // Continue even if email fails - admin can inform user manually
     }
 
@@ -552,7 +624,7 @@ router.post(
           targetUserEmail: targetUser.email,
           adminId: req.user?.userId,
           adminEmail: req.user?.email,
-          reason: reason || 'No reason provided',
+          reason: reason || "No reason provided",
           wasCustomPassword: !!customPassword,
           timestamp: new Date().toISOString(),
         },
@@ -565,17 +637,19 @@ router.post(
         await notificationService.notifySecurityEvent(
           NotificationType.PASSWORD_CHANGED,
           userId,
-          'Your password has been reset by an administrator.' + 
-          (emailSent ? ' Check your email for the new password.' : ' Please contact your administrator for the new password.'),
+          "Your password has been reset by an administrator." +
+            (emailSent
+              ? " Check your email for the new password."
+              : " Please contact your administrator for the new password."),
           {
             resetBy: req.user?.userId,
             resetByEmail: req.user?.email,
             timestamp: new Date().toISOString(),
-            reason: reason || undefined
+            reason: reason || undefined,
           }
         );
       } catch (notifError) {
-        console.error('Failed to send notification:', notifError);
+        console.error("Failed to send notification:", notifError);
       }
     }
 
@@ -585,8 +659,8 @@ router.post(
       message: "Password reset successfully.",
       data: {
         password: newPassword, // Return plaintext password to admin
-        emailSent: emailSent
-      }
+        emailSent: emailSent,
+      },
     });
   })
 );
@@ -643,7 +717,7 @@ router.get(
     const { userId } = req.params;
     const viewerUserId = req.user?.userId;
     const viewerEmail = req.user?.email;
-    
+
     const user = await userService.getUserProfile(userId);
 
     if (!user) {
@@ -659,15 +733,15 @@ router.get(
       eventType: NewAuditEventType.PROFILE_VIEWED,
       targetUserId: userId,
       performedBy: viewerUserId,
-      action: 'viewed',
+      action: "viewed",
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
       metadata: {
         viewerEmail: viewerEmail,
         targetUserEmail: user.email,
         targetUserRole: user.role,
-        isSelfView: viewerUserId === userId
-      }
+        isSelfView: viewerUserId === userId,
+      },
     });
 
     res.json({
@@ -687,10 +761,20 @@ router.put(
   AuthMiddleware.requireOwnershipOrAdmin,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { userId } = req.params;
-    const { 
-      email, firstName, lastName, middleName, title, role,
-      phoneNumber, location, timezone, linkedInUrl, bio,
-      availability, roleSpecificData
+    const {
+      email,
+      firstName,
+      lastName,
+      middleName,
+      title,
+      role,
+      phoneNumber,
+      location,
+      timezone,
+      linkedInUrl,
+      bio,
+      availability,
+      roleSpecificData,
     } = req.body;
 
     // Check if user exists
@@ -725,13 +809,13 @@ router.put(
     if (lastName) updateData.lastName = lastName.trim();
     if (middleName !== undefined) updateData.middleName = middleName?.trim();
     if (title) updateData.title = title.trim();
-    
+
     // Role change (admin only)
     const isRoleChange = role && role !== existingUser.role;
     if (role && req.user!.role === UserRole.ADMIN) {
       updateData.role = role;
     }
-    
+
     // Extended profile fields
     if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
     if (location !== undefined) updateData.location = location;
@@ -739,20 +823,23 @@ router.put(
     if (linkedInUrl !== undefined) updateData.linkedInUrl = linkedInUrl;
     if (bio !== undefined) updateData.bio = validation.sanitizeText(bio); // Sanitize to prevent XSS
     if (availability !== undefined) updateData.availability = availability;
-    if (roleSpecificData !== undefined) updateData.roleSpecificData = roleSpecificData;
+    if (roleSpecificData !== undefined)
+      updateData.roleSpecificData = roleSpecificData;
 
     // Update user with audit trail
     const performedBy = req.user!;
     await userService.updateProfileWithAudit(userId, updateData, {
       performedBy: performedBy.userId,
       ipAddress: req.ip,
-      userAgent: req.get('user-agent')
+      userAgent: req.get("user-agent"),
     });
 
     // Notify user of profile update (if significant changes)
-    const significantFields = ['email', 'role', 'isActive'];
-    const hasSignificantChanges = Object.keys(updateData).some(key => significantFields.includes(key));
-    
+    const significantFields = ["email", "role", "isActive"];
+    const hasSignificantChanges = Object.keys(updateData).some((key) =>
+      significantFields.includes(key)
+    );
+
     if (notificationService) {
       // USER_ROLE_CHANGED - critical security notification
       if (isRoleChange) {
@@ -762,28 +849,30 @@ router.put(
             userId: userId,
             type: NotificationType.USER_ROLE_CHANGED,
             priority: NotificationPriority.CRITICAL,
-            title: 'Your Role Has Changed',
+            title: "Your Role Has Changed",
             message: `Your role has been changed from ${existingUser.role} to ${role} by ${performedBy.email}.`,
             data: {
               oldRole: existingUser.role,
               newRole: role,
               changedBy: performedBy.userId,
-              changedByEmail: performedBy.email
+              changedByEmail: performedBy.email,
             },
-            channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL]
+            channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL],
           });
 
           // Notify all admins about the role change
-          const { getAdminUsers } = await import('../utils/NotificationHelpers');
+          const { getAdminUsers } = await import(
+            "../utils/NotificationHelpers"
+          );
           const adminUsers = await getAdminUsers();
-          
+
           for (const admin of adminUsers) {
             if (admin.userId !== performedBy.userId) {
               await notificationService.createNotification({
                 userId: admin.userId,
                 type: NotificationType.USER_ROLE_CHANGED,
                 priority: NotificationPriority.HIGH,
-                title: 'User Role Changed',
+                title: "User Role Changed",
                 message: `${existingUser.firstName} ${existingUser.lastName}'s role was changed from ${existingUser.role} to ${role} by ${performedBy.email}.`,
                 data: {
                   affectedUserId: userId,
@@ -791,35 +880,43 @@ router.put(
                   oldRole: existingUser.role,
                   newRole: role,
                   changedBy: performedBy.userId,
-                  changedByEmail: performedBy.email
+                  changedByEmail: performedBy.email,
                 },
-                channels: [NotificationChannel.IN_APP]
+                channels: [NotificationChannel.IN_APP],
               });
             }
           }
         } catch (notifError) {
-          console.error('Failed to send USER_ROLE_CHANGED notification:', notifError);
+          console.error(
+            "Failed to send USER_ROLE_CHANGED notification:",
+            notifError
+          );
         }
       }
-      
+
       // USER_UPDATED - general profile update notification
       if (hasSignificantChanges && !isRoleChange) {
         try {
           await notificationService.createNotification({
             userId: userId,
             type: NotificationType.USER_UPDATED,
-            title: 'Profile Updated',
-            message: `Your profile has been updated by ${performedBy.userId === userId ? 'you' : performedBy.email}.`,
+            title: "Profile Updated",
+            message: `Your profile has been updated by ${
+              performedBy.userId === userId ? "you" : performedBy.email
+            }.`,
             data: {
               updatedFields: Object.keys(updateData),
               updatedBy: performedBy.userId,
               updatedByEmail: performedBy.email,
-              isSelfUpdate: performedBy.userId === userId
+              isSelfUpdate: performedBy.userId === userId,
             },
-            channels: [NotificationChannel.IN_APP]
+            channels: [NotificationChannel.IN_APP],
           });
         } catch (notifError) {
-          console.error('Failed to send USER_UPDATED notification:', notifError);
+          console.error(
+            "Failed to send USER_UPDATED notification:",
+            notifError
+          );
         }
       }
     }
@@ -842,7 +939,7 @@ router.post(
   AuthMiddleware.authenticate,
   UserValidation.validateUserId,
   AuthMiddleware.requireOwnershipOrAdmin,
-  photoUpload.single('photo'),
+  photoUpload.single("photo"),
   validation.validateProfilePhoto,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { userId } = req.params;
@@ -871,7 +968,7 @@ router.post(
       try {
         await ProfileService.deleteProfilePhoto(user.photoMetadata.fileId);
       } catch (error) {
-        console.warn('Failed to delete old profile photo:', error);
+        console.warn("Failed to delete old profile photo:", error);
       }
     }
 
@@ -888,17 +985,17 @@ router.post(
       eventType: NewAuditEventType.FILE_UPLOADED,
       fileId: photoMetadata.fileId,
       fileName: photoMetadata.filename,
-      fileType: 'profile_photo',
+      fileType: "profile_photo",
       userId: req.user?.userId,
       userEmail: req.user?.email,
-      action: 'upload',
+      action: "upload",
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
       metadata: {
         targetUserId: userId,
         contentType: photoMetadata.contentType,
-        size: photoMetadata.size
-      }
+        size: photoMetadata.size,
+      },
     });
 
     res.status(CREATED).json({
@@ -930,15 +1027,16 @@ router.get(
     }
 
     // Get photo from GridFS
-    const fileId = thumbnail === 'true' && userData.photoMetadata.thumbnailFileId
-      ? userData.photoMetadata.thumbnailFileId
-      : userData.photoMetadata.fileId;
+    const fileId =
+      thumbnail === "true" && userData.photoMetadata.thumbnailFileId
+        ? userData.photoMetadata.thumbnailFileId
+        : userData.photoMetadata.fileId;
 
     const { stream, metadata } = await ProfileService.getProfilePhoto(fileId);
 
     // Set content type header
-    res.set('Content-Type', metadata.contentType || 'image/jpeg');
-    res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+    res.set("Content-Type", metadata.contentType || "image/jpeg");
+    res.set("Cache-Control", "public, max-age=86400"); // Cache for 1 day
 
     // Pipe the stream to response
     stream.pipe(res);
@@ -989,15 +1087,15 @@ router.delete(
       eventType: NewAuditEventType.FILE_DELETED,
       fileId: fileIdToDelete,
       fileName: fileNameToDelete,
-      fileType: 'profile_photo',
+      fileType: "profile_photo",
       userId: req.user?.userId,
       userEmail: req.user?.email,
-      action: 'delete',
+      action: "delete",
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
       metadata: {
-        targetUserId: userId
-      }
+        targetUserId: userId,
+      },
     });
 
     res.json({
@@ -1323,16 +1421,19 @@ router.post(
         await notificationService.notifySecurityEvent(
           NotificationType.PASSWORD_CHANGED,
           userId,
-          'Your password has been changed successfully. If you did not make this change, please contact support immediately.',
+          "Your password has been changed successfully. If you did not make this change, please contact support immediately.",
           {
-            changedBy: 'self',
+            changedBy: "self",
             ipAddress: req.ip,
-            userAgent: req.get('user-agent'),
-            timestamp: new Date().toISOString()
+            userAgent: req.get("user-agent"),
+            timestamp: new Date().toISOString(),
           }
         );
       } catch (notifError) {
-        console.error('Failed to send PASSWORD_CHANGED notification:', notifError);
+        console.error(
+          "Failed to send PASSWORD_CHANGED notification:",
+          notifError
+        );
       }
     }
 
