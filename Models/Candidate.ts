@@ -178,7 +178,7 @@ export class Candidate {
     birthdate: Date,
     roleApplied: string | null = null,
     resumeMetadata?: ResumeMetadata,
-    status: CandidateStatus = CandidateStatus.APPLIED,
+    status: CandidateStatus = CandidateStatus.FOR_REVIEW,
     dateCreated?: Date,
     dateUpdated?: Date,
     assignedHRUserIds?: string[],
@@ -917,12 +917,19 @@ export class Candidate {
 // ENUMS AND INTERFACES
 // =======================
 export enum CandidateStatus {
-  APPLIED = "Applied",
-  REFERENCE_CHECK = "Reference Check",
-  OFFER = "Offer",
+  FOR_REVIEW = "For Review",
+  PAPER_SCREENING = "Paper Screening",
+  EXAM = "Exam",
+  HR_INTERVIEW = "HR Interview",
+  TECHNICAL_INTERVIEW = "Technical Interview",
+  FINAL_INTERVIEW = "Final Interview",
+  FOR_JOB_OFFER = "For Job Offer",
+  OFFER_EXTENDED = "Offer Extended",
+  // Terminal statuses
   HIRED = "Hired",
   REJECTED = "Rejected",
   WITHDRAWN = "Withdrawn",
+  ON_HOLD = "On Hold",
 }
 export interface CandidateData {
   candidateId: string;

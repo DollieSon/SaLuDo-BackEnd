@@ -177,7 +177,7 @@ export class CandidateService {
         email,
         birthdate,
         roleApplied,
-        status: CandidateStatus.APPLIED,
+        status: CandidateStatus.FOR_REVIEW,
         isDeleted: false,
         assignedHRUserIds: [],
         lastAssignedAt: null,
@@ -237,7 +237,7 @@ export class CandidateService {
         birthdate,
         roleApplied,
         resumeMetadata,
-        CandidateStatus.APPLIED,
+        CandidateStatus.FOR_REVIEW,
         personalInfo.dateCreated,
         personalInfo.dateUpdated,
         [],
@@ -251,7 +251,7 @@ export class CandidateService {
         candidateId: personalInfo.candidateId,
         candidateName: name,
         action: ACTIONS.CREATED_NEW_CANDIDATE,
-        newValue: { name, email, status: CandidateStatus.APPLIED, roleApplied },
+        newValue: { name, email, status: CandidateStatus.FOR_REVIEW, roleApplied },
         metadata: { hasResume: !!resumeFile },
       });
 
