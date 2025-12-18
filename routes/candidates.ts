@@ -20,6 +20,7 @@ import { connectDB } from "../mongo_db";
 import { GridFSBucket, ObjectId } from "mongodb";
 import multer from "multer";
 import { CREATED, BAD_REQUEST } from "../constants/HttpStatusCodes";
+import { cacheService, CacheKeys } from "../services/CacheService";
 
 const router = Router({ mergeParams: true });
 const upload = multer();
@@ -357,6 +358,14 @@ router.put(
         user?.userId,
         user?.email
       );
+    }
+
+    // Invalidate caches if status changed or any update occurred
+    if (status) {
+      // Invalidate candidate-specific caches
+      await cacheService.deletePattern(CacheKeys.CANDIDATE_PREFIX(candidateId));
+      // Invalidate system-wide analytics cache
+      await cacheService.delete(CacheKeys.SYSTEM_ANALYTICS());
     }
 
     // Get updated candidate data
@@ -827,6 +836,18 @@ router.get(
   CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
+    
+    // Try to get from cache
+    const cacheKey = CacheKeys.STATUS_HISTORY(candidateId);
+    const cached = await cacheService.get(cacheKey);
+    if (cached) {
+      return res.json({
+        success: true,
+        data: cached,
+        cached: true
+      });
+    }
+
     const candidate = await candidateService.getCandidate(candidateId);
 
     if (!candidate) {
@@ -836,15 +857,20 @@ router.get(
       });
     }
 
+    const result = {
+      candidateId: candidate.candidateId,
+      candidateName: candidate.name,
+      currentStatus: candidate.status,
+      statusHistory: candidate.statusHistory,
+      totalChanges: candidate.getStatusChangeCount(),
+    };
+
+    // Cache the result
+    await cacheService.set(cacheKey, result, CacheKeys.STATUS_HISTORY_TTL);
+
     res.json({
       success: true,
-      data: {
-        candidateId: candidate.candidateId,
-        candidateName: candidate.name,
-        currentStatus: candidate.status,
-        statusHistory: candidate.statusHistory,
-        totalChanges: candidate.getStatusChangeCount(),
-      },
+      data: result,
     });
   })
 );
@@ -857,6 +883,17 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const { stuckThresholdDays } = req.query;
+    
+    // Try to get from cache (5 minute TTL)
+    const cacheKey = CacheKeys.CANDIDATE_ANALYTICS(candidateId);
+    const cached = await cacheService.get(cacheKey);
+    if (cached) {
+      return res.json({
+        success: true,
+        data: cached,
+        cached: true
+      });
+    }
     
     const { TimeAnalyticsService } = await import("../services/TimeAnalyticsService");
     const timeAnalyticsService = new TimeAnalyticsService();
@@ -872,6 +909,9 @@ router.get(
         message: "Candidate not found",
       });
     }
+
+    // Cache the result
+    await cacheService.set(cacheKey, analytics, CacheKeys.CANDIDATE_ANALYTICS_TTL);
 
     res.json({
       success: true,
@@ -895,6 +935,17 @@ router.get(
       });
     }
 
+    // Try to get from cache (15 minute TTL)
+    const cacheKey = CacheKeys.SYSTEM_ANALYTICS();
+    const cached = await cacheService.get(cacheKey);
+    if (cached) {
+      return res.json({
+        success: true,
+        data: cached,
+        cached: true
+      });
+    }
+
     const { stuckThresholdDays } = req.query;
     
     const { TimeAnalyticsService } = await import("../services/TimeAnalyticsService");
@@ -903,6 +954,9 @@ router.get(
     const analytics = await timeAnalyticsService.getSystemWideTimeAnalytics(
       stuckThresholdDays ? parseInt(stuckThresholdDays as string) : undefined
     );
+
+    // Cache the result
+    await cacheService.set(cacheKey, analytics, CacheKeys.SYSTEM_ANALYTICS_TTL);
 
     res.json({
       success: true,
