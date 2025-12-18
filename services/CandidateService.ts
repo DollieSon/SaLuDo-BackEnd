@@ -376,7 +376,8 @@ export class CandidateService {
         updatedData.email ||
         updatedData.birthdate ||
         updatedData.roleApplied ||
-        updatedData.status
+        updatedData.status ||
+        updatedData.socialLinks !== undefined
       ) {
         // Prepare the update object
         const personalInfoUpdate: any = {};
@@ -386,6 +387,7 @@ export class CandidateService {
         if (updatedData.birthdate) personalInfoUpdate.birthdate = updatedData.birthdate;
         if (updatedData.roleApplied !== undefined) personalInfoUpdate.roleApplied = updatedData.roleApplied;
         if (updatedData.status) personalInfoUpdate.status = updatedData.status;
+        if (updatedData.socialLinks !== undefined) personalInfoUpdate.socialLinks = updatedData.socialLinks;
 
         if (updatedData.status && oldCandidate?.status !== updatedData.status) {
           changes.status = {
@@ -455,6 +457,8 @@ export class CandidateService {
         if (updatedData.email) changes.email = updatedData.email;
         if (updatedData.roleApplied)
           changes.roleApplied = updatedData.roleApplied;
+        if (updatedData.socialLinks !== undefined)
+          changes.socialLinks = updatedData.socialLinks;
       }
 
       if (
