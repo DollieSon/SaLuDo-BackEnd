@@ -4,10 +4,10 @@
  * Automatically captures metrics: latency, tokens, errors, costs
  */
 
-import fetch, { Response } from 'node-fetch';
-import { ObjectId, Db } from 'mongodb';
-import { connectDB } from '../mongo_db';
-import { AIMetricsRepository } from '../repositories/AIMetricsRepository';
+import fetch, { Response } from "node-fetch";
+import { ObjectId, Db } from "mongodb";
+import { connectDB } from "../mongo_db";
+import { AIMetricsRepository } from "../repositories/AIMetricsRepository";
 import {
   AIMetricsEntry,
   AIServiceType,
@@ -16,8 +16,8 @@ import {
   CostEstimate,
   GEMINI_PRICING,
   DEFAULT_MODEL_VERSION,
-  TOKEN_ESTIMATION
-} from '../Models/AIMetrics';
+  TOKEN_ESTIMATION,
+} from "../Models/AIMetrics";
 
 // ============================================================================
 // Types
@@ -117,7 +117,7 @@ export class GeminiClientService {
    */
   private validateApiKey(): void {
     if (!this.apiKey) {
-      throw new Error('GOOGLE_API_KEY environment variable is not set');
+      throw new Error("GOOGLE_API_KEY environment variable is not set");
     }
   }
 
@@ -131,7 +131,8 @@ export class GeminiClientService {
    */
   async callGemini(
     prompt: string,
-    context: GeminiRequestContext
+    context: GeminiRequestContext,
+    fileUri?: string
   ): Promise<GeminiCallResult<string>> {
     await this.init();
     this.validateApiKey();
@@ -142,28 +143,43 @@ export class GeminiClientService {
     let rawResponse: GeminiResponse | null = null;
 
     try {
+      // Build parts array - include file URI if provided (for video/image analysis)
+      const parts: any[] = [{ text: prompt }];
+      if (fileUri) {
+        parts.unshift({ fileData: { fileUri, mimeType: "video/mp4" } });
+      }
+
       const requestPayload = {
-        contents: [{ parts: [{ text: prompt }] }]
+        contents: [{ parts }],
       };
 
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${this.modelVersion}:generateContent?key=${this.apiKey}`,
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestPayload)
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestPayload),
         }
       );
 
       httpStatusCode = response.status;
       const latencyMs = Date.now() - startTime;
 
-      rawResponse = await response.json() as GeminiResponse;
+      rawResponse = (await response.json()) as GeminiResponse;
 
       // Check for API-level errors
       if (rawResponse.error) {
-        const errorCategory = this.categorizeApiError(rawResponse.error.code, rawResponse.error.message);
+        console.error("=== GEMINI API ERROR ===");
+        console.error("Error Code:", rawResponse.error.code);
+        console.error("Error Message:", rawResponse.error.message);
+        console.error("Error Status:", rawResponse.error.status);
+        console.error("========================");
         
+        const errorCategory = this.categorizeApiError(
+          rawResponse.error.code,
+          rawResponse.error.message
+        );
+
         await this.logMetrics({
           metricsId,
           context,
@@ -177,8 +193,8 @@ export class GeminiClientService {
           outputLength: 0,
           parseSuccess: false,
           fallbackUsed: false,
-          tokenUsage: this.estimateTokens(prompt, ''),
-          retryCount: 0
+          tokenUsage: this.estimateTokens(prompt, ""),
+          retryCount: 0,
         });
 
         return {
@@ -187,14 +203,22 @@ export class GeminiClientService {
           errorCategory,
           metricsId,
           latencyMs,
-          tokenUsage: this.estimateTokens(prompt, '')
+          tokenUsage: this.estimateTokens(prompt, ""),
         };
       }
 
       // Extract content
-      const contentText = rawResponse.candidates?.[0]?.content?.parts?.[0]?.text;
+      const contentText =
+        rawResponse.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!contentText) {
+        console.error("=== GEMINI EMPTY RESPONSE ===");
+        console.error("HTTP Status:", httpStatusCode);
+        console.error("Finish Reason:", rawResponse.candidates?.[0]?.finishReason);
+        console.error("Safety Ratings:", JSON.stringify(rawResponse.candidates?.[0]?.safetyRatings));
+        console.error("Full Response:", JSON.stringify(rawResponse, null, 2));
+        console.error("=============================");
+        
         await this.logMetrics({
           metricsId,
           context,
@@ -202,23 +226,23 @@ export class GeminiClientService {
           latencyMs,
           success: false,
           errorCategory: AIErrorCategory.EMPTY_RESPONSE,
-          errorMessage: 'No content returned by Gemini',
+          errorMessage: "No content returned by Gemini",
           httpStatusCode,
           inputLength: prompt.length,
           outputLength: 0,
           parseSuccess: false,
           fallbackUsed: false,
-          tokenUsage: this.getTokenUsage(rawResponse, prompt, ''),
-          retryCount: 0
+          tokenUsage: this.getTokenUsage(rawResponse, prompt, ""),
+          retryCount: 0,
         });
 
         return {
           success: false,
-          error: 'No content returned by Gemini',
+          error: "No content returned by Gemini",
           errorCategory: AIErrorCategory.EMPTY_RESPONSE,
           metricsId,
           latencyMs,
-          tokenUsage: this.getTokenUsage(rawResponse, prompt, '')
+          tokenUsage: this.getTokenUsage(rawResponse, prompt, ""),
         };
       }
 
@@ -237,7 +261,7 @@ export class GeminiClientService {
         parseSuccess: true, // Just raw text, parsing happens in caller
         fallbackUsed: false,
         tokenUsage,
-        retryCount: 0
+        retryCount: 0,
       });
 
       return {
@@ -246,12 +270,12 @@ export class GeminiClientService {
         rawText: contentText,
         metricsId,
         latencyMs,
-        tokenUsage
+        tokenUsage,
       };
-
     } catch (error) {
       const latencyMs = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       const errorCategory = this.categorizeNetworkError(errorMessage);
 
       await this.logMetrics({
@@ -267,8 +291,8 @@ export class GeminiClientService {
         outputLength: 0,
         parseSuccess: false,
         fallbackUsed: false,
-        tokenUsage: this.estimateTokens(prompt, ''),
-        retryCount: 0
+        tokenUsage: this.estimateTokens(prompt, ""),
+        retryCount: 0,
       });
 
       return {
@@ -277,7 +301,7 @@ export class GeminiClientService {
         errorCategory,
         metricsId,
         latencyMs,
-        tokenUsage: this.estimateTokens(prompt, '')
+        tokenUsage: this.estimateTokens(prompt, ""),
       };
     }
   }
@@ -305,14 +329,18 @@ export class GeminiClientService {
       // Validate if validator provided
       if (validator && !validator(parsed)) {
         // Update metrics to reflect validation failure
-        await this.updateMetricsParseStatus(result.metricsId, false, AIErrorCategory.VALIDATION_FAILED);
+        await this.updateMetricsParseStatus(
+          result.metricsId,
+          false,
+          AIErrorCategory.VALIDATION_FAILED
+        );
 
         return {
           ...result,
           success: false,
           data: undefined,
-          error: 'Response validation failed',
-          errorCategory: AIErrorCategory.VALIDATION_FAILED
+          error: "Response validation failed",
+          errorCategory: AIErrorCategory.VALIDATION_FAILED,
         };
       }
 
@@ -322,21 +350,25 @@ export class GeminiClientService {
       return {
         ...result,
         success: true,
-        data: parsed
+        data: parsed,
       };
-
     } catch (parseError) {
-      const errorMessage = parseError instanceof Error ? parseError.message : 'JSON parse error';
+      const errorMessage =
+        parseError instanceof Error ? parseError.message : "JSON parse error";
 
       // Update metrics to reflect parse failure
-      await this.updateMetricsParseStatus(result.metricsId, false, AIErrorCategory.INVALID_JSON);
+      await this.updateMetricsParseStatus(
+        result.metricsId,
+        false,
+        AIErrorCategory.INVALID_JSON
+      );
 
       return {
         ...result,
         success: false,
         data: undefined,
         error: `Invalid JSON: ${errorMessage}`,
-        errorCategory: AIErrorCategory.INVALID_JSON
+        errorCategory: AIErrorCategory.INVALID_JSON,
       };
     }
   }
@@ -360,7 +392,7 @@ export class GeminiClientService {
         completionTokens: response.usageMetadata.candidatesTokenCount,
         totalTokens: response.usageMetadata.totalTokenCount,
         thoughtsTokens: response.usageMetadata.thoughtsTokenCount,
-        isEstimated: false
+        isEstimated: false,
       };
     }
 
@@ -375,14 +407,18 @@ export class GeminiClientService {
     const charsPerToken = TOKEN_ESTIMATION.CHARS_PER_TOKEN;
     const overhead = TOKEN_ESTIMATION.OVERHEAD_MULTIPLIER;
 
-    const promptTokens = Math.ceil((inputText.length / charsPerToken) * overhead);
-    const completionTokens = Math.ceil((outputText.length / charsPerToken) * overhead);
+    const promptTokens = Math.ceil(
+      (inputText.length / charsPerToken) * overhead
+    );
+    const completionTokens = Math.ceil(
+      (outputText.length / charsPerToken) * overhead
+    );
 
     return {
       promptTokens,
       completionTokens,
       totalTokens: promptTokens + completionTokens,
-      isEstimated: true
+      isEstimated: true,
     };
   }
 
@@ -390,17 +426,20 @@ export class GeminiClientService {
    * Calculate cost from token usage
    */
   calculateCost(tokenUsage: TokenUsage): CostEstimate {
-    const pricing = GEMINI_PRICING[this.modelVersion as keyof typeof GEMINI_PRICING] 
-      || GEMINI_PRICING[DEFAULT_MODEL_VERSION as keyof typeof GEMINI_PRICING];
+    const pricing =
+      GEMINI_PRICING[this.modelVersion as keyof typeof GEMINI_PRICING] ||
+      GEMINI_PRICING[DEFAULT_MODEL_VERSION as keyof typeof GEMINI_PRICING];
 
-    const inputCostUsd = (tokenUsage.promptTokens / 1_000_000) * pricing.inputPer1M;
-    const outputCostUsd = (tokenUsage.completionTokens / 1_000_000) * pricing.outputPer1M;
+    const inputCostUsd =
+      (tokenUsage.promptTokens / 1_000_000) * pricing.inputPer1M;
+    const outputCostUsd =
+      (tokenUsage.completionTokens / 1_000_000) * pricing.outputPer1M;
 
     return {
       inputCostUsd,
       outputCostUsd,
       totalCostUsd: inputCostUsd + outputCostUsd,
-      isEstimated: tokenUsage.isEstimated
+      isEstimated: tokenUsage.isEstimated,
     };
   }
 
@@ -412,13 +451,13 @@ export class GeminiClientService {
    * Categorize API-level errors
    */
   private categorizeApiError(code: number, message: string): AIErrorCategory {
-    if (code === 429 || message.toLowerCase().includes('rate limit')) {
+    if (code === 429 || message.toLowerCase().includes("rate limit")) {
       return AIErrorCategory.RATE_LIMIT;
     }
     if (code === 401 || code === 403) {
       return AIErrorCategory.AUTHENTICATION;
     }
-    if (code === 504 || message.toLowerCase().includes('timeout')) {
+    if (code === 504 || message.toLowerCase().includes("timeout")) {
       return AIErrorCategory.TIMEOUT;
     }
     return AIErrorCategory.API_ERROR;
@@ -429,17 +468,24 @@ export class GeminiClientService {
    */
   private categorizeNetworkError(message: string): AIErrorCategory {
     const lowerMessage = message.toLowerCase();
-    
-    if (lowerMessage.includes('timeout') || lowerMessage.includes('timed out')) {
+
+    if (
+      lowerMessage.includes("timeout") ||
+      lowerMessage.includes("timed out")
+    ) {
       return AIErrorCategory.TIMEOUT;
     }
-    if (lowerMessage.includes('rate') || lowerMessage.includes('429')) {
+    if (lowerMessage.includes("rate") || lowerMessage.includes("429")) {
       return AIErrorCategory.RATE_LIMIT;
     }
-    if (lowerMessage.includes('auth') || lowerMessage.includes('401') || lowerMessage.includes('403')) {
+    if (
+      lowerMessage.includes("auth") ||
+      lowerMessage.includes("401") ||
+      lowerMessage.includes("403")
+    ) {
       return AIErrorCategory.AUTHENTICATION;
     }
-    
+
     return AIErrorCategory.API_ERROR;
   }
 
@@ -453,9 +499,9 @@ export class GeminiClientService {
   private cleanGeminiJson(raw: string): string {
     return raw
       .trim()
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/```$/i, '')
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```$/i, "")
       .trim();
   }
 
@@ -463,23 +509,23 @@ export class GeminiClientService {
    * Strip markdown formatting from text
    */
   stripMarkdown(text: string): string {
-    if (!text || typeof text !== 'string') return '';
-    
+    if (!text || typeof text !== "string") return "";
+
     return text
-      .replace(/\*\*(.+?)\*\*/g, '$1')
-      .replace(/__(.+?)__/g, '$1')
-      .replace(/\*(.+?)\*/g, '$1')
-      .replace(/_(.+?)_/g, '$1')
-      .replace(/~~(.+?)~~/g, '$1')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/^#{1,6}\s+/gm, '')
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-      .replace(/^>\s+/gm, '')
-      .replace(/^[-*_]{3,}$/gm, '')
-      .replace(/^[\s]*[-*+]\s+/gm, '')
-      .replace(/^[\s]*\d+\.\s+/gm, '')
-      .replace(/\n{3,}/g, '\n\n')
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/__(.+?)__/g, "$1")
+      .replace(/\*(.+?)\*/g, "$1")
+      .replace(/_(.+?)_/g, "$1")
+      .replace(/~~(.+?)~~/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/^#{1,6}\s+/gm, "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+      .replace(/^>\s+/gm, "")
+      .replace(/^[-*_]{3,}$/gm, "")
+      .replace(/^[\s]*[-*+]\s+/gm, "")
+      .replace(/^[\s]*\d+\.\s+/gm, "")
+      .replace(/\n{3,}/g, "\n\n")
       .trim();
   }
 
@@ -531,14 +577,14 @@ export class GeminiClientService {
       fallbackUsed: params.fallbackUsed,
       outputLength: params.outputLength,
       retryCount: params.retryCount,
-      inputLength: params.inputLength
+      inputLength: params.inputLength,
     };
 
     try {
       await this.metricsRepo.logMetrics(entry);
     } catch (error) {
       // Don't let metrics logging failures break the main flow
-      console.error('Failed to log AI metrics:', error);
+      console.error("Failed to log AI metrics:", error);
     }
   }
 
@@ -553,9 +599,9 @@ export class GeminiClientService {
     if (!this.db) return;
 
     try {
-      const collection = this.db.collection('ai_metrics');
+      const collection = this.db.collection("ai_metrics");
       const updateFields: any = { parseSuccess };
-      
+
       if (!parseSuccess) {
         updateFields.success = false;
         if (errorCategory) {
@@ -563,12 +609,9 @@ export class GeminiClientService {
         }
       }
 
-      await collection.updateOne(
-        { metricsId },
-        { $set: updateFields }
-      );
+      await collection.updateOne({ metricsId }, { $set: updateFields });
     } catch (error) {
-      console.error('Failed to update metrics parse status:', error);
+      console.error("Failed to update metrics parse status:", error);
     }
   }
 

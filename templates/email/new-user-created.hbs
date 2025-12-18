@@ -1,0 +1,113 @@
+<div
+  style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 25px; border-radius: 8px; margin-bottom: 25px; text-align: center;"
+>
+  <h2 style="margin: 0; color: #ffffff; font-size: 26px;">Welcome to
+    {{appName}}!</h2>
+  <p style="margin: 10px 0 0 0; color: #d1fae5; font-size: 14px;">
+    Your account has been created
+  </p>
+</div>
+
+<div
+  style="background-color: #ffffff; padding: 25px; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 25px;"
+>
+  <p
+    style="margin: 0 0 15px 0; color: #374151; font-size: 15px; line-height: 1.6;"
+  >
+    Hello
+    <strong>{{recipientName}}</strong>,
+  </p>
+
+  <p
+    style="margin: 0 0 15px 0; color: #374151; font-size: 15px; line-height: 1.6;"
+  >
+    Your account has been created by an administrator. Below are your login
+    credentials.
+  </p>
+</div>
+
+<div
+  style="background-color: #fef3c7; padding: 20px; border-radius: 8px; border: 2px solid #fcd34d; margin-bottom: 25px;"
+>
+  <p style="font-size: 15px; line-height: 1.6; color: #92400e; margin: 0;">
+    ⚠️
+    <strong>Important:</strong>
+    This is a temporary password. You MUST change it immediately upon your first
+    login.
+  </p>
+</div>
+
+<div
+  style="background-color: #ffffff; padding: 25px; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 25px;"
+>
+  <h3 style="margin: 0 0 15px 0; color: #1f2937; font-size: 18px;">Your Login
+    Credentials</h3>
+
+  <div style="margin-bottom: 15px;">
+    <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 13px;">Email:</p>
+    <div
+      style="background-color: #f9fafb; padding: 12px; border-radius: 6px; border: 1px solid #d1d5db;"
+    >
+      <code
+        style="font-family: 'Courier New', monospace; font-size: 15px; color: #1f2937;"
+      >{{userEmail}}</code>
+    </div>
+  </div>
+
+  <div>
+    <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 13px;">Temporary
+      Password:</p>
+    <div
+      style="background-color: #fef3c7; padding: 12px; border-radius: 6px; border: 2px solid #fcd34d; text-align: center;"
+    >
+      <code
+        style="font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold; color: #92400e;"
+      >{{temporaryPassword}}</code>
+    </div>
+  </div>
+</div>
+
+<div
+  style="background-color: #f9fafb; padding: 20px; border-radius: 8px; margin-bottom: 25px;"
+>
+  <h3 style="margin: 0 0 15px 0; color: #1f2937; font-size: 16px;">Next Steps:</h3>
+  <ol
+    style="margin: 0; padding-left: 20px; color: #374151; line-height: 1.8; font-size: 14px;"
+  >
+    <li>Go to
+      <a
+        href="{{appUrl}}"
+        style="color: #2563eb; text-decoration: none;"
+      >{{appUrl}}</a></li>
+    <li>Log in using your email and the temporary password above</li>
+    <li>You will be prompted to create a new password</li>
+    <li>Choose a strong, unique password (minimum 8 characters)</li>
+    <li>Complete your profile setup</li>
+  </ol>
+</div>
+
+<div
+  style="background-color: #fef2f2; padding: 20px; border-radius: 8px; border: 1px solid #fecaca; margin-bottom: 25px;"
+>
+  <h3 style="margin: 0 0 10px 0; color: #991b1b; font-size: 15px;">Security
+    Reminder</h3>
+  <ul
+    style="margin: 0; padding-left: 20px; color: #991b1b; font-size: 13px; line-height: 1.6;"
+  >
+    <li>Never share your password with anyone</li>
+    <li>Change your password immediately after first login</li>
+    <li>Use a unique password not used on other sites</li>
+    <li>Enable two-factor authentication if available</li>
+  </ul>
+</div>
+
+<div
+  style="text-align: center; padding: 20px 0; border-top: 1px solid #e5e7eb;"
+>
+  <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 13px;">
+    Need help? Contact your system administrator
+  </p>
+  <p style="margin: 0; color: #6b7280; font-size: 13px;">
+    This is an automated message, please do not reply to this email.
+  </p>
+</div>
