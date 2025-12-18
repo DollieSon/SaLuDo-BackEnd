@@ -110,11 +110,11 @@ export class UserService {
       c.assignedHRUserIds && c.assignedHRUserIds.includes(userId)
     );
 
-    // Count by status
+    // Count by status - active candidates are all non-terminal statuses
     const activeCandidates = assignedCandidates.filter(c => 
-      c.status === CandidateStatus.APPLIED || 
-      c.status === CandidateStatus.REFERENCE_CHECK ||
-      c.status === CandidateStatus.OFFER
+      c.status !== CandidateStatus.HIRED && 
+      c.status !== CandidateStatus.REJECTED &&
+      c.status !== CandidateStatus.WITHDRAWN
     );
 
     const hiredCandidates = assignedCandidates.filter(c => 
