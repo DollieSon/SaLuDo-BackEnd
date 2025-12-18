@@ -5,8 +5,18 @@ import { candidateExists } from "./middleware/candidateExists";
 import { validation } from "./middleware/validation";
 import { asyncHandler } from "./middleware/errorHandler";
 import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
+import {
+  analyzeInterviewVideoWithGemini,
+  analyzeIntroductionVideoWithGemini,
+} from "../services/GeminiVideoService";
 
-import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
+import {
+  OK,
+  CREATED,
+  BAD_REQUEST,
+  UNAUTHORIZED,
+  NOT_FOUND,
+} from "../constants/HttpStatusCodes";
 const router = express.Router({ mergeParams: true });
 const candidateService = new CandidateService();
 
@@ -208,12 +218,8 @@ router.delete(
   candidateExists,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
-    
-    await candidateService.deleteVideoFile(
-      candidateId, 
-      videoId, 
-      "interview"
-    );
+
+    await candidateService.deleteVideoFile(candidateId, videoId, "interview");
 
     res.json({
       success: true,
@@ -393,7 +399,7 @@ router.delete(
   candidateExists,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
-    
+
     await candidateService.deleteVideoFile(
       candidateId,
       videoId,
@@ -423,10 +429,117 @@ router.get(
       success: true,
       message: "All videos retrieved successfully",
       data: {
-        interviewVideos: videos.filter(v => v.videoType === "interview"),
-        introductionVideos: videos.filter(v => v.videoType === "introduction"),
+        interviewVideos: videos.filter((v) => v.videoType === "interview"),
+        introductionVideos: videos.filter(
+          (v) => v.videoType === "introduction"
+        ),
         totalCount: videos.length,
       },
+    });
+  })
+);
+
+// ============================
+// VIDEO PROCESSING ROUTES
+// ============================
+
+// POST /api/candidates/:candidateId/videos/interview/:videoId/process
+router.post(
+  "/interview/:videoId/process",
+  AuthMiddleware.authenticate,
+  candidateExists,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, videoId } = req.params;
+    const user = req.user;
+
+    // Get video file
+    const { stream, metadata } = await candidateService.getVideoFile(
+      candidateId,
+      videoId,
+      "interview"
+    );
+
+    // Convert stream to buffer
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+    }
+    const videoBuffer = Buffer.concat(chunks);
+
+    // Analyze video with Gemini
+    const candidate = await candidateService.getCandidate(candidateId);
+    const analysis = await analyzeInterviewVideoWithGemini(
+      videoBuffer,
+      metadata.contentType,
+      candidateId,
+      candidate?.name,
+      metadata.interviewRound,
+      user?.userId,
+      user?.email
+    );
+
+    // Update video metadata with analysis
+    await candidateService.updateVideoAnalysis(
+      candidateId,
+      videoId,
+      "interview",
+      analysis
+    );
+
+    res.json({
+      success: true,
+      message: "Interview video processed successfully",
+      data: analysis,
+    });
+  })
+);
+
+// POST /api/candidates/:candidateId/videos/introduction/:videoId/process
+router.post(
+  "/introduction/:videoId/process",
+  AuthMiddleware.authenticate,
+  candidateExists,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, videoId } = req.params;
+    const user = req.user;
+
+    // Get video file
+    const { stream, metadata } = await candidateService.getVideoFile(
+      candidateId,
+      videoId,
+      "introduction"
+    );
+
+    // Convert stream to buffer
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+    }
+    const videoBuffer = Buffer.concat(chunks);
+
+    // Analyze video with Gemini
+    const candidate = await candidateService.getCandidate(candidateId);
+    const analysis = await analyzeIntroductionVideoWithGemini(
+      videoBuffer,
+      metadata.contentType,
+      candidateId,
+      candidate?.name,
+      user?.userId,
+      user?.email
+    );
+
+    // Update video metadata with analysis
+    await candidateService.updateVideoAnalysis(
+      candidateId,
+      videoId,
+      "introduction",
+      analysis
+    );
+
+    res.json({
+      success: true,
+      message: "Introduction video processed successfully",
+      data: analysis,
     });
   })
 );

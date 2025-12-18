@@ -25,7 +25,10 @@ import { AuditLogger } from "../utils/AuditLogger";
 import { AuditEventType } from "../types/AuditEventTypes";
 import { NotificationService } from "./NotificationService";
 import { NotificationType } from "../Models/enums/NotificationTypes";
-import { getAllHRUsers, getAssignedHRUsers } from "../utils/NotificationHelpers";
+import {
+  getAllHRUsers,
+  getAssignedHRUsers,
+} from "../utils/NotificationHelpers";
 import {
   ERROR_MESSAGES,
   ACTIONS,
@@ -50,7 +53,7 @@ export class CandidateService {
   private interviewRepo: InterviewRepository;
   private userRepo: UserRepository;
   private notificationService: NotificationService | null = null;
-  
+
   // Specialized services
   private fileService: CandidateFileService;
   private personalityService: CandidatePersonalityService;
@@ -91,7 +94,9 @@ export class CandidateService {
       const preferencesRepo = new NotificationPreferencesRepository(
         db.collection(COLLECTION_NAMES.NOTIFICATION_PREFERENCES)
       );
-      const webhookRepo = new WebhookRepository(db.collection(COLLECTION_NAMES.WEBHOOKS));
+      const webhookRepo = new WebhookRepository(
+        db.collection(COLLECTION_NAMES.WEBHOOKS)
+      );
 
       this.notificationService = new NotificationService(
         notificationRepo,
@@ -141,7 +146,9 @@ export class CandidateService {
 
       if (resumeFile) {
         const db = await connectDB();
-        const bucket = new GridFSBucket(db, { bucketName: BUCKET_NAMES.RESUMES });
+        const bucket = new GridFSBucket(db, {
+          bucketName: BUCKET_NAMES.RESUMES,
+        });
         const uploadStream = bucket.openUploadStream(resumeFile.originalname, {
           metadata: {
             contentType: resumeFile.mimetype,
@@ -419,7 +426,8 @@ export class CandidateService {
                   {
                     oldStatus: oldCandidate.status,
                     newStatus: updatedData.status,
-                    roleApplied: oldCandidate?.roleApplied || DEFAULT_VALUES.ROLE_APPLIED,
+                    roleApplied:
+                      oldCandidate?.roleApplied || DEFAULT_VALUES.ROLE_APPLIED,
                   }
                 );
               }
@@ -479,7 +487,8 @@ export class CandidateService {
 
         if (updatedData.name) changes.name = updatedData.name;
         if (updatedData.email) changes.email = updatedData.email;
-        if (updatedData.roleApplied) changes.roleApplied = updatedData.roleApplied;
+        if (updatedData.roleApplied)
+          changes.roleApplied = updatedData.roleApplied;
       }
 
       if (
@@ -728,7 +737,11 @@ export class CandidateService {
     metadata?: Partial<TranscriptMetadata>
   ): Promise<TranscriptMetadata> {
     await this.init();
-    return this.fileService.addTranscriptFile(candidateId, transcriptFile, metadata);
+    return this.fileService.addTranscriptFile(
+      candidateId,
+      transcriptFile,
+      metadata
+    );
   }
 
   async getTranscriptFile(
@@ -852,6 +865,21 @@ export class CandidateService {
   ): Promise<VideoMetadata | null> {
     await this.init();
     return this.fileService.getVideoMetadata(candidateId, videoId, videoType);
+  }
+
+  async updateVideoAnalysis(
+    candidateId: string,
+    videoId: string,
+    videoType: "interview" | "introduction",
+    analysis: any
+  ): Promise<void> {
+    await this.init();
+    return this.fileService.updateVideoAnalysis(
+      candidateId,
+      videoId,
+      videoType,
+      analysis
+    );
   }
 
   async getVideoBuffer(

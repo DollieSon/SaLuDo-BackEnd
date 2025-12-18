@@ -17,6 +17,7 @@ import { UserRole } from "../Models/User";
 import { AuditLogger } from "../utils/AuditLogger";
 import { AuditEventType } from "../types/AuditEventTypes";
 import { connectDB } from "../mongo_db";
+import { GridFSBucket, ObjectId } from "mongodb";
 import multer from "multer";
 import { CREATED, BAD_REQUEST } from "../constants/HttpStatusCodes";
 
@@ -117,11 +118,12 @@ router.post(
     let parsedSocialLinks: any[] = [];
     if (socialLinks) {
       try {
-        parsedSocialLinks = typeof socialLinks === 'string' 
-          ? JSON.parse(socialLinks) 
-          : socialLinks;
+        parsedSocialLinks =
+          typeof socialLinks === "string"
+            ? JSON.parse(socialLinks)
+            : socialLinks;
       } catch (e) {
-        console.error('Failed to parse social links:', e);
+        console.error("Failed to parse social links:", e);
       }
     }
 
@@ -154,7 +156,7 @@ router.post(
           addedBy: AddedBy.AI,
         }))
       );
-      
+
       // Log skill analysis completion
       await AuditLogger.logAIOperation({
         eventType: AuditEventType.SKILL_ANALYSIS_COMPLETED,
@@ -166,8 +168,10 @@ router.post(
         metadata: {
           candidateName: name,
           skillCount: parsedData.skills.length,
-          averageScore: parsedData.skills.reduce((sum, s) => sum + (s.score || 0), 0) / parsedData.skills.length
-        }
+          averageScore:
+            parsedData.skills.reduce((sum, s) => sum + (s.score || 0), 0) /
+            parsedData.skills.length,
+        },
       });
     }
     for (const edu of parsedData.education)
@@ -189,19 +193,39 @@ router.post(
 
     // Notify assigned HR users that AI analysis is complete
     try {
-      const { NotificationService } = await import("../services/NotificationService");
-      const { NotificationRepository } = await import("../repositories/NotificationRepository");
-      const { NotificationPreferencesRepository } = await import("../repositories/NotificationPreferencesRepository");
-      const { WebhookRepository } = await import("../repositories/WebhookRepository");
-      const { getAssignedHRUsers } = await import("../utils/NotificationHelpers");
-      const { NotificationType } = await import("../Models/enums/NotificationTypes");
+      const { NotificationService } = await import(
+        "../services/NotificationService"
+      );
+      const { NotificationRepository } = await import(
+        "../repositories/NotificationRepository"
+      );
+      const { NotificationPreferencesRepository } = await import(
+        "../repositories/NotificationPreferencesRepository"
+      );
+      const { WebhookRepository } = await import(
+        "../repositories/WebhookRepository"
+      );
+      const { getAssignedHRUsers } = await import(
+        "../utils/NotificationHelpers"
+      );
+      const { NotificationType } = await import(
+        "../Models/enums/NotificationTypes"
+      );
       const db = await connectDB();
-      
-      const notificationRepo = new NotificationRepository(db.collection('notifications'));
-      const preferencesRepo = new NotificationPreferencesRepository(db.collection('notificationPreferences'));
-      const webhookRepo = new WebhookRepository(db.collection('webhooks'));
-      const notificationService = new NotificationService(notificationRepo, preferencesRepo, webhookRepo);
-      
+
+      const notificationRepo = new NotificationRepository(
+        db.collection("notifications")
+      );
+      const preferencesRepo = new NotificationPreferencesRepository(
+        db.collection("notificationPreferences")
+      );
+      const webhookRepo = new WebhookRepository(db.collection("webhooks"));
+      const notificationService = new NotificationService(
+        notificationRepo,
+        preferencesRepo,
+        webhookRepo
+      );
+
       const assignedUsers = await getAssignedHRUsers(candidate.candidateId);
       for (const hrUser of assignedUsers) {
         await notificationService.notifyCandidateEvent(
@@ -213,12 +237,15 @@ router.post(
             skillsFound: parsedData.skills.length,
             educationFound: parsedData.education.length,
             experienceFound: parsedData.experience.length,
-            certificationsFound: parsedData.certifications.length
+            certificationsFound: parsedData.certifications.length,
           }
         );
       }
     } catch (notifError) {
-      console.error('Failed to send CANDIDATE_AI_ANALYSIS_COMPLETE notification:', notifError);
+      console.error(
+        "Failed to send CANDIDATE_AI_ANALYSIS_COMPLETE notification:",
+        notifError
+      );
     }
 
     res.status(CREATED).json({
@@ -247,13 +274,13 @@ router.get(
       candidateName: candidate?.name,
       userId: user?.userId,
       userEmail: user?.email,
-      action: 'viewed',
+      action: "viewed",
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
       metadata: {
         status: candidate?.status,
-        roleApplied: candidate?.roleApplied
-      }
+        roleApplied: candidate?.roleApplied,
+      },
     });
 
     // Log PII access (email, birthdate are considered sensitive personal data)
@@ -263,14 +290,14 @@ router.get(
       candidateName: candidate?.name,
       userId: user?.userId,
       userEmail: user?.email,
-      action: 'accessed_pii',
+      action: "accessed_pii",
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
       metadata: {
-        piiFields: ['email', 'birthdate', 'name'],
+        piiFields: ["email", "birthdate", "name"],
         emailCount: candidate?.email?.length || 0,
-        status: candidate?.status
-      }
+        status: candidate?.status,
+      },
     });
 
     res.json({
@@ -306,7 +333,7 @@ router.put(
 
     // Update candidate basic info
     await candidateService.updateCandidate(
-      candidateId, 
+      candidateId,
       {
         name,
         email: emailArray,
@@ -320,9 +347,9 @@ router.put(
     // Update resume if provided
     if (resumeFile) {
       await candidateService.updateResumeFile(
-        candidateId, 
-        resumeFile, 
-        user?.userId, 
+        candidateId,
+        resumeFile,
+        user?.userId,
         user?.email
       );
     }
@@ -346,7 +373,7 @@ router.delete(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const user = req.user;
-    
+
     await candidateService.deleteCandidate(
       candidateId,
       user?.userId,
@@ -543,17 +570,17 @@ router.post(
       eventType: AuditEventType.BULK_OPERATION_PERFORMED,
       userId: user.userId,
       userEmail: user.email,
-      resource: 'candidate',
+      resource: "candidate",
       resourceId: candidateId,
-      action: 'bulk_hr_assignment',
+      action: "bulk_hr_assignment",
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
       metadata: {
-        operationType: 'assign_multiple_hr_users',
+        operationType: "assign_multiple_hr_users",
         hrUserIds,
         assignedCount: hrUserIds.length,
-        candidateId
-      }
+        candidateId,
+      },
     });
 
     res.json({
@@ -592,22 +619,22 @@ router.get(
       eventType: AuditEventType.CANDIDATE_VIEWED,
       userId: user.userId,
       userEmail: user.email,
-      resource: 'candidate_score',
+      resource: "candidate_score",
       resourceId: candidateId,
-      action: 'calculate_predictive_score',
+      action: "calculate_predictive_score",
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
       metadata: {
         jobId: jobId || null,
         mode: scoreResult.mode,
         overallScore: scoreResult.overallScore,
-        confidence: scoreResult.confidence
-      }
+        confidence: scoreResult.confidence,
+      },
     });
 
     res.json({
       success: true,
-      data: scoreResult
+      data: scoreResult,
     });
   })
 );
@@ -625,12 +652,15 @@ router.get(
     const { candidateId } = req.params;
     const limit = parseInt(req.query.limit as string) || 50;
 
-    const history = await predictiveScoreService.getScoreHistory(candidateId, limit);
+    const history = await predictiveScoreService.getScoreHistory(
+      candidateId,
+      limit
+    );
 
     res.json({
       success: true,
       data: history,
-      count: history.length
+      count: history.length,
     });
   })
 );
@@ -660,21 +690,21 @@ router.post(
       eventType: AuditEventType.AI_ANALYSIS_COMPLETED,
       userId: user.userId,
       userEmail: user.email,
-      resource: 'candidate_insights',
+      resource: "candidate_insights",
       resourceId: candidateId,
-      action: 'generate_ai_insights',
+      action: "generate_ai_insights",
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
       metadata: {
         jobId: jobId || null,
-        insightsGenerated: true
-      }
+        insightsGenerated: true,
+      },
     });
 
     res.json({
       success: true,
       data: insights,
-      message: 'AI insights generated successfully'
+      message: "AI insights generated successfully",
     });
   })
 );
@@ -690,18 +720,20 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
 
-    const insights = await predictiveScoreService.getCachedInsights(candidateId);
+    const insights = await predictiveScoreService.getCachedInsights(
+      candidateId
+    );
 
     if (!insights) {
       return res.status(404).json({
         success: false,
-        message: 'No cached insights found. Use POST to generate insights.'
+        message: "No cached insights found. Use POST to generate insights.",
       });
     }
 
     res.json({
       success: true,
-      data: insights
+      data: insights,
     });
   })
 );
@@ -737,6 +769,78 @@ router.get(
       data: statusHistory,
       count: statusHistory.length
     });
+// FILE DOWNLOAD ENDPOINT
+// ====================
+
+// GET /api/candidates/files/:fileId/download
+router.get(
+  "/files/:fileId/download",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { fileId } = req.params;
+
+    try {
+      const db = await connectDB();
+      const bucket = new GridFSBucket(db, { bucketName: "resumes" });
+
+      // Check if file exists
+      const files = await bucket.find({ _id: new ObjectId(fileId) }).toArray();
+
+      if (!files || files.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "File not found",
+        });
+      }
+
+      const file = files[0];
+
+      // Log file download
+      await AuditLogger.logFileOperation({
+        eventType: AuditEventType.FILE_DOWNLOADED,
+        fileId: fileId,
+        fileName: file.filename,
+        fileType: "resume",
+        candidateId: file.metadata?.candidateId,
+        userId: (req as any).user?.userId || "anonymous",
+        userEmail: (req as any).user?.email || "anonymous",
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+        action: "download",
+        metadata: {
+          contentType: file.contentType,
+          size: file.length,
+        },
+      });
+
+      // Set appropriate headers for download
+      res.set({
+        "Content-Type": file.contentType || "application/octet-stream",
+        "Content-Length": file.length.toString(),
+        "Content-Disposition": `attachment; filename="${file.filename}"`,
+        "Cache-Control": "public, max-age=31536000",
+      });
+
+      // Stream the file
+      const downloadStream = bucket.openDownloadStream(new ObjectId(fileId));
+
+      downloadStream.on("error", (error) => {
+        console.error("File stream error:", error);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: "Error streaming file",
+          });
+        }
+      });
+
+      downloadStream.pipe(res);
+    } catch (error) {
+      console.error("Error serving file:", error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+      });
+    }
   })
 );
 

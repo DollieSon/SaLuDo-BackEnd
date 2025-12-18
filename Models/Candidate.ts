@@ -45,7 +45,37 @@ export interface VideoMetadata {
   uploadedAt: Date; // Upload timestamp
   processedAt?: Date; // When AI processing completed
   processingStatus?: "pending" | "completed" | "failed" | "not_started";
-  analysisText?: string; // AI-generated analysis of video content
+  analysisText?: string; // AI-generated analysis of video content (deprecated - use videoAnalysis instead)
+  videoAnalysis?: {
+    communicationSkills?: {
+      clarity: number;
+      articulateness: number;
+      pace: number;
+      confidence: number;
+      evidence: string;
+    };
+    nonVerbalCues?: {
+      eyeContact: number;
+      bodyLanguage: number;
+      facialExpressions: number;
+      overallPresence: number;
+      evidence: string;
+    };
+    contentQuality?: {
+      relevance: number;
+      depth: number;
+      structure: number;
+      examples: number;
+      evidence: string;
+    };
+    overallImpression?: {
+      score: number;
+      strengths: string[];
+      areasForImprovement: string[];
+      summary: string;
+    };
+    transcribedText?: string;
+  };
   videoType: "interview" | "introduction"; // Type of video
   interviewRound?: string; // Which interview round (for interview videos)
   duration?: number; // Video duration in seconds
@@ -67,11 +97,11 @@ export interface SocialLink {
  * Breakdown of score by category
  */
 export interface ScoreBreakdown {
-  skillMatch: number;       // 0-100 scaled contribution
-  personalityFit: number;   // 0-100 scaled contribution
-  experience: number;       // 0-100 scaled contribution
-  education: number;        // 0-100 scaled contribution
-  profileQuality: number;   // 0-100 scaled contribution
+  skillMatch: number; // 0-100 scaled contribution
+  personalityFit: number; // 0-100 scaled contribution
+  experience: number; // 0-100 scaled contribution
+  education: number; // 0-100 scaled contribution
+  profileQuality: number; // 0-100 scaled contribution
 }
 
 /**
@@ -221,26 +251,37 @@ export class Candidate {
     );
 
     candidate.isDeleted = data.isDeleted;
-    
+
     // Populate complex objects
     candidate.skills = data.skills?.map((s: any) => Skill.fromObject(s)) || [];
-    candidate.experience = data.experience?.map((e: any) => Experience.fromObject(e)) || [];
-    candidate.education = data.education?.map((e: any) => Education.fromObject(e)) || [];
-    candidate.certification = data.certification?.map((c: any) => Certification.fromObject(c)) || [];
-    candidate.strengths = data.strengths?.map((s: any) => StrengthWeakness.fromObject(s)) || [];
-    candidate.weaknesses = data.weaknesses?.map((w: any) => StrengthWeakness.fromObject(w)) || [];
+    candidate.experience =
+      data.experience?.map((e: any) => Experience.fromObject(e)) || [];
+    candidate.education =
+      data.education?.map((e: any) => Education.fromObject(e)) || [];
+    candidate.certification =
+      data.certification?.map((c: any) => Certification.fromObject(c)) || [];
+    candidate.strengths =
+      data.strengths?.map((s: any) => StrengthWeakness.fromObject(s)) || [];
+    candidate.weaknesses =
+      data.weaknesses?.map((w: any) => StrengthWeakness.fromObject(w)) || [];
     candidate.transcripts = data.transcripts || [];
     candidate.interviewVideos = data.interviewVideos || [];
     candidate.introductionVideos = data.introductionVideos || [];
-    candidate.personality = data.personality ? Personality.fromObject(data.personality) : new Personality();
+    candidate.personality = data.personality
+      ? Personality.fromObject(data.personality)
+      : new Personality();
     candidate.resumeAssessment = data.resumeAssessment;
     candidate.interviewAssessment = data.interviewAssessment;
 
     // Populate score-related fields
     candidate.scoreHistory = data.scoreHistory || [];
     candidate.aiInsights = data.aiInsights;
-    candidate.insightsGeneratedAt = data.insightsGeneratedAt ? new Date(data.insightsGeneratedAt) : undefined;
-    candidate.lastScoreCalculatedAt = data.lastScoreCalculatedAt ? new Date(data.lastScoreCalculatedAt) : undefined;
+    candidate.insightsGeneratedAt = data.insightsGeneratedAt
+      ? new Date(data.insightsGeneratedAt)
+      : undefined;
+    candidate.lastScoreCalculatedAt = data.lastScoreCalculatedAt
+      ? new Date(data.lastScoreCalculatedAt)
+      : undefined;
 
     // Populate status history
     candidate.statusHistory = data.statusHistory || [];
@@ -626,7 +667,7 @@ export class Candidate {
    * Get the most recent score for a specific job
    */
   getLatestScoreForJob(jobId: string): ScoreHistoryEntry | null {
-    const jobScores = this.scoreHistory.filter(s => s.jobId === jobId);
+    const jobScores = this.scoreHistory.filter((s) => s.jobId === jobId);
     if (jobScores.length === 0) return null;
     return jobScores[jobScores.length - 1];
   }
@@ -642,7 +683,7 @@ export class Candidate {
    * Check if AI insights are available
    */
   hasAIInsights(): boolean {
-    return this.aiInsights !== undefined && this.aiInsights.summary !== '';
+    return this.aiInsights !== undefined && this.aiInsights.summary !== "";
   }
 
   /**
@@ -667,17 +708,17 @@ export class Candidate {
   /**
    * Get score trend (comparing last two scores)
    */
-  getScoreTrend(): 'improving' | 'declining' | 'stable' | 'unknown' {
-    if (this.scoreHistory.length < 2) return 'unknown';
-    
+  getScoreTrend(): "improving" | "declining" | "stable" | "unknown" {
+    if (this.scoreHistory.length < 2) return "unknown";
+
     const latest = this.scoreHistory[this.scoreHistory.length - 1];
     const previous = this.scoreHistory[this.scoreHistory.length - 2];
-    
+
     const diff = latest.overallScore - previous.overallScore;
-    
-    if (diff > 2) return 'improving';
-    if (diff < -2) return 'declining';
-    return 'stable';
+
+    if (diff > 2) return "improving";
+    if (diff < -2) return "declining";
+    return "stable";
   }
 
   // =======================
@@ -720,8 +761,11 @@ export class Candidate {
    */
   getAverageScore(): number {
     if (this.scoreHistory.length === 0) return 0;
-    
-    const total = this.scoreHistory.reduce((sum, entry) => sum + entry.overallScore, 0);
+
+    const total = this.scoreHistory.reduce(
+      (sum, entry) => sum + entry.overallScore,
+      0
+    );
     return Number((total / this.scoreHistory.length).toFixed(1));
   }
 
@@ -731,12 +775,12 @@ export class Candidate {
   getScoreSummary(): string {
     const latest = this.getLatestScore();
     if (!latest) {
-      return 'No score calculated yet';
+      return "No score calculated yet";
     }
 
     const trend = this.getScoreTrend();
-    const trendText = trend === 'unknown' ? '' : ` (${trend})`;
-    
+    const trendText = trend === "unknown" ? "" : ` (${trend})`;
+
     return `Score: ${latest.overallScore}/100 | Confidence: ${latest.confidence}%${trendText}`;
   }
 }

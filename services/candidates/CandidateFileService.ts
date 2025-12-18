@@ -271,7 +271,9 @@ export class CandidateFileService {
       // Validate file
       this.validateTranscriptFile(transcriptFile);
       const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: BUCKET_NAMES.TRANSCRIPTS });
+      const bucket = new GridFSBucket(db, {
+        bucketName: BUCKET_NAMES.TRANSCRIPTS,
+      });
 
       // Upload file to GridFS
       const uploadStream = bucket.openUploadStream(
@@ -281,7 +283,8 @@ export class CandidateFileService {
             contentType: transcriptFile.mimetype,
             uploadedBy: DEFAULT_VALUES.UPLOADED_BY,
             candidateId: candidateId,
-            interviewRound: metadata?.interviewRound || DEFAULT_VALUES.INTERVIEW_ROUND,
+            interviewRound:
+              metadata?.interviewRound || DEFAULT_VALUES.INTERVIEW_ROUND,
             duration: metadata?.duration,
           },
         }
@@ -350,7 +353,9 @@ export class CandidateFileService {
   ): Promise<{ stream: any; metadata: TranscriptMetadata }> {
     try {
       const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: BUCKET_NAMES.TRANSCRIPTS });
+      const bucket = new GridFSBucket(db, {
+        bucketName: BUCKET_NAMES.TRANSCRIPTS,
+      });
 
       // Get transcript metadata first
       const interviewData = await this.interviewRepo.findById(candidateId);
@@ -387,7 +392,9 @@ export class CandidateFileService {
       this.validateTranscriptFile(transcriptFile);
 
       const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: BUCKET_NAMES.TRANSCRIPTS });
+      const bucket = new GridFSBucket(db, {
+        bucketName: BUCKET_NAMES.TRANSCRIPTS,
+      });
 
       // Delete old file
       await bucket.delete(new ObjectId(transcriptId));
@@ -400,7 +407,8 @@ export class CandidateFileService {
             contentType: transcriptFile.mimetype,
             uploadedBy: DEFAULT_VALUES.UPLOADED_BY,
             candidateId: candidateId,
-            interviewRound: metadata?.interviewRound || DEFAULT_VALUES.INTERVIEW_ROUND,
+            interviewRound:
+              metadata?.interviewRound || DEFAULT_VALUES.INTERVIEW_ROUND,
             duration: metadata?.duration,
           },
         }
@@ -420,7 +428,8 @@ export class CandidateFileService {
         size: transcriptFile.size,
         uploadedAt: new Date(),
         transcriptionStatus: PROCESSING_STATUS.NOT_STARTED,
-        interviewRound: metadata?.interviewRound || DEFAULT_VALUES.INTERVIEW_ROUND,
+        interviewRound:
+          metadata?.interviewRound || DEFAULT_VALUES.INTERVIEW_ROUND,
         duration: metadata?.duration,
         ...metadata,
       };
@@ -450,7 +459,9 @@ export class CandidateFileService {
   ): Promise<void> {
     try {
       const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: BUCKET_NAMES.TRANSCRIPTS });
+      const bucket = new GridFSBucket(db, {
+        bucketName: BUCKET_NAMES.TRANSCRIPTS,
+      });
 
       // Step 1: Update interview data to remove transcript reference first
       const interviewData = await this.interviewRepo.findById(candidateId);
@@ -509,7 +520,9 @@ export class CandidateFileService {
   ): Promise<Buffer> {
     try {
       const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: BUCKET_NAMES.TRANSCRIPTS });
+      const bucket = new GridFSBucket(db, {
+        bucketName: BUCKET_NAMES.TRANSCRIPTS,
+      });
 
       const chunks: Buffer[] = [];
       const downloadStream = bucket.openDownloadStream(
@@ -536,7 +549,11 @@ export class CandidateFileService {
   }
 
   private validateTranscriptFile(file: Express.Multer.File): void {
-    if (!(ALLOWED_FILE_TYPES.TRANSCRIPT as readonly string[]).includes(file.mimetype)) {
+    if (
+      !(ALLOWED_FILE_TYPES.TRANSCRIPT as readonly string[]).includes(
+        file.mimetype
+      )
+    ) {
       throw new Error(ERROR_MESSAGES.INVALID_FILE_TYPE_TRANSCRIPT);
     }
     if (file.size > FILE_SIZE_LIMITS.TRANSCRIPT) {
@@ -565,7 +582,9 @@ export class CandidateFileService {
       this.validateVideoFile(videoFile);
       const db = await connectDB();
       const bucketName =
-        videoType === "interview" ? BUCKET_NAMES.INTERVIEW_VIDEOS : BUCKET_NAMES.INTRODUCTION_VIDEOS;
+        videoType === "interview"
+          ? BUCKET_NAMES.INTERVIEW_VIDEOS
+          : BUCKET_NAMES.INTRODUCTION_VIDEOS;
       const bucket = new GridFSBucket(db, { bucketName });
 
       const uploadStream = bucket.openUploadStream(videoFile.originalname, {
@@ -659,7 +678,10 @@ export class CandidateFileService {
         eventType: AuditEventType.CANDIDATE_VIDEO_UPLOADED,
         fileId: fileId.toString(),
         fileName: videoFile.originalname,
-        fileType: videoType === "interview" ? FILE_TYPES.INTERVIEW_VIDEO : FILE_TYPES.INTRODUCTION_VIDEO,
+        fileType:
+          videoType === "interview"
+            ? FILE_TYPES.INTERVIEW_VIDEO
+            : FILE_TYPES.INTRODUCTION_VIDEO,
         candidateId: candidateId,
         userId,
         userEmail,
@@ -687,7 +709,9 @@ export class CandidateFileService {
     try {
       const db = await connectDB();
       const bucketName =
-        videoType === "interview" ? BUCKET_NAMES.INTERVIEW_VIDEOS : BUCKET_NAMES.INTRODUCTION_VIDEOS;
+        videoType === "interview"
+          ? BUCKET_NAMES.INTERVIEW_VIDEOS
+          : BUCKET_NAMES.INTRODUCTION_VIDEOS;
       const bucket = new GridFSBucket(db, { bucketName });
 
       const interviewData = await this.interviewRepo.findById(candidateId);
@@ -725,7 +749,9 @@ export class CandidateFileService {
 
       const db = await connectDB();
       const bucketName =
-        videoType === "interview" ? BUCKET_NAMES.INTERVIEW_VIDEOS : BUCKET_NAMES.INTRODUCTION_VIDEOS;
+        videoType === "interview"
+          ? BUCKET_NAMES.INTERVIEW_VIDEOS
+          : BUCKET_NAMES.INTRODUCTION_VIDEOS;
       const bucket = new GridFSBucket(db, { bucketName });
 
       await bucket.delete(new ObjectId(videoId));
@@ -804,7 +830,9 @@ export class CandidateFileService {
     try {
       const db = await connectDB();
       const bucketName =
-        videoType === "interview" ? BUCKET_NAMES.INTERVIEW_VIDEOS : BUCKET_NAMES.INTRODUCTION_VIDEOS;
+        videoType === "interview"
+          ? BUCKET_NAMES.INTERVIEW_VIDEOS
+          : BUCKET_NAMES.INTRODUCTION_VIDEOS;
       const bucket = new GridFSBucket(db, { bucketName });
 
       // Step 1: Update metadata first to remove video reference
@@ -880,6 +908,61 @@ export class CandidateFileService {
     }
   }
 
+  async updateVideoAnalysis(
+    candidateId: string,
+    videoId: string,
+    videoType: "interview" | "introduction",
+    analysis: any
+  ): Promise<void> {
+    try {
+      const interviewData = await this.interviewRepo.findById(candidateId);
+      if (!interviewData) {
+        throw new Error(ERROR_MESSAGES.CANDIDATE_NOT_FOUND);
+      }
+
+      const videos =
+        videoType === "interview"
+          ? interviewData.interviewVideos
+          : interviewData.introductionVideos;
+
+      const videoIndex = videos?.findIndex((v) => v.fileId === videoId);
+      if (videoIndex === -1 || videoIndex === undefined) {
+        throw new Error(ERROR_MESSAGES.VIDEO_NOT_FOUND);
+      }
+
+      // Update the video metadata with analysis results
+      if (videos) {
+        videos[videoIndex] = {
+          ...videos[videoIndex],
+          processedAt: new Date(),
+          processingStatus: "completed",
+          videoAnalysis: analysis,
+          analysisText: analysis.overallImpression?.summary || "",
+        };
+      }
+
+      // Save updated data
+      if (videoType === "interview") {
+        await this.interviewRepo.update(candidateId, {
+          candidateId,
+          interviewVideos: videos || [],
+          introductionVideos: interviewData.introductionVideos || [],
+          dateUpdated: new Date(),
+        });
+      } else {
+        await this.interviewRepo.update(candidateId, {
+          candidateId,
+          interviewVideos: interviewData.interviewVideos || [],
+          introductionVideos: videos || [],
+          dateUpdated: new Date(),
+        });
+      }
+    } catch (error) {
+      console.error("Error updating video analysis:", error);
+      throw new Error("Failed to update video analysis");
+    }
+  }
+
   async getVideoBuffer(
     candidateId: string,
     videoId: string,
@@ -888,7 +971,9 @@ export class CandidateFileService {
     try {
       const db = await connectDB();
       const bucketName =
-        videoType === "interview" ? BUCKET_NAMES.INTERVIEW_VIDEOS : BUCKET_NAMES.INTRODUCTION_VIDEOS;
+        videoType === "interview"
+          ? BUCKET_NAMES.INTERVIEW_VIDEOS
+          : BUCKET_NAMES.INTRODUCTION_VIDEOS;
       const bucket = new GridFSBucket(db, { bucketName });
 
       const chunks: Buffer[] = [];
@@ -914,7 +999,9 @@ export class CandidateFileService {
   }
 
   private validateVideoFile(file: Express.Multer.File): void {
-    if (!(ALLOWED_FILE_TYPES.VIDEO as readonly string[]).includes(file.mimetype)) {
+    if (
+      !(ALLOWED_FILE_TYPES.VIDEO as readonly string[]).includes(file.mimetype)
+    ) {
       throw new Error(ERROR_MESSAGES.INVALID_FILE_TYPE_VIDEO);
     }
 
