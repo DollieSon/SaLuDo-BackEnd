@@ -315,7 +315,7 @@ router.put(
   upload.single("resume"),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
-    const { name, email, birthdate, roleApplied } = req.body;
+    const { name, email, birthdate, roleApplied, status, statusChangeReason, statusChangeNotes, statusChangeSource } = req.body;
     const resumeFile = req.file;
     const user = req.user;
 
@@ -337,11 +337,16 @@ router.put(
       {
         name,
         email: emailArray,
-        birthdate: new Date(birthdate),
+        birthdate: birthdate ? new Date(birthdate) : undefined,
         roleApplied,
+        status,
+        statusChangeReason,
+        statusChangeNotes,
+        statusChangeSource,
       },
       user?.userId,
-      user?.email
+      user?.email,
+      user ? `${user.firstName} ${user.lastName}` : undefined
     );
 
     // Update resume if provided
@@ -808,6 +813,101 @@ router.get(
         message: "Internal server error",
       });
     }
+  })
+);
+
+// ====================
+// STATUS HISTORY & TIME ANALYTICS ENDPOINTS
+// ====================
+
+// Get status history for a candidate
+router.get(
+  "/:candidateId/status-history",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const candidate = await candidateService.getCandidate(candidateId);
+
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: "Candidate not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        candidateId: candidate.candidateId,
+        candidateName: candidate.name,
+        currentStatus: candidate.status,
+        statusHistory: candidate.statusHistory,
+        totalChanges: candidate.getStatusChangeCount(),
+      },
+    });
+  })
+);
+
+// Get time analytics for a candidate
+router.get(
+  "/:candidateId/time-analytics",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const { stuckThresholdDays } = req.query;
+    
+    const { TimeAnalyticsService } = await import("../services/TimeAnalyticsService");
+    const timeAnalyticsService = new TimeAnalyticsService();
+    
+    const analytics = await timeAnalyticsService.getCandidateTimeAnalytics(
+      candidateId,
+      stuckThresholdDays ? parseInt(stuckThresholdDays as string) : undefined
+    );
+
+    if (!analytics) {
+      return res.status(404).json({
+        success: false,
+        message: "Candidate not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: analytics,
+    });
+  })
+);
+
+// Get system-wide time analytics (HR_MANAGER and ADMIN only)
+router.get(
+  "/analytics/system-wide",
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+
+    // Only HR_MANAGER and ADMIN can view system-wide analytics
+    if (user.role !== UserRole.HR_MANAGER && user.role !== UserRole.ADMIN) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only HR Managers and Admins can view system-wide analytics.",
+      });
+    }
+
+    const { stuckThresholdDays } = req.query;
+    
+    const { TimeAnalyticsService } = await import("../services/TimeAnalyticsService");
+    const timeAnalyticsService = new TimeAnalyticsService();
+    
+    const analytics = await timeAnalyticsService.getSystemWideTimeAnalytics(
+      stuckThresholdDays ? parseInt(stuckThresholdDays as string) : undefined
+    );
+
+    res.json({
+      success: true,
+      data: analytics,
+    });
   })
 );
 

@@ -315,6 +315,9 @@ export class CandidateService {
         personalInfo.socialLinks
       );
       candidate.isDeleted = personalInfo.isDeleted;
+      
+      // Load status history from personal info
+      candidate.statusHistory = (personalInfo as any).statusHistory || [];
 
       if (resumeData) {
         candidate.skills =
@@ -358,9 +361,10 @@ export class CandidateService {
 
   async updateCandidate(
     candidateId: string,
-    updatedData: Partial<CandidateData>,
+    updatedData: Partial<CandidateData> & { statusChangeReason?: string; statusChangeNotes?: string; statusChangeSource?: 'manual' | 'automation' | 'bulk_action' | 'api' | 'migration' },
     userId?: string,
-    userEmail?: string
+    userEmail?: string,
+    userName?: string
   ): Promise<void> {
     await this.init();
     try {
@@ -374,11 +378,37 @@ export class CandidateService {
         updatedData.roleApplied ||
         updatedData.status
       ) {
+        // Prepare the update object
+        const personalInfoUpdate: any = {};
+        
+        if (updatedData.name) personalInfoUpdate.name = updatedData.name;
+        if (updatedData.email) personalInfoUpdate.email = updatedData.email;
+        if (updatedData.birthdate) personalInfoUpdate.birthdate = updatedData.birthdate;
+        if (updatedData.roleApplied !== undefined) personalInfoUpdate.roleApplied = updatedData.roleApplied;
+        if (updatedData.status) personalInfoUpdate.status = updatedData.status;
+
         if (updatedData.status && oldCandidate?.status !== updatedData.status) {
           changes.status = {
             old: oldCandidate?.status,
             new: updatedData.status,
           };
+
+          // Add to status history
+          if (oldCandidate) {
+            oldCandidate.addStatusChange(
+              updatedData.status,
+              userId || 'system',
+              userName || userEmail || 'System',
+              userEmail,
+              updatedData.statusChangeReason,
+              updatedData.statusChangeNotes,
+              false,
+              updatedData.statusChangeSource || 'manual'
+            );
+            
+            // Include statusHistory in the update
+            personalInfoUpdate.statusHistory = oldCandidate.statusHistory;
+          }
 
           await AuditLogger.logCandidateOperation({
             eventType: AuditEventType.CANDIDATE_STATUS_CHANGED,
@@ -386,7 +416,7 @@ export class CandidateService {
             candidateName: oldCandidate?.name,
             userId,
             userEmail,
-            action: `Changed candidate status from ${oldCandidate?.status} to ${updatedData.status}`,
+            action: `Changed candidate status from ${oldCandidate?.status} to ${updatedData.status}${updatedData.statusChangeReason ? ` - Reason: ${updatedData.statusChangeReason}` : ''}`,
             oldValue: oldCandidate?.status,
             newValue: updatedData.status,
           });
@@ -403,6 +433,7 @@ export class CandidateService {
                   {
                     oldStatus: oldCandidate?.status,
                     newStatus: updatedData.status,
+                    reason: updatedData.statusChangeReason,
                     roleApplied:
                       oldCandidate?.roleApplied || DEFAULT_VALUES.ROLE_APPLIED,
                   }
@@ -417,13 +448,8 @@ export class CandidateService {
           }
         }
 
-        await this.personalInfoRepo.update(candidateId, {
-          name: updatedData.name,
-          email: updatedData.email,
-          birthdate: updatedData.birthdate,
-          roleApplied: updatedData.roleApplied,
-          status: updatedData.status,
-        });
+        // Single update with all fields including statusHistory
+        await this.personalInfoRepo.update(candidateId, personalInfoUpdate);
 
         if (updatedData.name) changes.name = updatedData.name;
         if (updatedData.email) changes.email = updatedData.email;

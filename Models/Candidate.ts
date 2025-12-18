@@ -14,6 +14,8 @@ import {
 import { Personality } from "./Personality";
 import { PersonalityData } from "./PersonalityTypes";
 import { Job } from "./Job";
+import { StatusHistoryEntry, TimeInStage } from "./interfaces/StatusHistory";
+import { v4 as uuidv4 } from "uuid";
 export interface ResumeMetadata {
   fileId: string; // GridFS file ID
   filename: string; // Original filename
@@ -166,6 +168,9 @@ export class Candidate {
   public aiInsights?: CandidateAIInsights; // Cached AI-generated insights
   public insightsGeneratedAt?: Date; // When AI insights were last generated
   public lastScoreCalculatedAt?: Date; // When score was last calculated
+  
+  // Status History Information
+  public statusHistory: StatusHistoryEntry[]; // Complete history of status changes (max 100)
   constructor(
     candidateId: string,
     name: string,
@@ -208,6 +213,7 @@ export class Candidate {
     this.introductionVideos = [];
     this.personality = new Personality(); // Create empty personality for new candidate
     this.scoreHistory = []; // Initialize empty score history
+    this.statusHistory = []; // Initialize empty status history
   }
 
   // =======================
@@ -248,6 +254,7 @@ export class Candidate {
     candidate.transcripts = data.transcripts || [];
     candidate.interviewVideos = data.interviewVideos || [];
     candidate.introductionVideos = data.introductionVideos || [];
+    candidate.statusHistory = data.statusHistory || [];
     candidate.personality = data.personality
       ? Personality.fromObject(data.personality)
       : new Personality();
@@ -648,6 +655,187 @@ export class Candidate {
     return jobScores[jobScores.length - 1];
   }
 
+  // =======================
+  // STATUS HISTORY METHODS
+  // =======================
+
+  /**
+   * Add a status change entry to the history
+   * @param status New status
+   * @param changedBy User ID who made the change
+   * @param changedByName Name of user (cached for display)
+   * @param changedByEmail Email of user (cached for display)
+   * @param reason Optional reason for the change
+   * @param notes Optional additional notes
+   * @param isAutomated Whether this was an automated change
+   * @param source Source of the change
+   */
+  addStatusChange(
+    status: CandidateStatus,
+    changedBy: string,
+    changedByName?: string,
+    changedByEmail?: string,
+    reason?: string,
+    notes?: string,
+    isAutomated: boolean = false,
+    source: 'manual' | 'automation' | 'bulk_action' | 'api' | 'migration' = 'manual'
+  ): void {
+    const entry: StatusHistoryEntry = {
+      historyId: uuidv4(),
+      status,
+      previousStatus: this.status,
+      changedAt: new Date(),
+      changedBy,
+      changedByName,
+      changedByEmail,
+      reason,
+      notes,
+      isAutomated,
+      source,
+    };
+
+    this.statusHistory.push(entry);
+
+    // Keep only the last 100 entries
+    if (this.statusHistory.length > 100) {
+      this.statusHistory = this.statusHistory.slice(-100);
+    }
+  }
+
+  /**
+   * Get time spent in current status
+   * @returns Duration in milliseconds
+   */
+  getTimeInCurrentStage(): number {
+    if (this.statusHistory.length === 0) {
+      // No history, use dateCreated as start
+      return Date.now() - this.dateCreated.getTime();
+    }
+
+    const lastEntry = this.statusHistory[this.statusHistory.length - 1];
+    return Date.now() - new Date(lastEntry.changedAt).getTime();
+  }
+
+  /**
+   * Get time spent in a specific status
+   * @param status Status to calculate time for
+   * @returns Duration in milliseconds
+   */
+  getTimeInStage(status: CandidateStatus): number {
+    let totalTime = 0;
+
+    for (let i = 0; i < this.statusHistory.length; i++) {
+      const entry = this.statusHistory[i];
+      
+      if (entry.status === status) {
+        const startTime = new Date(entry.changedAt).getTime();
+        let endTime: number;
+
+        if (i < this.statusHistory.length - 1) {
+          // Not the last entry, use next entry's time as end
+          endTime = new Date(this.statusHistory[i + 1].changedAt).getTime();
+        } else if (this.status === status) {
+          // Last entry and still in this status
+          endTime = Date.now();
+        } else {
+          // Last entry but not current status (shouldn't happen)
+          continue;
+        }
+
+        totalTime += endTime - startTime;
+      }
+    }
+
+    return totalTime;
+  }
+
+  /**
+   * Get total time in hiring process
+   * @returns Duration in milliseconds from first status to now
+   */
+  getTotalTimeInProcess(): number {
+    if (this.statusHistory.length === 0) {
+      return Date.now() - this.dateCreated.getTime();
+    }
+
+    const firstEntry = this.statusHistory[0];
+    return Date.now() - new Date(firstEntry.changedAt).getTime();
+  }
+
+  /**
+   * Get breakdown of time spent in each stage
+   * @returns Array of TimeInStage objects
+   */
+  getStageBreakdown(): TimeInStage[] {
+    const stages: TimeInStage[] = [];
+    const stageMap = new Map<CandidateStatus, { start: Date; end: Date | null }>();
+
+    // Build map of stages with their start/end times
+    for (let i = 0; i < this.statusHistory.length; i++) {
+      const entry = this.statusHistory[i];
+      const isLastEntry = i === this.statusHistory.length - 1;
+      const endDate = isLastEntry && this.status === entry.status 
+        ? null 
+        : (i < this.statusHistory.length - 1 
+            ? this.statusHistory[i + 1].changedAt 
+            : new Date());
+
+      if (!stageMap.has(entry.status)) {
+        stageMap.set(entry.status, {
+          start: entry.changedAt,
+          end: endDate,
+        });
+      }
+    }
+
+    // Convert map to array of TimeInStage
+    stageMap.forEach((value, status) => {
+      const startTime = new Date(value.start).getTime();
+      const endTime = value.end ? new Date(value.end).getTime() : Date.now();
+      const durationMs = endTime - startTime;
+
+      stages.push({
+        status,
+        durationMs,
+        durationDays: Math.floor(durationMs / (1000 * 60 * 60 * 24)),
+        startDate: value.start,
+        endDate: value.end,
+      });
+    });
+
+    return stages;
+  }
+
+  /**
+   * Get the latest status change entry
+   */
+  getLatestStatusChange(): StatusHistoryEntry | null {
+    if (this.statusHistory.length === 0) return null;
+    return this.statusHistory[this.statusHistory.length - 1];
+  }
+
+  /**
+   * Check if candidate has been in current status longer than threshold
+   * @param thresholdDays Number of days threshold
+   * @returns True if stuck
+   */
+  isStuckInCurrentStage(thresholdDays: number = 14): boolean {
+    const timeInMs = this.getTimeInCurrentStage();
+    const daysInStage = timeInMs / (1000 * 60 * 60 * 24);
+    return daysInStage > thresholdDays;
+  }
+
+  /**
+   * Get number of status changes
+   */
+  getStatusChangeCount(): number {
+    return this.statusHistory.length;
+  }
+
+  // =======================
+  // SCORE HISTORY METHODS
+  // =======================
+
   /**
    * Get score history count
    */
@@ -768,6 +956,8 @@ export interface CandidateData {
   aiInsights?: CandidateAIInsights;
   insightsGeneratedAt?: Date;
   lastScoreCalculatedAt?: Date;
+  // Status History fields
+  statusHistory?: StatusHistoryEntry[];
 }
 export interface PersonalInfoData {
   candidateId: string;
@@ -783,6 +973,7 @@ export interface PersonalInfoData {
   lastAssignedAt: Date | null;
   lastAssignedBy: string | null;
   socialLinks: SocialLink[];
+  statusHistory?: StatusHistoryEntry[];
 }
 export interface ResumeData {
   candidateId: string;
