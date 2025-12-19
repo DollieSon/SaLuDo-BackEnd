@@ -371,6 +371,16 @@ export class SkillService {
     }
   }
 
+  async createSkillMaster(skillName: string): Promise<SkillMaster> {
+    await this.init();
+    try {
+      return await this.skillMasterRepo.create({ skillName });
+    } catch (error) {
+      console.error("Error creating skill master:", error);
+      throw error; // Re-throw to preserve duplicate key error message
+    }
+  }
+
   async getUsedSkillMaster(): Promise<SkillMaster[]> {
     await this.init();
     try {
