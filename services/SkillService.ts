@@ -498,4 +498,95 @@ export class SkillService {
       throw new Error("Failed to merge skills");
     }
   }
+
+  // Individual skill CRUD operations
+  async addSkillToCandidate(
+    candidateId: string,
+    skillName: string,
+    score: number = 5,
+    evidence: string = "",
+    addedBy: AddedBy = AddedBy.HUMAN
+  ): Promise<Skill> {
+    await this.init();
+    
+    const resumeData = await this.resumeRepo.findById(candidateId);
+    if (!resumeData) {
+      throw new Error("Candidate not found");
+    }
+
+    const masterSkill = await this.skillMasterRepo.getOrCreate(skillName);
+    const skillId = new ObjectId().toString();
+    const skill = new Skill(skillId, masterSkill.skillId, evidence, score, addedBy);
+
+    const updatedSkills = [
+      ...resumeData.skills.map((s) => Skill.fromObject(s)),
+      skill,
+    ];
+
+    await this.resumeRepo.update(candidateId, {
+      skills: updatedSkills.map((s) => s.toObject()),
+    });
+
+    return skill;
+  }
+
+  async updateSkillForCandidate(
+    candidateId: string,
+    candidateSkillId: string,
+    skillName?: string,
+    score?: number,
+    evidence?: string
+  ): Promise<void> {
+    await this.init();
+    
+    const resumeData = await this.resumeRepo.findById(candidateId);
+    if (!resumeData) {
+      throw new Error("Candidate not found");
+    }
+
+    const skills = resumeData.skills.map((s) => Skill.fromObject(s));
+    const skillIndex = skills.findIndex((s) => s.candidateSkillId === candidateSkillId);
+    
+    if (skillIndex === -1) {
+      throw new Error("Skill not found");
+    }
+
+    // Update skill name if provided (this requires updating master skill reference)
+    if (skillName) {
+      const masterSkill = await this.skillMasterRepo.getOrCreate(skillName);
+      skills[skillIndex].skillId = masterSkill.skillId;
+    }
+
+    if (score !== undefined) {
+      skills[skillIndex].updateScore(score, skills[skillIndex].evidence, AddedBy.HUMAN);
+    }
+
+    if (evidence !== undefined) {
+      skills[skillIndex].updateEvidence(evidence, AddedBy.HUMAN);
+    }
+
+    await this.resumeRepo.update(candidateId, {
+      skills: skills.map((s) => s.toObject()),
+    });
+  }
+
+  async removeSkillFromCandidate(
+    candidateId: string,
+    candidateSkillId: string
+  ): Promise<void> {
+    await this.init();
+    
+    const resumeData = await this.resumeRepo.findById(candidateId);
+    if (!resumeData) {
+      throw new Error("Candidate not found");
+    }
+
+    const skills = resumeData.skills
+      .map((s) => Skill.fromObject(s))
+      .filter((s) => s.candidateSkillId !== candidateSkillId);
+
+    await this.resumeRepo.update(candidateId, {
+      skills: skills.map((s) => s.toObject()),
+    });
+  }
 }

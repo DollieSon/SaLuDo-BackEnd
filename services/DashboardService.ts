@@ -88,7 +88,7 @@ export class DashboardService {
     const activeJobs = allJobs.length; // Assuming all jobs are active (no 'closed' field in schema)
     const closedJobs = 0; // No closed status in current schema
     const totalEmployees = allUsers.filter((u: any) => u.role !== 'candidate' && !u.isDeleted).length;
-    const pendingApplications = await this.getCandidatesByStatus(CandidateStatus.APPLIED);
+    const pendingApplications = await this.getCandidatesByStatus(CandidateStatus.FOR_REVIEW);
     
     // Calculate average match score (if available)
     const averageMatchScore = this.calculateAverageMatchScore(recentCandidates);
@@ -231,7 +231,7 @@ export class DashboardService {
     recentCandidates.slice(0, 5).forEach((candidate, index) => {
       const status = candidate.status;
       
-      if (status === CandidateStatus.APPLIED) {
+      if (status === CandidateStatus.FOR_REVIEW) {
         activities.push({
           id: `candidate-${candidate.candidateId}-${index}`,
           type: 'application',

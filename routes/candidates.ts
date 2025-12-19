@@ -20,6 +20,7 @@ import { connectDB } from "../mongo_db";
 import { GridFSBucket, ObjectId } from "mongodb";
 import multer from "multer";
 import { CREATED, BAD_REQUEST } from "../constants/HttpStatusCodes";
+import { cacheService, CacheKeys } from "../services/CacheService";
 
 const router = Router({ mergeParams: true });
 const upload = multer();
@@ -315,33 +316,58 @@ router.put(
   upload.single("resume"),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
-    const { name, email, birthdate, roleApplied } = req.body;
+    const { name, email, birthdate, roleApplied, status, statusChangeReason, statusChangeNotes, statusChangeSource, socialLinks } = req.body;
     const resumeFile = req.file;
     const user = req.user;
 
     // Parse email array if it's a string
-    let emailArray: string[];
-    if (typeof email === "string") {
-      try {
-        emailArray = JSON.parse(email);
-      } catch {
-        emailArray = [email];
+    let emailArray: string[] | undefined;
+    if (email !== undefined) {
+      if (typeof email === "string") {
+        try {
+          emailArray = JSON.parse(email);
+        } catch {
+          emailArray = [email];
+        }
+      } else {
+        emailArray = email;
       }
-    } else {
-      emailArray = email || [];
+    }
+
+    // Parse socialLinks array if it's a string
+    let parsedSocialLinks: any[] | undefined;
+    if (socialLinks !== undefined) {
+      if (typeof socialLinks === "string") {
+        try {
+          parsedSocialLinks = JSON.parse(socialLinks);
+        } catch {
+          parsedSocialLinks = [];
+        }
+      } else {
+        parsedSocialLinks = socialLinks;
+      }
     }
 
     // Update candidate basic info
+    const updatePayload: any = {
+      statusChangeReason,
+      statusChangeNotes,
+      statusChangeSource,
+    };
+    
+    if (name !== undefined) updatePayload.name = name;
+    if (emailArray !== undefined) updatePayload.email = emailArray;
+    if (birthdate !== undefined) updatePayload.birthdate = new Date(birthdate);
+    if (roleApplied !== undefined) updatePayload.roleApplied = roleApplied;
+    if (status !== undefined) updatePayload.status = status;
+    if (parsedSocialLinks !== undefined) updatePayload.socialLinks = parsedSocialLinks;
+
     await candidateService.updateCandidate(
       candidateId,
-      {
-        name,
-        email: emailArray,
-        birthdate: new Date(birthdate),
-        roleApplied,
-      },
+      updatePayload,
       user?.userId,
-      user?.email
+      user?.email,
+      user ? `${user.firstName} ${user.lastName}` : undefined
     );
 
     // Update resume if provided
@@ -352,6 +378,14 @@ router.put(
         user?.userId,
         user?.email
       );
+    }
+
+    // Invalidate caches if status changed or any update occurred
+    if (status) {
+      // Invalidate candidate-specific caches
+      await cacheService.deletePattern(CacheKeys.CANDIDATE_PREFIX(candidateId));
+      // Invalidate system-wide analytics cache
+      await cacheService.delete(CacheKeys.SYSTEM_ANALYTICS());
     }
 
     // Get updated candidate data
@@ -808,6 +842,505 @@ router.get(
         message: "Internal server error",
       });
     }
+  })
+);
+
+// ====================
+// STATUS HISTORY & TIME ANALYTICS ENDPOINTS
+// ====================
+
+// Get status history for a candidate
+router.get(
+  "/:candidateId/status-history",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    
+    // Try to get from cache
+    const cacheKey = CacheKeys.STATUS_HISTORY(candidateId);
+    const cached = await cacheService.get(cacheKey);
+    if (cached) {
+      return res.json({
+        success: true,
+        data: cached,
+        cached: true
+      });
+    }
+
+    const candidate = await candidateService.getCandidate(candidateId);
+
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: "Candidate not found",
+      });
+    }
+
+    const result = {
+      candidateId: candidate.candidateId,
+      candidateName: candidate.name,
+      currentStatus: candidate.status,
+      statusHistory: candidate.statusHistory,
+      totalChanges: candidate.getStatusChangeCount(),
+    };
+
+    // Cache the result
+    await cacheService.set(cacheKey, result, CacheKeys.STATUS_HISTORY_TTL);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  })
+);
+
+// Get time analytics for a candidate
+router.get(
+  "/:candidateId/time-analytics",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const { stuckThresholdDays } = req.query;
+    
+    // Try to get from cache (5 minute TTL)
+    const cacheKey = CacheKeys.CANDIDATE_ANALYTICS(candidateId);
+    const cached = await cacheService.get(cacheKey);
+    if (cached) {
+      return res.json({
+        success: true,
+        data: cached,
+        cached: true
+      });
+    }
+    
+    const { TimeAnalyticsService } = await import("../services/TimeAnalyticsService");
+    const timeAnalyticsService = new TimeAnalyticsService();
+    
+    const analytics = await timeAnalyticsService.getCandidateTimeAnalytics(
+      candidateId,
+      stuckThresholdDays ? parseInt(stuckThresholdDays as string) : undefined
+    );
+
+    if (!analytics) {
+      return res.status(404).json({
+        success: false,
+        message: "Candidate not found",
+      });
+    }
+
+    // Cache the result
+    await cacheService.set(cacheKey, analytics, CacheKeys.CANDIDATE_ANALYTICS_TTL);
+
+    res.json({
+      success: true,
+      data: analytics,
+    });
+  })
+);
+
+// Get system-wide time analytics (HR_MANAGER and ADMIN only)
+router.get(
+  "/analytics/system-wide",
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+
+    // Only HR_MANAGER and ADMIN can view system-wide analytics
+    if (user.role !== UserRole.HR_MANAGER && user.role !== UserRole.ADMIN) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only HR Managers and Admins can view system-wide analytics.",
+      });
+    }
+
+    // Try to get from cache (15 minute TTL)
+    const cacheKey = CacheKeys.SYSTEM_ANALYTICS();
+    const cached = await cacheService.get(cacheKey);
+    if (cached) {
+      return res.json({
+        success: true,
+        data: cached,
+        cached: true
+      });
+    }
+
+    const { stuckThresholdDays } = req.query;
+    
+    const { TimeAnalyticsService } = await import("../services/TimeAnalyticsService");
+    const timeAnalyticsService = new TimeAnalyticsService();
+    
+    const analytics = await timeAnalyticsService.getSystemWideTimeAnalytics(
+      stuckThresholdDays ? parseInt(stuckThresholdDays as string) : undefined
+    );
+
+    // Cache the result
+    await cacheService.set(cacheKey, analytics, CacheKeys.SYSTEM_ANALYTICS_TTL);
+
+    res.json({
+      success: true,
+      data: analytics,
+    });
+  })
+);
+
+// ====================
+// RESUME SECTION CRUD ENDPOINTS
+// ====================
+
+// Skills CRUD
+router.post(
+  "/:candidateId/skills",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const { skillName, score, evidence, addedBy } = req.body;
+
+    if (!skillName) {
+      return res.status(BAD_REQUEST).json({
+        success: false,
+        message: "Skill name is required",
+      });
+    }
+
+    const skill = await skillService.addSkillToCandidate(
+      candidateId,
+      skillName,
+      score,
+      evidence,
+      addedBy || AddedBy.HUMAN
+    );
+
+    res.status(CREATED).json({
+      success: true,
+      message: "Skill added successfully",
+      data: skill,
+    });
+  })
+);
+
+router.put(
+  "/:candidateId/skills/:skillId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, skillId } = req.params;
+    const { skillName, score, evidence } = req.body;
+
+    await skillService.updateSkillForCandidate(
+      candidateId,
+      skillId,
+      skillName,
+      score,
+      evidence
+    );
+
+    res.json({
+      success: true,
+      message: "Skill updated successfully",
+    });
+  })
+);
+
+router.delete(
+  "/:candidateId/skills/:skillId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, skillId } = req.params;
+
+    await skillService.removeSkillFromCandidate(candidateId, skillId);
+
+    res.json({
+      success: true,
+      message: "Skill deleted successfully",
+    });
+  })
+);
+
+// Experience CRUD
+router.post(
+  "/:candidateId/experience",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const { description, title, role, startDate, endDate, addedBy } = req.body;
+
+    await experienceService.addExperience(candidateId, {
+      description,
+      title,
+      role,
+      startDate,
+      endDate,
+      addedBy: addedBy || AddedBy.HUMAN,
+    });
+
+    res.status(CREATED).json({
+      success: true,
+      message: "Experience added successfully",
+    });
+  })
+);
+
+router.put(
+  "/:candidateId/experience/:experienceId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, experienceId } = req.params;
+    const { description, title, role, startDate, endDate } = req.body;
+
+    await experienceService.updateExperience(candidateId, experienceId, {
+      description,
+      title,
+      role,
+      startDate,
+      endDate,
+    });
+
+    res.json({
+      success: true,
+      message: "Experience updated successfully",
+    });
+  })
+);
+
+router.delete(
+  "/:candidateId/experience/:experienceId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, experienceId } = req.params;
+
+    await experienceService.deleteExperience(candidateId, experienceId);
+
+    res.json({
+      success: true,
+      message: "Experience deleted successfully",
+    });
+  })
+);
+
+// Education CRUD
+router.post(
+  "/:candidateId/education",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const { description, institution, startDate, endDate, addedBy } = req.body;
+
+    await educationService.addEducation(candidateId, {
+      description,
+      institution,
+      startDate,
+      endDate,
+      addedBy: addedBy || AddedBy.HUMAN,
+    });
+
+    res.status(CREATED).json({
+      success: true,
+      message: "Education added successfully",
+    });
+  })
+);
+
+router.put(
+  "/:candidateId/education/:educationId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, educationId } = req.params;
+    const { description, institution, startDate, endDate } = req.body;
+
+    await educationService.updateEducation(candidateId, educationId, {
+      description,
+      institution,
+      startDate,
+      endDate,
+    });
+
+    res.json({
+      success: true,
+      message: "Education updated successfully",
+    });
+  })
+);
+
+router.delete(
+  "/:candidateId/education/:educationId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, educationId } = req.params;
+
+    await educationService.deleteEducation(candidateId, educationId);
+
+    res.json({
+      success: true,
+      message: "Education deleted successfully",
+    });
+  })
+);
+
+// Certifications CRUD
+router.post(
+  "/:candidateId/certifications",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const { description, certificationName, issuingOrganization, issueDate, addedBy } = req.body;
+
+    await certificationService.addCertification(candidateId, {
+      name: certificationName,
+      description,
+      issuingOrganization,
+      issueDate,
+      addedBy: addedBy || AddedBy.HUMAN,
+    });
+
+    res.status(CREATED).json({
+      success: true,
+      message: "Certification added successfully",
+    });
+  })
+);
+
+router.put(
+  "/:candidateId/certifications/:certificationId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, certificationId } = req.params;
+    const { description, certificationName, issuingOrganization, issueDate } = req.body;
+
+    await certificationService.updateCertification(candidateId, certificationId, {
+      name: certificationName,
+      description,
+      issuingOrganization,
+      issueDate,
+    });
+
+    res.json({
+      success: true,
+      message: "Certification updated successfully",
+    });
+  })
+);
+
+router.delete(
+  "/:candidateId/certifications/:certificationId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, certificationId } = req.params;
+
+    await certificationService.deleteCertification(candidateId, certificationId);
+
+    res.json({
+      success: true,
+      message: "Certification deleted successfully",
+    });
+  })
+);
+
+// Strengths & Weaknesses CRUD
+router.post(
+  "/:candidateId/strengths-weaknesses",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId } = req.params;
+    const { name, description, type, addedBy } = req.body;
+
+    if (!type || !['strength', 'weakness'].includes(type)) {
+      return res.status(BAD_REQUEST).json({
+        success: false,
+        message: "Type must be 'strength' or 'weakness'",
+      });
+    }
+
+    if (type === 'strength') {
+      await strengthWeaknessService.addStrength(candidateId, {
+        name,
+        description,
+        addedBy: addedBy || AddedBy.HUMAN,
+      });
+    } else {
+      await strengthWeaknessService.addWeakness(candidateId, {
+        name,
+        description,
+        addedBy: addedBy || AddedBy.HUMAN,
+      });
+    }
+
+    res.status(CREATED).json({
+      success: true,
+      message: `${type.charAt(0).toUpperCase() + type.slice(1)} added successfully`,
+    });
+  })
+);
+
+router.put(
+  "/:candidateId/strengths-weaknesses/:itemId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, itemId } = req.params;
+    const { name, description, type } = req.body;
+
+    if (!type || !['strength', 'weakness'].includes(type.toLowerCase())) {
+      return res.status(BAD_REQUEST).json({
+        success: false,
+        message: "Type must be 'strength' or 'weakness'",
+      });
+    }
+
+    const capitalizedType = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
+    await strengthWeaknessService.updateStrengthWeakness(
+      candidateId,
+      itemId,
+      { name, description },
+      capitalizedType as 'Strength' | 'Weakness'
+    );
+
+    res.json({
+      success: true,
+      message: "Item updated successfully",
+    });
+  })
+);
+
+router.delete(
+  "/:candidateId/strengths-weaknesses/:itemId",
+  AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { candidateId, itemId } = req.params;
+    const { type } = req.body;
+
+    if (!type || !['strength', 'weakness'].includes(type.toLowerCase())) {
+      return res.status(BAD_REQUEST).json({
+        success: false,
+        message: "Type must be 'strength' or 'weakness'",
+      });
+    }
+
+    const capitalizedType = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
+    await strengthWeaknessService.deleteStrengthWeakness(
+      candidateId,
+      itemId,
+      capitalizedType as 'Strength' | 'Weakness'
+    );
+
+    res.json({
+      success: true,
+      message: "Item deleted successfully",
+    });
   })
 );
 
