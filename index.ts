@@ -102,6 +102,12 @@ if (missingVars.length > 0) {
   }
 } else {
   console.log("✓ All critical environment variables are set.");
+  
+  // Display last 5 characters of JWT_SECRET for verification (without exposing full secret)
+  if (process.env.JWT_SECRET) {
+    const jwtSecretSuffix = process.env.JWT_SECRET.slice(-5);
+    console.log(`✓ JWT_SECRET loaded (ends with: ...${jwtSecretSuffix})`);
+  }
 }
 const mongoUri = process.env.MONGO_URI;
 const isLocal =
