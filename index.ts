@@ -123,6 +123,13 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+// Trust proxy headers only in production (Render uses 1 proxy hop)
+// In development, no proxy is used, so we don't need to trust proxy headers
+if (nodeEnv === 'production') {
+  app.set('trust proxy', 1);
+  console.log('✓ Trust proxy enabled (1 hop) for production');
+}
+
 app.use(cors());
 app.use(express.json());
 

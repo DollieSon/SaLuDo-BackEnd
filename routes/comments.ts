@@ -50,8 +50,8 @@ const standardCommentLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: AuthenticatedRequest) => {
-    // Rate limit per user
-    return req.user?.userId || req.ip || "anonymous";
+    // Rate limit per user ID (user takes precedence over IP)
+    return req.user?.userId || "anonymous";
   },
 });
 
@@ -66,7 +66,7 @@ const realtimeCommentLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: AuthenticatedRequest) => {
-    return req.user?.userId || req.ip || "anonymous";
+    return req.user?.userId || "anonymous";
   },
 });
 
@@ -81,7 +81,7 @@ const autocompleteLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: AuthenticatedRequest) => {
-    return req.user?.userId || req.ip || "anonymous";
+    return req.user?.userId || "anonymous";
   },
 });
 
