@@ -301,6 +301,11 @@ router.get(
       },
     });
 
+    // Prevent caching of candidate data
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
     res.json({
       success: true,
       data: candidate?.toObject(),
@@ -390,6 +395,11 @@ router.put(
 
     // Get updated candidate data
     const updatedCandidate = await candidateService.getCandidate(candidateId);
+
+    // Prevent caching of updated candidate data
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     res.json({
       success: true,

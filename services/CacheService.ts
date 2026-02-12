@@ -170,7 +170,7 @@ export const CacheKeys = {
 
   // Status history: 5 minutes
   STATUS_HISTORY: (candidateId: string) => `status-history:${candidateId}`,
-  STATUS_HISTORY_TTL: 5 * 60, // 5 minutes
+  STATUS_HISTORY_TTL: 10, // 10 seconds TEMPROARY
 
   // Invalidation patterns
   ALL_ANALYTICS: () => 'analytics:*',
