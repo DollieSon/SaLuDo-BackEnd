@@ -43,6 +43,11 @@ async function initializeWorker(): Promise<void> {
       }
     });
 
+    // Add error handler to prevent crashes
+    redisConnection.on('error', (error) => {
+      console.error('Email Worker: Redis error (handled):', error.message);
+    });
+
     // Test connection
     await redisConnection.ping();
     console.log('✓ Connected to Redis');

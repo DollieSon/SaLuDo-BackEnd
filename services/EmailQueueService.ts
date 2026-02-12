@@ -51,6 +51,17 @@ export class EmailQueueService {
         }
       });
 
+      // Add error handler to prevent unhandled error events from crashing the app
+      this.redisConnection.on('error', (error) => {
+        console.warn('EmailQueueService: Redis connection error (handled):', error.message);
+      });
+
+      // Handle connection close
+      this.redisConnection.on('close', () => {
+        console.warn('EmailQueueService: Redis connection closed');
+        this.isRedisAvailable = false;
+      });
+
       // Test connection
       await this.redisConnection.ping();
       this.isRedisAvailable = true;

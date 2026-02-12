@@ -191,7 +191,8 @@ async function startServer() {
     console.log(' AI Alert monitoring service started successfully');
     
     // Start the server
-    httpServer.listen(PORT, () => {
+    // Bind to 0.0.0.0 to accept connections from any network interface (required for Render)
+    httpServer.listen(PORT, '0.0.0.0', () => {
       console.log(' Server Status:');
       console.log(`    Server running on port ${PORT}`);
       console.log(`    Environment: ${nodeEnv}`);
