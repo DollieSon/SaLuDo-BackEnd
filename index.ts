@@ -24,7 +24,12 @@ import { connectDB } from "./mongo_db";
 import { TokenBlacklistRepository } from "./repositories/TokenBlacklistRepository";
 import { webSocketService } from "./services/WebSocketService";
 
+console.log('='.repeat(60));
+console.log('APPLICATION STARTING...');
+console.log('='.repeat(60));
+
 dotenv.config();
+console.log('✓ Environment variables loaded');
 
 // Environment and MongoDB URI logging
 const nodeEnv = process.env.NODE_ENV || "development";
@@ -90,24 +95,28 @@ if (missingVars.length > 0) {
     console.error(
       "REFUSING TO START IN PRODUCTION WITH MISSING CRITICAL VARIABLES"
     );
+    console.error('Exiting with code 1...');
     process.exit(1);
   } else {
     console.warn("Continuing in development mode - some features may not work");
   }
 } else {
-  console.log("All critical environment variables are set.");
+  console.log("✓ All critical environment variables are set.");
 }
 const mongoUri = process.env.MONGO_URI;
 const isLocal =
   mongoUri?.includes("localhost") || mongoUri?.includes("127.0.0.1");
 
-console.log("Application Starting...");
+console.log('\n' + '='.repeat(60));
+console.log("CONFIGURATION SUMMARY:");
+console.log('='.repeat(60));
 console.log("Environment:", nodeEnv);
 console.log("Database Type:", isLocal ? "LOCAL MongoDB" : "REMOTE MongoDB");
 console.log(
   "MongoDB URI:",
   mongoUri ? mongoUri.replace(/\/\/([^:]+):([^@]+)@/, "//***:***@") : "NOT SET"
 );
+console.log("Port:", process.env.PORT || '3000');
 console.log("─".repeat(60));
 
 const app = express();
@@ -149,17 +158,22 @@ app.use("/api/ai-metrics", aiMetricsRouter); // AI metrics and performance track
 // Function to start the server with database connection
 async function startServer() {
   try {
+    console.log('\n' + '='.repeat(60));
+    console.log('STARTING SERVER INITIALIZATION...');
+    console.log('='.repeat(60));
+    
     // Test database connection during startup
-    console.log(" Testing database connection...");
+    console.log("[1/7] Testing database connection...");
     const db = await connectDB();
-    console.log(" Database connection successful!");
+    console.log("✓ [1/7]✓ [1/7] Database connection successful!");
+    
     // Initialize WebSocket service
-    console.log(' Initializing WebSocket service...');
+    console.log('[2/7] Initializing WebSocket service...');
     webSocketService.initialize(httpServer);
-    console.log(' WebSocket service initialized successfully');
+    console.log('✓ [2/7] WebSocket service initialized successfully');
     
     // Initialize comprehensive token cleanup service
-    console.log(" Setting up comprehensive token cleanup service...");
+    console.log("[3/7] Setting up token cleanup service...");
     const { TokenCleanupService } = await import(
       "./services/TokenCleanupService"
     );
@@ -167,49 +181,68 @@ async function startServer() {
     // Start the automated cleanup service (runs every 24 hours)
     TokenCleanupService.startCleanupService();
     
-    console.log(' Token cleanup service started successfully');
+    console.log('✓ [3/7] Token cleanup service started successfully');
     
     // Initialize digest scheduler for email digests
-    console.log(' Setting up digest scheduler...');
+    console.log('[4/7] Setting up digest scheduler...');
     const { DigestScheduler } = await import('./DigestScheduler');
     const digestScheduler = new DigestScheduler(db);
     digestScheduler.start();
-    console.log(' Digest scheduler started successfully');
+    console.log('✓ [4/7] Digest scheduler started successfully');
     
     // Initialize AI Metrics service and indexes
-    console.log(' Setting up AI Metrics service...');
+    console.log('[5/7] Setting up AI Metrics service...');
     const { AIMetricsService } = await import('./services/AIMetricsService');
     const aiMetricsService = new AIMetricsService(db);
     await aiMetricsService.initializeIndexes();
-    console.log(' AI Metrics indexes created successfully');
+    console.log('✓ [5/7] AI Metrics indexes created successfully');
     
     // Start AI Alert monitoring service
-    console.log(' Starting AI Alert monitoring service...');
+    console.log('[6/7] Starting AI Alert monitoring service...');
     const { AIAlertService } = await import('./services/AIAlertService');
     const aiAlertService = new AIAlertService(db);
     aiAlertService.startMonitoring();
-    console.log(' AI Alert monitoring service started successfully');
+    console.log('✓ [6/7] AI Alert monitoring service started successfully');
     
     // Start the server
     // Bind to 0.0.0.0 to accept connections from any network interface (required for Render)
+    console.log(`[7/7] Starting HTTP server on port ${PORT}...`);
     httpServer.listen(PORT, '0.0.0.0', () => {
-      console.log(' Server Status:');
-      console.log(`    Server running on port ${PORT}`);
-      console.log(`    Environment: ${nodeEnv}`);
-      console.log(`    Database: ${isLocal ? 'LOCAL' : 'REMOTE'} MongoDB`);
-      console.log(`    WebSocket: Enabled on same port`);
-      console.log(`    Digest Scheduler: Running`);
-      console.log('─'.repeat(60));
+      console.log('\n' + '='.repeat(60));
+      console.log('✓ SERVER READY!');
+      console.log('='.repeat(60));
+      console.log(`Port: ${PORT}`);
+      console.log(`Environment: ${nodeEnv}`);
+      console.log(`Database: ${isLocal ? 'LOCAL' : 'REMOTE'} MongoDB`);
+      console.log(`WebSocket: Enabled`);
+      console.log(`Digest Scheduler: Running`);
+      console.log(`AI Services: Active`);
+      console.log('='.repeat(60));
     });
+    
+    console.log('✓ [7/7] Server listen started, waiting for port to open...');
   } catch (error) {
-    console.error(
-      "   Failed to start server due to database connection error:"
-    );
-    console.error("   Error:", error);
-    console.error("   Please check your MongoDB connection and try again.");
+    console.error('\n' + '='.repeat(60));
+    console.error('✗ SERVER STARTUP FAILED');
+    console.error('='.repeat(60));
+    console.error('Error:', error);
+    if (error instanceof Error) {
+      console.error('Message:', error.message);
+      console.error('Stack:', error.stack);
+    }
+    console.error('='.repeat(60));
+    console.error('Exiting with code 1...');
     process.exit(1);
   }
 }
 
 // Start the server
-startServer();
+console.log('\nCalling startServer()...\n');
+startServer().catch((error) => {
+  console.error('\n' + '='.repeat(60));
+  console.error('✗ UNHANDLED ERROR IN startServer()');
+  console.error('='.repeat(60));
+  console.error(error);
+  console.error('='.repeat(60));
+  process.exit(1);
+});
