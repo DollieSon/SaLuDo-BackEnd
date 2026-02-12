@@ -112,7 +112,7 @@ console.log("─".repeat(60));
 
 const app = express();
 const httpServer = createServer(app);
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(cors());
 app.use(express.json());
