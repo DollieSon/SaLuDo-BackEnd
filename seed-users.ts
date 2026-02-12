@@ -93,7 +93,6 @@ async function seedUsers() {
       await userRepository.updateUser(newUser.userId, {
         isVerified: true,
         isActive: true,
-        mustChangePassword: false,
       });
 
       console.log(`  ✅ Created successfully`);

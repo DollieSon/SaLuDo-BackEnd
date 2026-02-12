@@ -139,12 +139,10 @@ Analyze this introduction video and provide a comprehensive assessment. Return O
     "areasForImprovement": ["area1", "area2", "area3"],
     "summary": "3-5 sentence overall impression"
   },
-  "transcribedText": "Full transcription of what was said in the video IN THE ORIGINAL LANGUAGE SPOKEN (do not translate)"
+  "transcribedText": "Full transcription of what was said in the video IN ENGLISH."
 }
 
-Score each metric from 0.0 to 10.0 based on the video content. Provide specific evidence and observations for each category. 
-
-IMPORTANT: Transcribe the audio in the exact language spoken in the video. Do NOT translate it to another language.`;
+Score each metric from 0.0 to 10.0 based on the video content. Provide specific evidence and observations for each category.`;
 
     const geminiClient = GeminiClientService.getInstance();
     const result = await geminiClient.callGemini(
