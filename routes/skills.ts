@@ -388,6 +388,42 @@ router.get(
   })
 );
 
+// POST /api/skills/master - Create a new skill in master database
+router.post(
+  "/master",
+  AuthMiddleware.authenticate,
+  validation.requireFields(["skillName"]),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { skillName } = req.body;
+    const user = req.user;
+
+    if (!skillName || !skillName.trim()) {
+      return res.status(BAD_REQUEST).json({
+        success: false,
+        message: "Skill name is required",
+      });
+    }
+
+    try {
+      const newSkill = await skillService.createSkillMaster(skillName.trim());
+      
+      res.status(CREATED).json({
+        success: true,
+        message: "Skill created successfully",
+        data: newSkill,
+      });
+    } catch (error: any) {
+      if (error.message && error.message.includes('already exists')) {
+        return res.status(BAD_REQUEST).json({
+          success: false,
+          message: error.message,
+        });
+      }
+      throw error;
+    }
+  })
+);
+
 // POST /api/skills/master/merge - Merge multiple skills into one
 router.post(
   "/master/merge",

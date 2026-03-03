@@ -49,9 +49,10 @@ const standardCommentLimiter = rateLimit({
   message: "Too many comment requests, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
-  validate: false,
-  keyGenerator: (req: AuthenticatedRequest) =>
-    req.user?.userId || req.ip || "anonymous",
+  keyGenerator: (req: AuthenticatedRequest) => {
+    // Rate limit per user ID (user takes precedence over IP)
+    return req.user?.userId || "anonymous";
+  },
 });
 
 /**
@@ -64,9 +65,9 @@ const realtimeCommentLimiter = rateLimit({
   message: "Too many real-time requests, please slow down.",
   standardHeaders: true,
   legacyHeaders: false,
-  validate: false,
-  keyGenerator: (req: AuthenticatedRequest) =>
-    req.user?.userId || req.ip || "anonymous",
+  keyGenerator: (req: AuthenticatedRequest) => {
+    return req.user?.userId || "anonymous";
+  },
 });
 
 /**
@@ -79,9 +80,9 @@ const autocompleteLimiter = rateLimit({
   message: "Too many autocomplete requests, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
-  validate: false,
-  keyGenerator: (req: AuthenticatedRequest) =>
-    req.user?.userId || req.ip || "anonymous",
+  keyGenerator: (req: AuthenticatedRequest) => {
+    return req.user?.userId || "anonymous";
+  },
 });
 
 // ====================

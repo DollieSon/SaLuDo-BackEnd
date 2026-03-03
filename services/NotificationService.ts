@@ -530,11 +530,13 @@ export class NotificationService {
       data: {
         candidateId,
         candidateName,
+        entityId: candidateId,
+        entityType: 'CANDIDATE',
         ...additionalData
       },
       action: {
         label: 'View Candidate',
-        url: `/candidates/${candidateId}`
+        url: `/profile/${candidateId}`
       },
       sourceId: candidateId,
       sourceType: 'candidate'
@@ -583,11 +585,13 @@ export class NotificationService {
       data: {
         jobId,
         jobName,
+        entityId: jobId,
+        entityType: 'JOB',
         ...additionalData
       },
       action: {
         label: 'View Job',
-        url: `/jobs/${jobId}`
+        url: `/job/${jobId}`
       },
       sourceId: jobId,
       sourceType: 'job'
