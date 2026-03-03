@@ -148,7 +148,7 @@ router.post(
             ]
           : undefined,
     });
-  })
+  }),
 );
 
 /**
@@ -228,7 +228,7 @@ router.get(
       success: true,
       data: results,
     });
-  })
+  }),
 );
 
 /**
@@ -250,7 +250,7 @@ router.get(
       success: true,
       data: replies.map((r) => r.toObject()),
     });
-  })
+  }),
 );
 
 /**
@@ -270,7 +270,7 @@ router.get(
     // Validate entity type
     if (
       !Object.values(CommentEntityType).includes(
-        entityType as CommentEntityType
+        entityType as CommentEntityType,
       )
     ) {
       res.status(BAD_REQUEST).json({
@@ -291,12 +291,12 @@ router.get(
       entityType as CommentEntityType,
       entityId,
       userId,
-      options
+      options,
     );
 
     const count = await commentService.getCommentCount(
       entityType as CommentEntityType,
-      entityId
+      entityId,
     );
 
     const totalPages = Math.ceil(count / options.limit);
@@ -317,7 +317,7 @@ router.get(
         },
       },
     });
-  })
+  }),
 );
 
 /**
@@ -336,7 +336,7 @@ router.get(
     // Validate entity type
     if (
       !Object.values(CommentEntityType).includes(
-        entityType as CommentEntityType
+        entityType as CommentEntityType,
       )
     ) {
       res.status(BAD_REQUEST).json({
@@ -357,12 +357,12 @@ router.get(
       entityType as CommentEntityType,
       entityId,
       userId,
-      options
+      options,
     );
 
     const count = await commentService.getCommentCount(
       entityType as CommentEntityType,
-      entityId
+      entityId,
     );
 
     const totalPages = Math.ceil(count / options.limit);
@@ -383,7 +383,7 @@ router.get(
         },
       },
     });
-  })
+  }),
 );
 
 /**
@@ -412,7 +412,7 @@ router.get(
       success: true,
       data: comment.toObject(),
     });
-  })
+  }),
 );
 
 /**
@@ -448,7 +448,7 @@ router.put(
       const updatedComment = await commentService.updateComment(
         commentId,
         updateData,
-        userId
+        userId,
       );
 
       res.status(OK).json({
@@ -469,7 +469,7 @@ router.put(
       }
       throw error;
     }
-  })
+  }),
 );
 
 /**
@@ -505,7 +505,7 @@ router.delete(
       }
       throw error;
     }
-  })
+  }),
 );
 
 /**
@@ -527,7 +527,7 @@ router.post(
       success: true,
       message: "Comment restored successfully",
     });
-  })
+  }),
 );
 
 /**
@@ -544,7 +544,7 @@ router.get(
     // Validate entity type
     if (
       !Object.values(CommentEntityType).includes(
-        entityType as CommentEntityType
+        entityType as CommentEntityType,
       )
     ) {
       res.status(BAD_REQUEST).json({
@@ -556,14 +556,14 @@ router.get(
 
     const stats = await commentService.getEntityStats(
       entityType as CommentEntityType,
-      entityId
+      entityId,
     );
 
     res.status(OK).json({
       success: true,
       data: stats,
     });
-  })
+  }),
 );
 
 /**
@@ -586,12 +586,11 @@ router.get(
 
     const comments = await commentService.getCommentsMentioningUser(
       userId,
-      options
+      options,
     );
 
-    const totalCount = await commentService.getCommentsMentioningUserCount(
-      userId
-    );
+    const totalCount =
+      await commentService.getCommentsMentioningUserCount(userId);
     const totalPages = Math.ceil(totalCount / options.limit);
     const hasNextPage = options.page < totalPages;
     const hasPreviousPage = options.page > 1;
@@ -610,7 +609,7 @@ router.get(
         },
       },
     });
-  })
+  }),
 );
 
 /**
@@ -652,7 +651,7 @@ router.get(
         },
       },
     });
-  })
+  }),
 );
 
 // ====================
@@ -701,7 +700,7 @@ router.post(
       success: true,
       message: "Typing indicator broadcast",
     });
-  })
+  }),
 );
 
 /**
@@ -745,7 +744,7 @@ router.post(
       success: true,
       message: "Joined entity room",
     });
-  })
+  }),
 );
 
 /**
@@ -789,7 +788,7 @@ router.post(
       success: true,
       message: "Left entity room",
     });
-  })
+  }),
 );
 
 export default router;

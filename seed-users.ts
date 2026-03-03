@@ -2,7 +2,7 @@
 // SEED USERS SCRIPT
 // =======================
 // Purpose: Create sample users for testing the SaLuDo application
-// Usage: npx ts-node seed-users.ts
+// Usage: docker compose exec backend node dist/seed-users.js
 // =======================
 
 const bcrypt = require("bcrypt");
@@ -93,7 +93,6 @@ async function seedUsers() {
       await userRepository.updateUser(newUser.userId, {
         isVerified: true,
         isActive: true,
-        mustChangePassword: false,
       });
 
       console.log(`  ✅ Created successfully`);
