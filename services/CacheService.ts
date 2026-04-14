@@ -4,6 +4,10 @@
 
 import Redis from 'ioredis';
 
+const DEFAULT_REDIS_HOST = 'localhost';
+const DEFAULT_REDIS_PORT = 6379;
+const REDIS_MAX_RETRIES_PER_REQUEST = 3;
+
 class CacheService {
   private redis: Redis | null = null;
   private isEnabled: boolean = false;
@@ -17,10 +21,15 @@ class CacheService {
    */
   private initialize(): void {
     try {
-      const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-      
-      this.redis = new Redis(redisUrl, {
-        maxRetriesPerRequest: 3,
+      const redisHost = (process.env.REDIS_HOST || DEFAULT_REDIS_HOST).trim();
+      const redisPort = Number.parseInt(process.env.REDIS_PORT || String(DEFAULT_REDIS_PORT), 10);
+      const redisPassword = process.env.REDIS_PASSWORD;
+
+      this.redis = new Redis({
+        host: redisHost,
+        port: Number.isNaN(redisPort) ? DEFAULT_REDIS_PORT : redisPort,
+        password: redisPassword,
+        maxRetriesPerRequest: REDIS_MAX_RETRIES_PER_REQUEST,
         enableOfflineQueue: false,
         lazyConnect: true,
       });
