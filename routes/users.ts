@@ -23,6 +23,7 @@ import {
   CREATED,
   BAD_REQUEST,
   UNAUTHORIZED,
+  LOCKED,
   NOT_FOUND,
   CONFLICT,
   INTERNAL_SERVER_ERROR,
@@ -52,6 +53,47 @@ const router = Router();
 let userService: UserService;
 let auditLogService: AuditLogService;
 let notificationService: NotificationService | null = null;
+
+const LOGIN_ERROR_CODES = {
+  INVALID_CREDENTIALS: "INVALID_CREDENTIALS",
+  ACCOUNT_LOCKED: "ACCOUNT_LOCKED",
+  ACCOUNT_INACTIVE: "ACCOUNT_INACTIVE",
+  ACCOUNT_DELETED: "ACCOUNT_DELETED",
+} as const;
+
+const LOGIN_STATUS = {
+  SUCCESS: "Success",
+  FAILED: "Failed",
+} as const;
+
+const sendLoginError = (
+  res: Response,
+  statusCode: number,
+  message: string,
+  errorCode: string,
+  details?: Record<string, unknown>
+) => {
+  res.status(statusCode).json({
+    success: false,
+    message,
+    errorCode,
+    ...(details ? { details } : {}),
+  });
+};
+
+const logLoginAttempt = (
+  email: string | undefined,
+  status: keyof typeof LOGIN_STATUS,
+  reason?: string
+) => {
+  const normalizedEmail = email?.trim() || "Unknown user";
+  const statusLabel = LOGIN_STATUS[status];
+  const reasonSuffix = reason ? ` (${reason})` : "";
+
+  console.log(
+    `${normalizedEmail} logging in, Status : [${statusLabel}]${reasonSuffix}`
+  );
+};
 
 // Multer configuration for profile photo uploads
 const photoUpload = multer({
@@ -109,6 +151,7 @@ router.post(
     const { email, password } = req.body;
 
     if (!email || !password) {
+      logLoginAttempt(email, "FAILED", "Email and password are required");
       res.status(BAD_REQUEST).json({
         success: false,
         message: "Email and password are required",
@@ -122,10 +165,13 @@ router.post(
     const userData = await userRepository.getUserByEmail(email);
 
     if (!userData) {
-      res.status(UNAUTHORIZED).json({
-        success: false,
-        message: "Invalid email or password",
-      });
+      logLoginAttempt(email, "FAILED", "Invalid email or password");
+      sendLoginError(
+        res,
+        UNAUTHORIZED,
+        "Invalid email or password",
+        LOGIN_ERROR_CODES.INVALID_CREDENTIALS
+      );
       return;
     }
 
@@ -133,19 +179,43 @@ router.post(
 
     // Check if account is locked
     if (user.isAccountLocked()) {
-      res.status(423).json({
-        success: false,
-        message: "Account is temporarily locked due to failed login attempts",
-      });
+      logLoginAttempt(
+        email,
+        "FAILED",
+        "Account is temporarily locked due to too many failed login attempts"
+      );
+      sendLoginError(
+        res,
+        LOCKED,
+        "Your account is temporarily locked because of too many failed login attempts. Try again after the lock expires or reset your password if you do not recognize the attempts.",
+        LOGIN_ERROR_CODES.ACCOUNT_LOCKED,
+        {
+          lockedUntil: user.accountLockedUntil?.toISOString(),
+          failedLoginAttempts: user.failedLoginAttempts,
+        }
+      );
       return;
     }
 
     // Check if account is active
     if (!user.isActive || user.isDeleted) {
-      res.status(UNAUTHORIZED).json({
-        success: false,
-        message: "Account is inactive or deleted",
-      });
+      logLoginAttempt(
+        email,
+        "FAILED",
+        user.isDeleted
+          ? "Account has been deleted"
+          : "Account is inactive"
+      );
+      sendLoginError(
+        res,
+        UNAUTHORIZED,
+        user.isDeleted
+          ? "This account has been deleted and can no longer sign in. Contact support if you believe this is a mistake."
+          : "This account is inactive. Contact an administrator to restore access.",
+        user.isDeleted
+          ? LOGIN_ERROR_CODES.ACCOUNT_DELETED
+          : LOGIN_ERROR_CODES.ACCOUNT_INACTIVE
+      );
       return;
     }
 
@@ -203,30 +273,51 @@ router.post(
       }
 
       // Notify user if account gets locked
-      if (user.isAccountLocked() && notificationService) {
-        try {
-          await notificationService.notifySecurityEvent(
-            NotificationType.ACCOUNT_LOCKED,
-            user.userId,
-            `Your account has been temporarily locked due to ${user.failedLoginAttempts} failed login attempts`,
-            {
-              lockedUntil: user.accountLockedUntil?.toISOString(),
-              failedAttempts: user.failedLoginAttempts,
-              ipAddress: req.ip,
-            }
-          );
-        } catch (notifError) {
-          console.error(
-            "Failed to send ACCOUNT_LOCKED notification:",
-            notifError
-          );
+      if (user.isAccountLocked()) {
+        if (notificationService) {
+          try {
+            await notificationService.notifySecurityEvent(
+              NotificationType.ACCOUNT_LOCKED,
+              user.userId,
+              `Your account has been temporarily locked due to ${user.failedLoginAttempts} failed login attempts`,
+              {
+                lockedUntil: user.accountLockedUntil?.toISOString(),
+                failedAttempts: user.failedLoginAttempts,
+                ipAddress: req.ip,
+              }
+            );
+          } catch (notifError) {
+            console.error(
+              "Failed to send ACCOUNT_LOCKED notification:",
+              notifError
+            );
+          }
         }
+
+        logLoginAttempt(
+          email,
+          "FAILED",
+          "Account locked after too many failed login attempts"
+        );
+        sendLoginError(
+          res,
+          LOCKED,
+          "Your account is temporarily locked because of too many failed login attempts. Try again after the lock expires or reset your password if you do not recognize the attempts.",
+          LOGIN_ERROR_CODES.ACCOUNT_LOCKED,
+          {
+            lockedUntil: user.accountLockedUntil?.toISOString(),
+            failedLoginAttempts: user.failedLoginAttempts,
+          }
+        );
+        return;
       }
 
-      res.status(UNAUTHORIZED).json({
-        success: false,
-        message: "Invalid email or password",
-      });
+      sendLoginError(
+        res,
+        UNAUTHORIZED,
+        "Invalid email or password",
+        LOGIN_ERROR_CODES.INVALID_CREDENTIALS
+      );
       return;
     }
 
@@ -251,6 +342,8 @@ router.post(
 
     // Store refresh token in database
     await userRepository.updateRefreshToken(user.userId, refreshToken);
+
+    logLoginAttempt(email, "SUCCESS");
 
     // Calculate expiry times (must match JWT expiry in passwordUtils.ts)
     const accessTokenExpiry = new Date(Date.now() + 8 * 60 * 60 * 1000); // 8 hours
