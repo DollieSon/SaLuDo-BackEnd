@@ -23,7 +23,7 @@ export class SkillMasterRepository {
                 skillName: 'text',
                 isAccepted: 1 
             });
-            console.log('SkillMaster indexes created successfully');
+            // console.log('SkillMaster indexes created successfully');
         } catch (error) {
             console.error('Error creating SkillMaster indexes:', error);
         }
