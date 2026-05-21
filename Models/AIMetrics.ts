@@ -313,40 +313,118 @@ export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
 };
 
 /**
- * Gemini pricing per 1M tokens (as of Dec 2025)
+ * Gemini pricing per 1M tokens (as of May 2026)
+ * Updated with latest models from Google Gemini API
  * Note: Update these when pricing changes
  */
 export const GEMINI_PRICING = {
+  // Gemini 3 Series (Latest Generation)
+  "gemini-3.5-flash": {
+    inputPer1M: 0.5, // $0.50 per 1M input tokens (stable)
+    outputPer1M: 3.0, // $3.00 per 1M output tokens
+    status: "stable",
+    description: "Most intelligent model for sustained frontier performance on agentic and coding tasks",
+  },
+  "gemini-3.1-pro-preview": {
+    inputPer1M: 2.0, // $2.00 per 1M input tokens (≤200k context)
+    outputPer1M: 12.0, // $12.00 per 1M output tokens
+    contextPricingThreshold: 200000,
+    inputPer1MAboveContext: 4.0,
+    outputPer1MAboveContext: 18.0,
+    status: "preview",
+    description: "Advanced intelligence for complex problem-solving and agentic workflows",
+  },
+  "gemini-3-flash-preview": {
+    inputPer1M: 0.5,
+    outputPer1M: 3.0,
+    status: "preview",
+    description: "Frontier-class performance rivaling larger models at a fraction of the cost",
+  },
+  "gemini-3.1-flash-lite": {
+    inputPer1M: 0.1, // $0.10 per 1M input tokens
+    outputPer1M: 0.4, // $0.40 per 1M output tokens
+    status: "stable",
+    description: "Frontier-class performance at the lowest cost",
+  },
+
+  // Gemini 2.5 Series (Current Production)
   "gemini-2.5-flash": {
-    inputPer1M: 0.075, // $0.075 per 1M input tokens
-    outputPer1M: 0.3, // $0.30 per 1M output tokens
+    inputPer1M: 0.3, // $0.30 per 1M input tokens
+    outputPer1M: 2.5, // $2.50 per 1M output tokens
+    status: "stable",
+    description: "Best price-performance model for low-latency, high-volume tasks",
   },
   "gemini-2.5-pro": {
-    inputPer1M: 1.25, // $1.25 per 1M input tokens
-    outputPer1M: 5.0, // $5.00 per 1M output tokens
+    inputPer1M: 1.25, // $1.25 per 1M input tokens (≤200k)
+    outputPer1M: 10.0, // $10.00 per 1M output tokens
+    contextPricingThreshold: 200000,
+    inputPer1MAboveContext: 2.5,
+    outputPer1MAboveContext: 15.0,
+    status: "stable",
+    description: "Most advanced model for complex tasks with deep reasoning",
   },
   "gemini-2.5-flash-lite": {
-    inputPer1M: 0.03,
-    outputPer1M: 0.12,
+    inputPer1M: 0.1,
+    outputPer1M: 0.4,
+    status: "stable",
+    description: "Fastest and most budget-friendly multimodal model",
   },
+
+  // Deprecated/Hidden Models (kept for backward compatibility)
   "gemini-3-pro-preview": {
-    inputPer1M: 0.0, // Preview/experimental (check actual pricing)
+    inputPer1M: 0.0,
     outputPer1M: 0.0,
+    status: "deprecated",
+    deprecated: true,
+    replacedBy: "gemini-3.5-flash",
+    description: "DEPRECATED - Use gemini-3.5-flash instead",
   },
   "gemini-pro": {
     inputPer1M: 0.5,
     outputPer1M: 1.5,
+    status: "deprecated",
+    deprecated: true,
+    replacedBy: "gemini-2.5-flash",
+    description: "DEPRECATED - Use gemini-2.5-flash instead",
   },
   "gemini-1.5-flash": {
     inputPer1M: 0.075,
     outputPer1M: 0.3,
+    status: "deprecated",
+    deprecated: true,
+    replacedBy: "gemini-2.5-flash",
+    description: "DEPRECATED - Use gemini-2.5-flash instead",
   },
 } as const;
 
 /**
- * Default model version
+ * Deprecated/hidden models that should not be used in new configurations
  */
-export const DEFAULT_MODEL_VERSION = "gemini-2.5-flash-lite";
+export const DEPRECATED_GEMINI_MODELS = new Set([
+  "gemini-3-pro-preview",
+  "gemini-pro",
+  "gemini-1.5-flash",
+]);
+
+/**
+ * Active/available models for selection
+ */
+export function getActiveGeminiModels(): string[] {
+  return Object.keys(GEMINI_PRICING)
+    .filter(model => !DEPRECATED_GEMINI_MODELS.has(model));
+}
+
+/**
+ * Check if a model is deprecated
+ */
+export function isModelDeprecated(model: string): boolean {
+  return DEPRECATED_GEMINI_MODELS.has(model);
+}
+
+/**
+ * Default model version (updated to latest stable)
+ */
+export const DEFAULT_MODEL_VERSION = "gemini-3.1-flash-lite";
 
 /**
  * Token estimation constants (average chars per token)

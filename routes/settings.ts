@@ -9,6 +9,8 @@ import { Router, Response } from 'express';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
 import { AuthMiddleware, AuthenticatedRequest } from './middleware/auth';
 import { ScoringPreferencesRepository } from '../repositories/ScoringPreferencesRepository';
+import { GeminiModelSettingsRepository } from '../repositories/GeminiModelSettingsRepository';
+import { ALLOWED_GEMINI_MODELS } from '../Models/GeminiModelSettings';
 import { connectDB } from '../mongo_db';
 import { UserRole } from '../Models/User';
 import { AuditLogger } from '../utils/AuditLogger';
@@ -25,12 +27,15 @@ import { OK, CREATED, BAD_REQUEST, NOT_FOUND, FORBIDDEN } from '../constants/Htt
 
 const router = Router();
 let scoringPreferencesRepo: ScoringPreferencesRepository;
+let geminiSettingsRepo: GeminiModelSettingsRepository;
 
 // Initialize repository
 const initializeRepo = async () => {
   const db = await connectDB();
   scoringPreferencesRepo = new ScoringPreferencesRepository(db);
   await scoringPreferencesRepo.ensureIndexes();
+  geminiSettingsRepo = new GeminiModelSettingsRepository(db);
+  await geminiSettingsRepo.ensureIndexes();
   await AuthMiddleware.initialize();
 };
 
@@ -194,6 +199,109 @@ router.get(
         personalityCategoryWeights: DEFAULT_PERSONALITY_CATEGORY_WEIGHTS
       }
     });
+  })
+);
+
+// ====================
+// GEMINI MODEL SETTINGS (Admin)
+// ====================
+
+/**
+ * GET /api/settings/gemini-models
+ * Get current feature->model mapping and allowed model list
+ * Access: Admin only
+ */
+router.get(
+  '/gemini-models',
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+
+    const settings = await geminiSettingsRepo.getOrCreateGlobalSettings(user.userId);
+
+    res.status(OK).json({
+      success: true,
+      data: {
+        mapping: settings.mapping,
+        allowedModels: ALLOWED_GEMINI_MODELS
+      }
+    });
+  })
+);
+
+/**
+ * PUT /api/settings/gemini-models
+ * Update one or more feature model assignments
+ * Access: Admin only
+ */
+router.put(
+  '/gemini-models',
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+
+    // Admin check
+    if (!user.isAdmin()) {
+      return res.status(FORBIDDEN).json({ success: false, message: 'Admin access required' });
+    }
+
+    const updates = req.body as Record<string, string>;
+
+    // Get current for audit
+    const current = await geminiSettingsRepo.getCurrentSettings();
+
+    const updated = await geminiSettingsRepo.updateSettings(updates, user.userId);
+
+    // Audit log
+    await AuditLogger.log({
+      eventType: AuditEventType.NOTIFICATION_PREFERENCES_UPDATED,
+      userId: user.userId,
+      userEmail: user.email,
+      resource: 'gemini_model_settings',
+      resourceId: 'global',
+      action: 'update_gemini_model_settings',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      oldValue: current,
+      newValue: updated,
+      metadata: { updates }
+    });
+
+    res.status(OK).json({ success: true, message: 'Gemini model settings updated', data: updated });
+  })
+);
+
+/**
+ * POST /api/settings/gemini-models/reset
+ * Reset Gemini model mapping to defaults
+ * Access: Admin only
+ */
+router.post(
+  '/gemini-models/reset',
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+
+    const current = await geminiSettingsRepo.getCurrentSettings();
+    const reset = await geminiSettingsRepo.resetToDefaults(user.userId);
+
+    await AuditLogger.log({
+      eventType: AuditEventType.NOTIFICATION_PREFERENCES_UPDATED,
+      userId: user.userId,
+      userEmail: user.email,
+      resource: 'gemini_model_settings',
+      resourceId: 'global',
+      action: 'reset_gemini_model_settings',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      oldValue: current,
+      newValue: reset,
+      metadata: { action: 'reset_to_defaults' }
+    });
+
+    res.status(OK).json({ success: true, message: 'Gemini model settings reset', data: reset });
   })
 );
 

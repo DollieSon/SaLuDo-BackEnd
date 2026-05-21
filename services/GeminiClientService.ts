@@ -8,6 +8,7 @@ import fetch, { Response } from "node-fetch";
 import { ObjectId, Db } from "mongodb";
 import { connectDB } from "../mongo_db";
 import { AIMetricsRepository } from "../repositories/AIMetricsRepository";
+import { GeminiModelSettingsRepository } from "../repositories/GeminiModelSettingsRepository";
 import {
   AIMetricsEntry,
   AIServiceType,
@@ -84,6 +85,7 @@ export class GeminiClientService {
   private static instance: GeminiClientService;
   private db: Db | null = null;
   private metricsRepo: AIMetricsRepository | null = null;
+  private geminiSettingsRepo: GeminiModelSettingsRepository | null = null;
   private modelVersion: string;
   private apiKey: string | undefined;
 
@@ -109,6 +111,18 @@ export class GeminiClientService {
     if (!this.db) {
       this.db = await connectDB();
       this.metricsRepo = new AIMetricsRepository(this.db);
+      this.geminiSettingsRepo = new GeminiModelSettingsRepository(this.db);
+    }
+  }
+
+  private async resolveModelForService(service: AIServiceType): Promise<string> {
+    try {
+      if (!this.geminiSettingsRepo) return DEFAULT_MODEL_VERSION;
+      const settings = await this.geminiSettingsRepo.getOrCreateGlobalSettings('system');
+      const resolved = settings.mapping[service];
+      return resolved || DEFAULT_MODEL_VERSION;
+    } catch (err) {
+      return DEFAULT_MODEL_VERSION;
     }
   }
 
@@ -137,6 +151,8 @@ export class GeminiClientService {
     await this.init();
     this.validateApiKey();
 
+    const resolvedModel = await this.resolveModelForService(context.service);
+
     const metricsId = new ObjectId().toString();
     const startTime = Date.now();
     let httpStatusCode: number | undefined;
@@ -154,7 +170,7 @@ export class GeminiClientService {
       };
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${this.modelVersion}:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel}:generateContent?key=${this.apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -194,6 +210,7 @@ export class GeminiClientService {
           parseSuccess: false,
           fallbackUsed: false,
           tokenUsage: this.estimateTokens(prompt, ""),
+          modelVersion: resolvedModel,
           retryCount: 0,
         });
 
@@ -233,6 +250,7 @@ export class GeminiClientService {
           parseSuccess: false,
           fallbackUsed: false,
           tokenUsage: this.getTokenUsage(rawResponse, prompt, ""),
+          modelVersion: resolvedModel,
           retryCount: 0,
         });
 
@@ -261,6 +279,7 @@ export class GeminiClientService {
         parseSuccess: true, // Just raw text, parsing happens in caller
         fallbackUsed: false,
         tokenUsage,
+        modelVersion: resolvedModel,
         retryCount: 0,
       });
 
@@ -292,6 +311,7 @@ export class GeminiClientService {
         parseSuccess: false,
         fallbackUsed: false,
         tokenUsage: this.estimateTokens(prompt, ""),
+        modelVersion: resolvedModel,
         retryCount: 0,
       });
 
@@ -425,9 +445,10 @@ export class GeminiClientService {
   /**
    * Calculate cost from token usage
    */
-  calculateCost(tokenUsage: TokenUsage): CostEstimate {
+  calculateCost(tokenUsage: TokenUsage, modelVersion?: string): CostEstimate {
+    const resolvedModel = modelVersion || this.modelVersion;
     const pricing =
-      GEMINI_PRICING[this.modelVersion as keyof typeof GEMINI_PRICING] ||
+      GEMINI_PRICING[resolvedModel as keyof typeof GEMINI_PRICING] ||
       GEMINI_PRICING[DEFAULT_MODEL_VERSION as keyof typeof GEMINI_PRICING];
 
     const inputCostUsd =
@@ -551,16 +572,17 @@ export class GeminiClientService {
     fallbackUsed: boolean;
     tokenUsage: TokenUsage;
     retryCount: number;
+    modelVersion?: string;
   }): Promise<void> {
     if (!this.metricsRepo) return;
 
-    const costEstimate = this.calculateCost(params.tokenUsage);
+    const costEstimate = this.calculateCost(params.tokenUsage, params.modelVersion);
 
     const entry: AIMetricsEntry = {
       metricsId: params.metricsId,
       timestamp: new Date(),
       service: params.context.service,
-      modelVersion: this.modelVersion,
+      modelVersion: params.modelVersion || this.modelVersion,
       promptVersion: params.context.promptVersion,
       candidateId: params.context.candidateId,
       jobId: params.context.jobId,

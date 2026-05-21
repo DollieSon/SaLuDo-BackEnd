@@ -44,12 +44,26 @@ export async function connectDB(): Promise<Db> {
 
       // Create indexes for notification system
       await createNotificationIndexes(db);
+      await createGeminiModelSettingsIndexes(db);
     } catch (error) {
       console.error("Failed to connect to MongoDB:", error);
       throw error;
     }
   }
   return db;
+}
+
+/**
+ * Create indexes for Gemini model settings collection
+ */
+async function createGeminiModelSettingsIndexes(database: Db): Promise<void> {
+  try {
+    const coll = database.collection('geminiModelSettings');
+    await coll.createIndex({ settingsId: 1 }, { unique: true });
+    console.log('✓ Gemini model settings indexes created');
+  } catch (error) {
+    console.error('Warning: Failed to create Gemini model settings indexes:', error);
+  }
 }
 
 /**
