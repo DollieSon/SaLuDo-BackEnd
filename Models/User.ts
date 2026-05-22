@@ -249,7 +249,7 @@ export class User {
     return this.passwordHistory.includes(passwordHash);
   }
 
-  incrementFailedLoginAttempts(maxAttempts: number = 5, lockoutMinutes: number = 30): void {
+  incrementFailedLoginAttempts(maxAttempts: number = 10, lockoutMinutes: number = 30): void {
     this.failedLoginAttempts++;
     
     // Lock account if max attempts exceeded

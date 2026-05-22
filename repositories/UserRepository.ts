@@ -51,7 +51,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
 
     const userData: UserData = {
       userId,
-      email: data.email,
+      email: data.email.toLowerCase(), // Normalize email to lowercase for consistency
       passwordHash: data.password, // Assumed to be already hashed
       firstName: data.firstName,
       middleName: data.middleName,

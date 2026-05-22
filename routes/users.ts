@@ -148,10 +148,11 @@ router.post(
   "/auth/login",
   authRateLimit, // Apply strict rate limiting to login attempts
   asyncHandler(async (req: Request, res: Response) => {
-    const { email, password } = req.body;
+    const { email: rawEmail, password } = req.body;
+    const email = rawEmail?.trim().toLowerCase(); // Normalize email: trim and lowercase
 
     if (!email || !password) {
-      logLoginAttempt(email, "FAILED", "Email and password are required");
+      logLoginAttempt(rawEmail, "FAILED", "Email and password are required");
       res.status(BAD_REQUEST).json({
         success: false,
         message: "Email and password are required",
@@ -165,7 +166,7 @@ router.post(
     const userData = await userRepository.getUserByEmail(email);
 
     if (!userData) {
-      logLoginAttempt(email, "FAILED", "Invalid email or password");
+      logLoginAttempt(email, "FAILED", "Failed To Fetch User / User Not Found");
       sendLoginError(
         res,
         UNAUTHORIZED,
@@ -224,6 +225,13 @@ router.post(
       password,
       user.passwordHash
     );
+
+    // DEBUG: Log password verification result
+    if (!isValidPassword) {
+      console.warn(
+        `[DEBUG] Password verification failed for user ${email}. Stored hash exists: ${!!user.passwordHash}`
+      );
+    }
 
     if (!isValidPassword) {
       // Increment failed login attempts
@@ -464,11 +472,13 @@ router.post(
   AuthMiddleware.requireRole(UserRole.ADMIN),
   UserValidation.validateCreateUser,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { email, password, firstName, lastName, title, role, middleName } =
+    const { email: rawEmail, password, firstName, lastName, title, role, middleName } =
       req.body;
+    const email = rawEmail?.trim().toLowerCase(); // Normalize email: trim and lowercase
 
     // Hash password for storage using bcrypt
     const hashedPassword = await PasswordUtils.hashPassword(password);
+    console.log(`[DEBUG] Created new user ${email} with hashed password (starts with: ${hashedPassword.substring(0, 20)}...)`);
 
     const newUser = await userService.createUserAsAdmin({
       email,
