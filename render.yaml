@@ -3,8 +3,21 @@ services:
     name: saludo-backend
     env: node
     plan: free
-    buildCommand: "npm install"
-    startCommand: "npm start"
+    # npm ci installs exactly what package-lock.json pins; build once, not on every start
+    buildCommand: "npm ci && npm run build"
+    startCommand: "node dist/index.js"
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "24"
+      # Must be set in the Render dashboard (values are secret):
+      # JWT_SECRET, JWT_REFRESH_SECRET, MONGO_URI, GOOGLE_API_KEY,
+      # CORS_ORIGIN (frontend origin, e.g. https://saludo-frontend.onrender.com).
+      # The refresh-cookie SameSite mode is detected automatically.
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false

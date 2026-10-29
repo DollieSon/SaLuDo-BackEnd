@@ -6,26 +6,17 @@
 // =======================
 
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 import { UserRepository } from '../../repositories/UserRepository';
 import { UserService } from '../../services/UserService';
 import { TokenBlacklistRepository } from '../../repositories/TokenBlacklistRepository';
 import { connectDB } from '../../mongo_db';
 import { User, UserRole } from '../../Models/User';
+import { PasswordUtils } from './passwordUtils';
 
 // Extend Request type to include user context
 export interface AuthenticatedRequest extends Request {
   user?: User;
   userId?: string;
-}
-
-// JWT secret (should be in environment variables)
-const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-change-in-production';
-
-// Security warning for default JWT secret
-if (!process.env.JWT_SECRET || JWT_SECRET === 'your-jwt-secret-change-in-production') {
-  console.warn('SECURITY WARNING: Using default JWT secret! Set JWT_SECRET environment variable in production.');
-  console.warn('   Generate a secure secret: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"');
 }
 
 export class AuthMiddleware {
@@ -40,28 +31,51 @@ export class AuthMiddleware {
     this.userService = new UserService(userRepository);
   }
 
+  // Extract a Bearer token from the Authorization header
+  static extractBearerToken(req: Request): string | undefined {
+    const header = req.header('Authorization');
+    if (!header || !header.startsWith('Bearer ')) return undefined;
+    const token = header.slice('Bearer '.length).trim();
+    return token || undefined;
+  }
+
+  // Verify an access token and load its active user (shared with WebSocket auth)
+  static resolveUserFromToken = async (token: string): Promise<User | null> => {
+    if (!this.userService || !this.tokenBlacklistRepository) {
+      await this.initialize();
+    }
+
+    const decoded = PasswordUtils.verifyAccessToken(token);
+    if (!decoded) return null;
+
+    const isBlacklisted = await this.tokenBlacklistRepository!.isTokenBlacklisted(token);
+    if (isBlacklisted) return null;
+
+    const user = await this.userService!.getUserProfile(decoded.userId);
+    if (!user || !user.isActive || user.isDeleted) return null;
+
+    return user;
+  };
+
   // Authenticate JWT token and attach user to request
   static authenticate = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    // Already authenticated by a router-level middleware earlier in the chain
+    if (req.user) {
+      next();
+      return;
+    }
+
     try {
-      const token = req.header('Authorization')?.replace('Bearer ', '');
-      
+      const token = this.extractBearerToken(req);
+
       if (!token) {
         res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
         return;
       }
 
-      // Check if token is blacklisted
-      const isBlacklisted = await this.tokenBlacklistRepository!.isTokenBlacklisted(token);
-      if (isBlacklisted) {
-        res.status(401).json({ success: false, message: 'Token has been revoked.' });
-        return;
-      }
-
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-      const user = await this.userService!.getUserProfile(decoded.userId);
-      
-      if (!user || !user.isActive || user.isDeleted) {
-        res.status(401).json({ success: false, message: 'Invalid or inactive user.' });
+      const user = await this.resolveUserFromToken(token);
+      if (!user) {
+        res.status(401).json({ success: false, message: 'Invalid or expired token.' });
         return;
       }
 
@@ -71,6 +85,23 @@ export class AuthMiddleware {
     } catch (error) {
       res.status(401).json({ success: false, message: 'Invalid token.' });
     }
+  };
+
+  // Require one of several roles (exact match, not hierarchy)
+  static requireAnyRole = (...roles: UserRole[]) => {
+    return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Authentication required.' });
+        return;
+      }
+
+      if (!roles.includes(req.user.role)) {
+        res.status(403).json({ success: false, message: 'Insufficient permissions.' });
+        return;
+      }
+
+      next();
+    };
   };
 
   // Blacklist a token (for logout)

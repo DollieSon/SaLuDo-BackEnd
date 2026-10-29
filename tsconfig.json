@@ -118,6 +118,7 @@
     "src/**/*",
     "routes/**/*",
     "index.ts",
+    "app.ts",
     "seed-users.ts",
     "email-worker.ts",
     "ForFrontEnd/documentation/endpoints/candidates-core.ts"

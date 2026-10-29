@@ -1,6 +1,14 @@
-import { Db } from 'mongodb';
+import crypto from 'crypto';
+import { Collection, Db } from 'mongodb';
+import { escapeRegex } from '../utils/escapeRegex';
 import { BaseRepository } from './BaseRepository';
 import { UserData, CreateUserData, UpdateUserData, UserRole, User } from '../Models/User';
+
+// Oldest sessions are dropped beyond this many signed-in browsers/devices
+export const MAX_REFRESH_SESSIONS = 10;
+
+const hashRefreshToken = (refreshToken: string): string =>
+  crypto.createHash('sha256').update(refreshToken).digest('hex');
 
 export class UserRepository extends BaseRepository<UserData, CreateUserData, UpdateUserData> {
   constructor(db: Db) {
@@ -38,6 +46,9 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
       
       // Index for password reset token lookup
       await this.getCollection().createIndex({ passwordResetToken: 1 });
+
+      // Index for refresh session lookup
+      await this.getCollection().createIndex({ 'refreshSessions.tokenHash': 1 });
     } catch (error) {
       console.error('Failed to create user indexes:', error);
     }
@@ -134,11 +145,12 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
     }
     
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { title: { $regex: search, $options: 'i' } }
+        { firstName: { $regex: safeSearch, $options: 'i' } },
+        { lastName: { $regex: safeSearch, $options: 'i' } },
+        { email: { $regex: safeSearch, $options: 'i' } },
+        { title: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 
@@ -174,22 +186,119 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
     );
   }
 
-  async updateRefreshToken(userId: string, refreshToken: string | undefined): Promise<void> {
-    await this.getCollection().updateOne(
+  // =======================
+  // REFRESH SESSIONS
+  // =======================
+  // Each signed-in browser/device has its own refresh session, so signing in
+  // on one device doesn't sign out another. Only SHA-256 hashes are stored.
+
+  private getSessionCollection(): Collection<UserData> {
+    return this.getCollection() as unknown as Collection<UserData>;
+  }
+
+  async addRefreshSession(userId: string, refreshToken: string, expiresAt: Date): Promise<void> {
+    const now = new Date();
+    await this.getSessionCollection().updateOne(
       { userId },
-      { $set: { refreshToken, updatedAt: new Date() } }
+      { $pull: { refreshSessions: { expiresAt: { $lt: now } } } }
+    );
+    await this.getSessionCollection().updateOne(
+      { userId },
+      {
+        $push: {
+          refreshSessions: {
+            $each: [{ tokenHash: hashRefreshToken(refreshToken), createdAt: now, expiresAt }],
+            $slice: -MAX_REFRESH_SESSIONS,
+          },
+        },
+        $set: { updatedAt: now },
+      }
     );
   }
 
+  /**
+   * Swap a presented refresh token for its replacement in one atomic update.
+   * Returns false if the old token is not a current session (already rotated,
+   * revoked or unknown), so a reused token can't mint new sessions.
+   */
+  async rotateRefreshSession(
+    userId: string,
+    oldRefreshToken: string,
+    newRefreshToken: string,
+    expiresAt: Date
+  ): Promise<boolean> {
+    const now = new Date();
+    const result = await this.getSessionCollection().updateOne(
+      { userId, 'refreshSessions.tokenHash': hashRefreshToken(oldRefreshToken) },
+      {
+        $set: {
+          'refreshSessions.$': { tokenHash: hashRefreshToken(newRefreshToken), createdAt: now, expiresAt },
+          updatedAt: now,
+        },
+      }
+    );
+    if (result.modifiedCount === 1) {
+      return true;
+    }
+
+    // Sessions from before refreshSessions existed kept one raw token
+    const legacy = await this.getSessionCollection().updateOne(
+      { userId, refreshToken: oldRefreshToken },
+      { $unset: { refreshToken: '' } }
+    );
+    if (legacy.modifiedCount !== 1) {
+      return false;
+    }
+    await this.addRefreshSession(userId, newRefreshToken, expiresAt);
+    return true;
+  }
+
+  async removeRefreshSession(userId: string, refreshToken: string): Promise<void> {
+    await this.getSessionCollection().updateOne(
+      { userId },
+      {
+        $pull: { refreshSessions: { tokenHash: hashRefreshToken(refreshToken) } },
+        $set: { updatedAt: new Date() },
+      }
+    );
+    await this.getSessionCollection().updateOne(
+      { userId, refreshToken },
+      { $unset: { refreshToken: '' } }
+    );
+  }
+
+  async clearRefreshSessions(userId: string): Promise<void> {
+    await this.getSessionCollection().updateOne(
+      { userId },
+      { $set: { refreshSessions: [], updatedAt: new Date() }, $unset: { refreshToken: '' } }
+    );
+  }
+
+  async clearLegacyRefreshToken(userId: string): Promise<void> {
+    await this.getSessionCollection().updateOne({ userId }, { $unset: { refreshToken: '' } });
+  }
+
+  /**
+   * Drop expired sessions from every user. Returns the number of users changed.
+   */
+  async pruneExpiredRefreshSessions(): Promise<number> {
+    const now = new Date();
+    const result = await this.getSessionCollection().updateMany(
+      { 'refreshSessions.expiresAt': { $lt: now } },
+      { $pull: { refreshSessions: { expiresAt: { $lt: now } } } }
+    );
+    return result.modifiedCount;
+  }
+
   async updateLastLogin(userId: string): Promise<void> {
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { $set: { lastLogin: new Date(), updatedAt: new Date() } }
     );
   }
 
   async setPasswordResetToken(userId: string, token: string, expiresAt: Date): Promise<void> {
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { 
         $set: { 
@@ -202,7 +311,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   }
 
   async clearPasswordResetToken(userId: string): Promise<void> {
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { 
         $unset: { passwordResetToken: '', passwordResetExpires: '' },
@@ -212,7 +321,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   }
 
   async findByPasswordResetToken(token: string): Promise<UserData | null> {
-    const result = await this.getCollection().findOne({
+    const result = await this.getSessionCollection().findOne({
       passwordResetToken: token,
       passwordResetExpires: { $gt: new Date() },
       isDeleted: { $ne: true }
@@ -235,14 +344,14 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
       updateFields.passwordHistory = passwordHistory;
     }
 
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { $set: updateFields }
     );
   }
 
   async incrementFailedLoginAttempts(userId: string): Promise<void> {
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { 
         $inc: { failedLoginAttempts: 1 },
@@ -252,7 +361,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   }
 
   async lockAccount(userId: string, lockUntil: Date): Promise<void> {
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { 
         $set: { 
@@ -265,7 +374,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   }
 
   async unlockAccount(userId: string): Promise<void> {
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { 
         $set: { 
@@ -279,7 +388,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   }
 
   async resetFailedLoginAttempts(userId: string): Promise<void> {
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { 
         $set: { 
@@ -293,7 +402,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
 
   async findLockedAccounts(): Promise<UserData[]> {
     const now = new Date();
-    const results = await this.getCollection()
+    const results = await this.getSessionCollection()
       .find({
         accountLockedUntil: { $exists: true, $gt: now },
         isDeleted: { $ne: true }
@@ -307,21 +416,21 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   // =======================
 
   async activate(userId: string): Promise<void> {
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { $set: { isActive: true, updatedAt: new Date() } }
     );
   }
 
   async deactivate(userId: string): Promise<void> {
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { $set: { isActive: false, updatedAt: new Date() } }
     );
   }
 
   async verify(userId: string): Promise<void> {
-    await this.getCollection().updateOne(
+    await this.getSessionCollection().updateOne(
       { userId },
       { $set: { isVerified: true, updatedAt: new Date() } }
     );
@@ -332,7 +441,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   // =======================
 
   async findByRole(role: UserRole): Promise<UserData[]> {
-    const results = await this.getCollection()
+    const results = await this.getSessionCollection()
       .find({ role, isDeleted: { $ne: true } })
       .sort({ createdAt: -1 })
       .toArray();
@@ -340,7 +449,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   }
 
   async findActiveUsers(): Promise<UserData[]> {
-    const results = await this.getCollection()
+    const results = await this.getSessionCollection()
       .find({ isActive: true, isDeleted: { $ne: true } })
       .sort({ lastLogin: -1 })
       .toArray();
@@ -348,7 +457,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   }
 
   async findInactiveUsers(): Promise<UserData[]> {
-    const results = await this.getCollection()
+    const results = await this.getSessionCollection()
       .find({ isActive: false, isDeleted: { $ne: true } })
       .sort({ updatedAt: -1 })
       .toArray();
@@ -356,7 +465,7 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   }
 
   async findUnverifiedUsers(): Promise<UserData[]> {
-    const results = await this.getCollection()
+    const results = await this.getSessionCollection()
       .find({ isVerified: false, isDeleted: { $ne: true } })
       .sort({ createdAt: -1 })
       .toArray();
@@ -364,11 +473,11 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
   }
 
   async countUsers(): Promise<number> {
-    return await this.getCollection().countDocuments({ isDeleted: { $ne: true } });
+    return await this.getSessionCollection().countDocuments({ isDeleted: { $ne: true } });
   }
 
   async countByRole(role: UserRole): Promise<number> {
-    return await this.getCollection().countDocuments({ 
+    return await this.getSessionCollection().countDocuments({ 
       role, 
       isDeleted: { $ne: true } 
     });
@@ -388,13 +497,13 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
       query.userId = { $ne: excludeUserId };
     }
 
-    const count = await this.getCollection().countDocuments(query);
+    const count = await this.getSessionCollection().countDocuments(query);
     return count > 0;
   }
 
   async getUserWithRefreshToken(refreshToken: string): Promise<UserData | null> {
     const result = await this.getCollection().findOne({
-      refreshToken,
+      $or: [{ 'refreshSessions.tokenHash': hashRefreshToken(refreshToken) }, { refreshToken }],
       isActive: true,
       isDeleted: { $ne: true }
     });

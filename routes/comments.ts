@@ -1,12 +1,15 @@
 import { Router, Request, Response } from "express";
+import { escapeRegex } from "../utils/escapeRegex";
 import rateLimit from "express-rate-limit";
 import { CommentService } from "../services/CommentService";
 import {
+  Comment,
   CommentEntityType,
   CreateCommentData,
   UpdateCommentData,
 } from "../Models/Comment";
 import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
+import { CandidateAccessMiddleware } from "./middleware/candidateAccess";
 import { asyncHandler } from "./middleware/errorHandler";
 import { UserRole } from "../Models/User";
 import {
@@ -86,6 +89,89 @@ const autocompleteLimiter = rateLimit({
 });
 
 // ====================
+// ACCESS CONTROL
+// ====================
+
+/**
+ * Candidate comments follow the candidate's own assignment rules (HR managers
+ * and admins see every candidate, other roles only assigned ones). Job
+ * comments are open to every authenticated staff member, like jobs.
+ * Sends the error response and returns false when access is denied.
+ */
+const ensureEntityAccess = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  entityType: unknown,
+  entityId: unknown,
+): Promise<boolean> => {
+  if (
+    typeof entityId !== "string" ||
+    !Object.values(CommentEntityType).includes(entityType as CommentEntityType)
+  ) {
+    res.status(BAD_REQUEST).json({
+      success: false,
+      message: "Invalid entity type or entity ID",
+    });
+    return false;
+  }
+
+  if (entityType !== CommentEntityType.CANDIDATE) {
+    return true;
+  }
+
+  const access = await CandidateAccessMiddleware.getCandidateAccess(
+    req.user!,
+    entityId,
+  );
+  if (access === "not_found") {
+    res.status(NOT_FOUND).json({
+      success: false,
+      message: "Candidate not found",
+    });
+    return false;
+  }
+  if (access === "forbidden") {
+    res.status(FORBIDDEN).json({
+      success: false,
+      message: "Access denied. You are not assigned to this candidate.",
+    });
+    return false;
+  }
+  return true;
+};
+
+/**
+ * Load a comment and check access to the entity it belongs to. Comments on
+ * candidates the user may not see are reported as not found.
+ */
+const loadAccessibleComment = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  commentId: string,
+): Promise<Comment | null> => {
+  const comment = await commentService.getComment(commentId, req.user!.userId);
+
+  if (comment) {
+    if (comment.entityType !== CommentEntityType.CANDIDATE) {
+      return comment;
+    }
+    const access = await CandidateAccessMiddleware.getCandidateAccess(
+      req.user!,
+      comment.entityId,
+    );
+    if (access === "allowed") {
+      return comment;
+    }
+  }
+
+  res.status(NOT_FOUND).json({
+    success: false,
+    message: "Comment not found",
+  });
+  return null;
+};
+
+// ====================
 // COMMENT ENDPOINTS
 // ====================
 
@@ -118,6 +204,10 @@ router.post(
         success: false,
         message: "Invalid entity type. Must be CANDIDATE or JOB",
       });
+      return;
+    }
+
+    if (!(await ensureEntityAccess(req, res, entityType, entityId))) {
       return;
     }
 
@@ -173,6 +263,7 @@ router.get(
     }
 
     const searchQuery = query.trim();
+    const safeSearchQuery = escapeRegex(searchQuery);
     if (searchQuery.length < MIN_AUTOCOMPLETE_QUERY_LENGTH) {
       res.status(BAD_REQUEST).json({
         success: false,
@@ -192,9 +283,9 @@ router.get(
           { isActive: true, isDeleted: false },
           {
             $or: [
-              { firstName: { $regex: searchQuery, $options: "i" } },
-              { lastName: { $regex: searchQuery, $options: "i" } },
-              { email: { $regex: searchQuery, $options: "i" } },
+              { firstName: { $regex: safeSearchQuery, $options: "i" } },
+              { lastName: { $regex: safeSearchQuery, $options: "i" } },
+              { email: { $regex: safeSearchQuery, $options: "i" } },
             ],
           },
         ],
@@ -244,6 +335,10 @@ router.get(
     const { commentId } = req.params;
     const userId = req.user!.userId;
 
+    if (!(await loadAccessibleComment(req, res, commentId))) {
+      return;
+    }
+
     const replies = await commentService.getReplies(commentId, userId);
 
     res.status(OK).json({
@@ -253,138 +348,8 @@ router.get(
   }),
 );
 
-/**
- * GET /api/comments/:entityType/:entityId
- * Get all comments for an entity (candidate or job)
- * Query: ?page=1&limit=20&sortBy=createdAt&sortOrder=desc
- */
-router.get(
-  "/:entityType/:entityId",
-  AuthMiddleware.authenticate,
-  standardCommentLimiter,
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { entityType, entityId } = req.params;
-    const userId = req.user!.userId;
-    const { page, limit, sortBy, sortOrder } = req.query;
-
-    // Validate entity type
-    if (
-      !Object.values(CommentEntityType).includes(
-        entityType as CommentEntityType,
-      )
-    ) {
-      res.status(BAD_REQUEST).json({
-        success: false,
-        message: "Invalid entity type. Must be CANDIDATE or JOB",
-      });
-      return;
-    }
-
-    const options = {
-      page: page ? parseInt(page as string) : 1,
-      limit: limit ? parseInt(limit as string) : DEFAULT_PAGE_SIZE,
-      sortBy: (sortBy as "createdAt" | "updatedAt") || "createdAt",
-      sortOrder: (sortOrder as "asc" | "desc") || "desc",
-    };
-
-    const comments = await commentService.getCommentsForEntity(
-      entityType as CommentEntityType,
-      entityId,
-      userId,
-      options,
-    );
-
-    const count = await commentService.getCommentCount(
-      entityType as CommentEntityType,
-      entityId,
-    );
-
-    const totalPages = Math.ceil(count / options.limit);
-    const hasNextPage = options.page < totalPages;
-    const hasPreviousPage = options.page > 1;
-
-    res.status(OK).json({
-      success: true,
-      data: {
-        comments: comments.map((c) => c.toObject()),
-        pagination: {
-          currentPage: options.page,
-          totalPages,
-          totalCount: count,
-          pageSize: options.limit,
-          hasNextPage,
-          hasPreviousPage,
-        },
-      },
-    });
-  }),
-);
-
-/**
- * GET /api/comments/:entityType/:entityId/top-level
- * Get top-level comments only (no replies)
- */
-router.get(
-  "/:entityType/:entityId/top-level",
-  AuthMiddleware.authenticate,
-  standardCommentLimiter,
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { entityType, entityId } = req.params;
-    const userId = req.user!.userId;
-    const { page, limit, sortBy, sortOrder } = req.query;
-
-    // Validate entity type
-    if (
-      !Object.values(CommentEntityType).includes(
-        entityType as CommentEntityType,
-      )
-    ) {
-      res.status(BAD_REQUEST).json({
-        success: false,
-        message: "Invalid entity type. Must be CANDIDATE or JOB",
-      });
-      return;
-    }
-
-    const options = {
-      page: page ? parseInt(page as string) : 1,
-      limit: limit ? parseInt(limit as string) : DEFAULT_PAGE_SIZE,
-      sortBy: (sortBy as "createdAt" | "updatedAt") || "createdAt",
-      sortOrder: (sortOrder as "asc" | "desc") || "desc",
-    };
-
-    const comments = await commentService.getTopLevelCommentsForEntity(
-      entityType as CommentEntityType,
-      entityId,
-      userId,
-      options,
-    );
-
-    const count = await commentService.getCommentCount(
-      entityType as CommentEntityType,
-      entityId,
-    );
-
-    const totalPages = Math.ceil(count / options.limit);
-    const hasNextPage = options.page < totalPages;
-    const hasPreviousPage = options.page > 1;
-
-    res.status(OK).json({
-      success: true,
-      data: {
-        comments: comments.map((c) => c.toObject()),
-        pagination: {
-          currentPage: options.page,
-          totalPages,
-          totalCount: count,
-          pageSize: options.limit,
-          hasNextPage,
-          hasPreviousPage,
-        },
-      },
-    });
-  }),
-);
+// NOTE: the fixed-prefix GET routes below must come before
+// /:entityType/:entityId, which would otherwise match them
 
 /**
  * GET /api/comments/:commentId
@@ -396,172 +361,15 @@ router.get(
   standardCommentLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { commentId } = req.params;
-    const userId = req.user!.userId;
 
-    const comment = await commentService.getComment(commentId, userId);
-
+    const comment = await loadAccessibleComment(req, res, commentId);
     if (!comment) {
-      res.status(NOT_FOUND).json({
-        success: false,
-        message: "Comment not found",
-      });
       return;
     }
 
     res.status(OK).json({
       success: true,
       data: comment.toObject(),
-    });
-  }),
-);
-
-/**
- * PUT /api/comments/:commentId
- * Update a comment (edit text)
- * Body: { text }
- */
-router.put(
-  "/:commentId",
-  AuthMiddleware.authenticate,
-  standardCommentLimiter,
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { commentId } = req.params;
-    const { text } = req.body;
-    const userId = req.user!.userId;
-    const username = `${req.user!.firstName} ${req.user!.lastName}`.trim();
-
-    if (!text) {
-      res.status(BAD_REQUEST).json({
-        success: false,
-        message: "Text is required",
-      });
-      return;
-    }
-
-    const updateData: UpdateCommentData = {
-      text,
-      editedBy: userId,
-      editedByName: username,
-    };
-
-    try {
-      const updatedComment = await commentService.updateComment(
-        commentId,
-        updateData,
-        userId,
-      );
-
-      res.status(OK).json({
-        success: true,
-        message: "Comment updated successfully",
-        data: updatedComment.toObject(),
-      });
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message.includes("Only the comment author")
-      ) {
-        res.status(FORBIDDEN).json({
-          success: false,
-          message: error.message,
-        });
-        return;
-      }
-      throw error;
-    }
-  }),
-);
-
-/**
- * DELETE /api/comments/:commentId
- * Soft delete a comment
- */
-router.delete(
-  "/:commentId",
-  AuthMiddleware.authenticate,
-  standardCommentLimiter,
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { commentId } = req.params;
-    const userId = req.user!.userId;
-    const isAdmin = req.user!.role === UserRole.ADMIN;
-
-    try {
-      await commentService.deleteComment(commentId, userId, isAdmin);
-
-      res.status(OK).json({
-        success: true,
-        message: "Comment deleted successfully",
-      });
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message.includes("Only the comment author")
-      ) {
-        res.status(FORBIDDEN).json({
-          success: false,
-          message: error.message,
-        });
-        return;
-      }
-      throw error;
-    }
-  }),
-);
-
-/**
- * POST /api/comments/:commentId/restore
- * Restore a soft-deleted comment (admin only)
- */
-router.post(
-  "/:commentId/restore",
-  AuthMiddleware.authenticate,
-  AuthMiddleware.requireRole(UserRole.ADMIN),
-  standardCommentLimiter,
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { commentId } = req.params;
-    const userId = req.user!.userId;
-
-    await commentService.restoreComment(commentId, userId);
-
-    res.status(OK).json({
-      success: true,
-      message: "Comment restored successfully",
-    });
-  }),
-);
-
-/**
- * GET /api/comments/stats/:entityType/:entityId
- * Get comment statistics for an entity
- */
-router.get(
-  "/stats/:entityType/:entityId",
-  AuthMiddleware.authenticate,
-  standardCommentLimiter,
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { entityType, entityId } = req.params;
-
-    // Validate entity type
-    if (
-      !Object.values(CommentEntityType).includes(
-        entityType as CommentEntityType,
-      )
-    ) {
-      res.status(BAD_REQUEST).json({
-        success: false,
-        message: "Invalid entity type. Must be CANDIDATE or JOB",
-      });
-      return;
-    }
-
-    const stats = await commentService.getEntityStats(
-      entityType as CommentEntityType,
-      entityId,
-    );
-
-    res.status(OK).json({
-      success: true,
-      data: stats,
     });
   }),
 );
@@ -654,6 +462,310 @@ router.get(
   }),
 );
 
+/**
+ * GET /api/comments/:entityType/:entityId
+ * Get all comments for an entity (candidate or job)
+ * Query: ?page=1&limit=20&sortBy=createdAt&sortOrder=desc
+ */
+router.get(
+  "/:entityType/:entityId",
+  AuthMiddleware.authenticate,
+  standardCommentLimiter,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { entityType, entityId } = req.params;
+    const userId = req.user!.userId;
+    const { page, limit, sortBy, sortOrder } = req.query;
+
+    // Validate entity type
+    if (
+      !Object.values(CommentEntityType).includes(
+        entityType as CommentEntityType,
+      )
+    ) {
+      res.status(BAD_REQUEST).json({
+        success: false,
+        message: "Invalid entity type. Must be CANDIDATE or JOB",
+      });
+      return;
+    }
+
+    const options = {
+      page: page ? parseInt(page as string) : 1,
+      limit: limit ? parseInt(limit as string) : DEFAULT_PAGE_SIZE,
+      sortBy: (sortBy as "createdAt" | "updatedAt") || "createdAt",
+      sortOrder: (sortOrder as "asc" | "desc") || "desc",
+    };
+
+    if (!(await ensureEntityAccess(req, res, entityType, entityId))) {
+      return;
+    }
+
+    const comments = await commentService.getCommentsForEntity(
+      entityType as CommentEntityType,
+      entityId,
+      userId,
+      options,
+    );
+
+    const count = await commentService.getCommentCount(
+      entityType as CommentEntityType,
+      entityId,
+    );
+
+    const totalPages = Math.ceil(count / options.limit);
+    const hasNextPage = options.page < totalPages;
+    const hasPreviousPage = options.page > 1;
+
+    res.status(OK).json({
+      success: true,
+      data: {
+        comments: comments.map((c) => c.toObject()),
+        pagination: {
+          currentPage: options.page,
+          totalPages,
+          totalCount: count,
+          pageSize: options.limit,
+          hasNextPage,
+          hasPreviousPage,
+        },
+      },
+    });
+  }),
+);
+
+/**
+ * GET /api/comments/:entityType/:entityId/top-level
+ * Get top-level comments only (no replies)
+ */
+router.get(
+  "/:entityType/:entityId/top-level",
+  AuthMiddleware.authenticate,
+  standardCommentLimiter,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { entityType, entityId } = req.params;
+    const userId = req.user!.userId;
+    const { page, limit, sortBy, sortOrder } = req.query;
+
+    // Validate entity type
+    if (
+      !Object.values(CommentEntityType).includes(
+        entityType as CommentEntityType,
+      )
+    ) {
+      res.status(BAD_REQUEST).json({
+        success: false,
+        message: "Invalid entity type. Must be CANDIDATE or JOB",
+      });
+      return;
+    }
+
+    const options = {
+      page: page ? parseInt(page as string) : 1,
+      limit: limit ? parseInt(limit as string) : DEFAULT_PAGE_SIZE,
+      sortBy: (sortBy as "createdAt" | "updatedAt") || "createdAt",
+      sortOrder: (sortOrder as "asc" | "desc") || "desc",
+    };
+
+    if (!(await ensureEntityAccess(req, res, entityType, entityId))) {
+      return;
+    }
+
+    const comments = await commentService.getTopLevelCommentsForEntity(
+      entityType as CommentEntityType,
+      entityId,
+      userId,
+      options,
+    );
+
+    const count = await commentService.getCommentCount(
+      entityType as CommentEntityType,
+      entityId,
+    );
+
+    const totalPages = Math.ceil(count / options.limit);
+    const hasNextPage = options.page < totalPages;
+    const hasPreviousPage = options.page > 1;
+
+    res.status(OK).json({
+      success: true,
+      data: {
+        comments: comments.map((c) => c.toObject()),
+        pagination: {
+          currentPage: options.page,
+          totalPages,
+          totalCount: count,
+          pageSize: options.limit,
+          hasNextPage,
+          hasPreviousPage,
+        },
+      },
+    });
+  }),
+);
+
+/**
+ * PUT /api/comments/:commentId
+ * Update a comment (edit text)
+ * Body: { text }
+ */
+router.put(
+  "/:commentId",
+  AuthMiddleware.authenticate,
+  standardCommentLimiter,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { commentId } = req.params;
+    const { text } = req.body;
+    const userId = req.user!.userId;
+    const username = `${req.user!.firstName} ${req.user!.lastName}`.trim();
+
+    if (!text) {
+      res.status(BAD_REQUEST).json({
+        success: false,
+        message: "Text is required",
+      });
+      return;
+    }
+
+    if (!(await loadAccessibleComment(req, res, commentId))) {
+      return;
+    }
+
+    const updateData: UpdateCommentData = {
+      text,
+      editedBy: userId,
+      editedByName: username,
+    };
+
+    try {
+      const updatedComment = await commentService.updateComment(
+        commentId,
+        updateData,
+        userId,
+      );
+
+      res.status(OK).json({
+        success: true,
+        message: "Comment updated successfully",
+        data: updatedComment.toObject(),
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes("Only the comment author")
+      ) {
+        res.status(FORBIDDEN).json({
+          success: false,
+          message: error.message,
+        });
+        return;
+      }
+      throw error;
+    }
+  }),
+);
+
+/**
+ * DELETE /api/comments/:commentId
+ * Soft delete a comment
+ */
+router.delete(
+  "/:commentId",
+  AuthMiddleware.authenticate,
+  standardCommentLimiter,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { commentId } = req.params;
+    const userId = req.user!.userId;
+    const isAdmin = req.user!.role === UserRole.ADMIN;
+
+    if (!(await loadAccessibleComment(req, res, commentId))) {
+      return;
+    }
+
+    try {
+      await commentService.deleteComment(commentId, userId, isAdmin);
+
+      res.status(OK).json({
+        success: true,
+        message: "Comment deleted successfully",
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes("Only the comment author")
+      ) {
+        res.status(FORBIDDEN).json({
+          success: false,
+          message: error.message,
+        });
+        return;
+      }
+      throw error;
+    }
+  }),
+);
+
+/**
+ * POST /api/comments/:commentId/restore
+ * Restore a soft-deleted comment (admin only)
+ */
+router.post(
+  "/:commentId/restore",
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireRole(UserRole.ADMIN),
+  standardCommentLimiter,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { commentId } = req.params;
+    const userId = req.user!.userId;
+
+    await commentService.restoreComment(commentId, userId);
+
+    res.status(OK).json({
+      success: true,
+      message: "Comment restored successfully",
+    });
+  }),
+);
+
+/**
+ * GET /api/comments/stats/:entityType/:entityId
+ * Get comment statistics for an entity
+ */
+router.get(
+  "/stats/:entityType/:entityId",
+  AuthMiddleware.authenticate,
+  standardCommentLimiter,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { entityType, entityId } = req.params;
+
+    // Validate entity type
+    if (
+      !Object.values(CommentEntityType).includes(
+        entityType as CommentEntityType,
+      )
+    ) {
+      res.status(BAD_REQUEST).json({
+        success: false,
+        message: "Invalid entity type. Must be CANDIDATE or JOB",
+      });
+      return;
+    }
+
+    if (!(await ensureEntityAccess(req, res, entityType, entityId))) {
+      return;
+    }
+
+    const stats = await commentService.getEntityStats(
+      entityType as CommentEntityType,
+      entityId,
+    );
+
+    res.status(OK).json({
+      success: true,
+      data: stats,
+    });
+  }),
+);
+
 // ====================
 // REAL-TIME ENDPOINTS (Phase 5d)
 // ====================
@@ -677,6 +789,10 @@ router.post(
         success: false,
         message: "entityType, entityId, and isTyping are required",
       });
+      return;
+    }
+
+    if (!(await ensureEntityAccess(req, res, entityType, entityId))) {
       return;
     }
 
@@ -725,6 +841,10 @@ router.post(
       return;
     }
 
+    if (!(await ensureEntityAccess(req, res, entityType, entityId))) {
+      return;
+    }
+
     // Broadcast presence join via WebSocket
     const { webSocketService } = await import("../services/WebSocketService");
     const io = webSocketService.getIO();
@@ -766,6 +886,10 @@ router.post(
         success: false,
         message: "entityType and entityId are required",
       });
+      return;
+    }
+
+    if (!(await ensureEntityAccess(req, res, entityType, entityId))) {
       return;
     }
 

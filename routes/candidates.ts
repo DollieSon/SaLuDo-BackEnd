@@ -17,13 +17,22 @@ import { UserRole } from "../Models/User";
 import { AuditLogger } from "../utils/AuditLogger";
 import { AuditEventType } from "../types/AuditEventTypes";
 import { connectDB } from "../mongo_db";
-import { GridFSBucket, ObjectId } from "mongodb";
-import multer from "multer";
+import { streamCandidateFile } from "../utils/gridfsDownload";
+import { createCandidateWithResume } from "../services/CandidateIntakeService";
+import { sanitizeSocialLinks } from "../utils/urlSafety";
+import {
+  createMemoryUpload,
+  UPLOAD_LIMITS,
+  verifyFileSignature,
+} from "./middleware/uploadSecurity";
 import { CREATED, BAD_REQUEST } from "../constants/HttpStatusCodes";
 import { cacheService, CacheKeys } from "../services/CacheService";
 
 const router = Router({ mergeParams: true });
-const upload = multer();
+const upload = createMemoryUpload(UPLOAD_LIMITS.RESUME);
+
+// Every candidate route requires an authenticated user
+router.use(AuthMiddleware.authenticate);
 const candidateService = new CandidateService();
 const candidateComparisonService = new CandidateComparisonService();
 const predictiveScoreService = new PredictiveScoreService();
@@ -77,6 +86,7 @@ router.get(
 router.post(
   "/",
   upload.single("resume"),
+  verifyFileSignature,
   validation.requireFields(["name", "email", "birthdate"]),
   validation.validateEmailMiddleware,
   validation.validateDatesMiddleware(["birthdate"]),
@@ -128,126 +138,19 @@ router.post(
       }
     }
 
-    const candidate = await candidateService.addCandidate(
+    // Only keep links with http(s) URLs (no javascript:/data: hrefs)
+    parsedSocialLinks = sanitizeSocialLinks(parsedSocialLinks);
+
+    const candidate = await createCandidateWithResume({
       name,
       emailArray,
-      new Date(birthdate),
+      birthdate,
       jobId,
-      req.file,
-      user?.userId,
-      user?.email,
-      parsedSocialLinks
-    );
-
-    // Use Gemini to parse resume
-    const parsedData = await parseResumeWithGemini(
-      req.file.buffer,
-      candidate.candidateId,
-      name,
-      user?.userId,
-      user?.email
-    );
-
-    // Save parsed data
-    if (parsedData.skills.length) {
-      await skillService.addSkillsBulk(
-        candidate.candidateId,
-        parsedData.skills.map((skill) => ({
-          ...skill,
-          addedBy: AddedBy.AI,
-        }))
-      );
-
-      // Log skill analysis completion
-      await AuditLogger.logAIOperation({
-        eventType: AuditEventType.SKILL_ANALYSIS_COMPLETED,
-        candidateId: candidate.candidateId,
-        userId: user?.userId,
-        userEmail: user?.email,
-        action: `AI completed skill analysis for ${name}`,
-        success: true,
-        metadata: {
-          candidateName: name,
-          skillCount: parsedData.skills.length,
-          averageScore:
-            parsedData.skills.reduce((sum, s) => sum + (s.score || 0), 0) /
-            parsedData.skills.length,
-        },
-      });
-    }
-    for (const edu of parsedData.education)
-      await educationService.addEducation(candidate.candidateId, edu);
-    for (const exp of parsedData.experience)
-      await experienceService.addExperience(candidate.candidateId, exp);
-    for (const cert of parsedData.certifications)
-      await certificationService.addCertification(candidate.candidateId, cert);
-    for (const strength of parsedData.strengths)
-      await strengthWeaknessService.addStrength(
-        candidate.candidateId,
-        strength
-      );
-    for (const weakness of parsedData.weaknesses)
-      await strengthWeaknessService.addWeakness(
-        candidate.candidateId,
-        weakness
-      );
-
-    // Notify assigned HR users that AI analysis is complete
-    try {
-      const { NotificationService } = await import(
-        "../services/NotificationService"
-      );
-      const { NotificationRepository } = await import(
-        "../repositories/NotificationRepository"
-      );
-      const { NotificationPreferencesRepository } = await import(
-        "../repositories/NotificationPreferencesRepository"
-      );
-      const { WebhookRepository } = await import(
-        "../repositories/WebhookRepository"
-      );
-      const { getAssignedHRUsers } = await import(
-        "../utils/NotificationHelpers"
-      );
-      const { NotificationType } = await import(
-        "../Models/enums/NotificationTypes"
-      );
-      const db = await connectDB();
-
-      const notificationRepo = new NotificationRepository(
-        db.collection("notifications")
-      );
-      const preferencesRepo = new NotificationPreferencesRepository(
-        db.collection("notificationPreferences")
-      );
-      const webhookRepo = new WebhookRepository(db.collection("webhooks"));
-      const notificationService = new NotificationService(
-        notificationRepo,
-        preferencesRepo,
-        webhookRepo
-      );
-
-      const assignedUsers = await getAssignedHRUsers(candidate.candidateId);
-      for (const hrUser of assignedUsers) {
-        await notificationService.notifyCandidateEvent(
-          NotificationType.CANDIDATE_AI_ANALYSIS_COMPLETE,
-          hrUser.userId,
-          candidate.candidateId,
-          name,
-          {
-            skillsFound: parsedData.skills.length,
-            educationFound: parsedData.education.length,
-            experienceFound: parsedData.experience.length,
-            certificationsFound: parsedData.certifications.length,
-          }
-        );
-      }
-    } catch (notifError) {
-      console.error(
-        "Failed to send CANDIDATE_AI_ANALYSIS_COMPLETE notification:",
-        notifError
-      );
-    }
+      file: req.file,
+      socialLinks: parsedSocialLinks,
+      userId: user?.userId,
+      userEmail: user?.email,
+    });
 
     res.status(CREATED).json({
       success: true,
@@ -319,6 +222,7 @@ router.put(
   AuthMiddleware.authenticate,
   CandidateAccessMiddleware.checkCandidateAccess,
   upload.single("resume"),
+  verifyFileSignature,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const { name, email, birthdate, roleApplied, status, statusChangeReason, statusChangeNotes, statusChangeSource, socialLinks } = req.body;
@@ -365,7 +269,7 @@ router.put(
     if (birthdate !== undefined) updatePayload.birthdate = new Date(birthdate);
     if (roleApplied !== undefined) updatePayload.roleApplied = roleApplied;
     if (status !== undefined) updatePayload.status = status;
-    if (parsedSocialLinks !== undefined) updatePayload.socialLinks = parsedSocialLinks;
+    if (parsedSocialLinks !== undefined) updatePayload.socialLinks = sanitizeSocialLinks(parsedSocialLinks);
 
     await candidateService.updateCandidate(
       candidateId,
@@ -434,7 +338,8 @@ router.delete(
 // Get candidate personality
 router.get(
   "/:candidateId/personality",
-  asyncHandler(async (req: Request, res: Response) => {
+  CandidateAccessMiddleware.checkCandidateAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const personality = await candidateService.getCandidatePersonality(
       candidateId
@@ -450,7 +355,8 @@ router.get(
 // Compare two candidates
 router.get(
   "/:candidateId1/compare/:candidateId2",
-  asyncHandler(async (req: Request, res: Response) => {
+  CandidateAccessMiddleware.checkCandidateAccessFor("candidateId1", "candidateId2"),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId1, candidateId2 } = req.params;
 
     if (candidateId1 === candidateId2) {
@@ -521,6 +427,7 @@ router.delete(
 router.get(
   "/:candidateId/assignments",
   AuthMiddleware.authenticate,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
 
@@ -786,72 +693,11 @@ router.get(
 // GET /api/candidates/files/:fileId/download
 router.get(
   "/files/:fileId/download",
-  asyncHandler(async (req: Request, res: Response) => {
-    const { fileId } = req.params;
-
-    try {
-      const db = await connectDB();
-      const bucket = new GridFSBucket(db, { bucketName: "resumes" });
-
-      // Check if file exists
-      const files = await bucket.find({ _id: new ObjectId(fileId) }).toArray();
-
-      if (!files || files.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "File not found",
-        });
-      }
-
-      const file = files[0];
-
-      // Log file download
-      await AuditLogger.logFileOperation({
-        eventType: AuditEventType.FILE_DOWNLOADED,
-        fileId: fileId,
-        fileName: file.filename,
-        fileType: "resume",
-        candidateId: file.metadata?.candidateId,
-        userId: (req as any).user?.userId || "anonymous",
-        userEmail: (req as any).user?.email || "anonymous",
-        ipAddress: req.ip,
-        userAgent: req.get("user-agent"),
-        action: "download",
-        metadata: {
-          contentType: file.contentType,
-          size: file.length,
-        },
-      });
-
-      // Set appropriate headers for download
-      res.set({
-        "Content-Type": file.contentType || "application/octet-stream",
-        "Content-Length": file.length.toString(),
-        "Content-Disposition": `attachment; filename="${file.filename}"`,
-        "Cache-Control": "public, max-age=31536000",
-      });
-
-      // Stream the file
-      const downloadStream = bucket.openDownloadStream(new ObjectId(fileId));
-
-      downloadStream.on("error", (error) => {
-        console.error("File stream error:", error);
-        if (!res.headersSent) {
-          res.status(500).json({
-            success: false,
-            message: "Error streaming file",
-          });
-        }
-      });
-
-      downloadStream.pipe(res);
-    } catch (error) {
-      console.error("Error serving file:", error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-      });
-    }
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    await streamCandidateFile(req, res, {
+      bucketName: "resumes",
+      fileType: "resume",
+    });
   })
 );
 

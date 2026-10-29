@@ -7,6 +7,15 @@
 
 import crypto from "crypto";
 import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import {
+  getJwtSecret,
+  getJwtRefreshSecret,
+  JWT_SIGN_OPTIONS,
+  JWT_VERIFY_OPTIONS,
+  ACCESS_TOKEN_TTL_MS,
+  REFRESH_TOKEN_MAX_AGE_MS,
+} from "../../utils/securityConfig";
 
 export class PasswordUtils {
   // Generate a secure random password for new accounts
@@ -51,49 +60,19 @@ export class PasswordUtils {
 
   // Generate JWT access token (short-lived)
   static generateAccessToken(userId: string): string {
-    const jwt = require("jsonwebtoken");
-    const JWT_SECRET =
-      process.env.JWT_SECRET || "your-jwt-secret-change-in-production";
-
-    // Security warning for default JWT secret
-    if (
-      !process.env.JWT_SECRET ||
-      JWT_SECRET === "your-jwt-secret-change-in-production"
-    ) {
-      console.warn(
-        "SECURITY WARNING: Using default JWT secret! Set JWT_SECRET environment variable."
-      );
-    }
-
     return jwt.sign(
       {
         userId,
         type: "access",
         iat: Math.floor(Date.now() / 1000),
       },
-      JWT_SECRET,
-      { expiresIn: "8h" } // 8 hours for access tokens
+      getJwtSecret(),
+      { ...JWT_SIGN_OPTIONS, expiresIn: ACCESS_TOKEN_TTL_MS / 1000 } // 15 minutes
     );
   }
 
   // Generate JWT refresh token (long-lived)
   static generateRefreshToken(userId: string): string {
-    const jwt = require("jsonwebtoken");
-    const JWT_REFRESH_SECRET =
-      process.env.JWT_REFRESH_SECRET ||
-      process.env.JWT_SECRET ||
-      "your-jwt-refresh-secret-change-in-production";
-
-    // Security warning for default secrets
-    if (
-      !process.env.JWT_REFRESH_SECRET ||
-      JWT_REFRESH_SECRET === "your-jwt-refresh-secret-change-in-production"
-    ) {
-      console.warn(
-        "SECURITY WARNING: Using default JWT refresh secret! Set JWT_REFRESH_SECRET environment variable."
-      );
-    }
-
     return jwt.sign(
       {
         userId,
@@ -101,8 +80,8 @@ export class PasswordUtils {
         iat: Math.floor(Date.now() / 1000),
         jti: crypto.randomUUID(), // Unique token ID for tracking
       },
-      JWT_REFRESH_SECRET,
-      { expiresIn: "7d" } // 7 days for refresh tokens
+      getJwtRefreshSecret(),
+      { ...JWT_SIGN_OPTIONS, expiresIn: REFRESH_TOKEN_MAX_AGE_MS / 1000 } // 7 days
     );
   }
 
@@ -116,11 +95,7 @@ export class PasswordUtils {
     token: string
   ): { userId: string; type: string; iat: number } | null {
     try {
-      const jwt = require("jsonwebtoken");
-      const JWT_SECRET =
-        process.env.JWT_SECRET || "your-jwt-secret-change-in-production";
-
-      const decoded = jwt.verify(token, JWT_SECRET) as {
+      const decoded = jwt.verify(token, getJwtSecret(), JWT_VERIFY_OPTIONS) as {
         userId: string;
         type: string;
         iat: number;
@@ -142,13 +117,11 @@ export class PasswordUtils {
     token: string
   ): { userId: string; type: string; iat: number; jti: string } | null {
     try {
-      const jwt = require("jsonwebtoken");
-      const JWT_REFRESH_SECRET =
-        process.env.JWT_REFRESH_SECRET ||
-        process.env.JWT_SECRET ||
-        "your-jwt-refresh-secret-change-in-production";
-
-      const decoded = jwt.verify(token, JWT_REFRESH_SECRET) as {
+      const decoded = jwt.verify(
+        token,
+        getJwtRefreshSecret(),
+        JWT_VERIFY_OPTIONS
+      ) as {
         userId: string;
         type: string;
         iat: number;

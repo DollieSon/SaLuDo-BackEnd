@@ -1,4 +1,6 @@
 import { connectDB } from "../../mongo_db";
+import fs from "fs";
+import { pipeline } from "stream/promises";
 import {
   PersonalInfoRepository,
   ResumeRepository,
@@ -40,6 +42,49 @@ export class CandidateFileService {
   // ============================
   // RESUME FILE OPERATIONS
   // ============================
+
+  // Make sure a transcript/video ID belongs to the candidate in the request,
+  // so access to one candidate can't be used to touch another candidate's files.
+  private async assertFileBelongsToCandidate(
+    candidateId: string,
+    fileId: string,
+    kind: "transcript" | "interview" | "introduction"
+  ): Promise<void> {
+    const interviewData = await this.interviewRepo.findById(candidateId);
+    const files =
+      kind === "transcript"
+        ? interviewData?.transcripts
+        : kind === "interview"
+        ? interviewData?.interviewVideos
+        : interviewData?.introductionVideos;
+    const found = Array.isArray(files)
+      ? files.some((f: { fileId: string }) => f.fileId === fileId)
+      : false;
+    if (!found) {
+      throw new Error(
+        kind === "transcript"
+          ? ERROR_MESSAGES.TRANSCRIPT_NOT_FOUND
+          : ERROR_MESSAGES.VIDEO_NOT_FOUND
+      );
+    }
+  }
+
+  // Write a multer file into GridFS: streamed from disk when the upload was
+  // stored on disk (large videos), otherwise from the in-memory buffer.
+  private async writeUploadToGridFS(
+    file: Express.Multer.File,
+    uploadStream: NodeJS.WritableStream
+  ): Promise<void> {
+    if (file.path) {
+      await pipeline(fs.createReadStream(file.path), uploadStream);
+      return;
+    }
+    await new Promise((resolve, reject) => {
+      uploadStream.on("finish", resolve);
+      uploadStream.on("error", reject);
+      uploadStream.end(file.buffer);
+    });
+  }
 
   async getResumeFile(
     candidateId: string
@@ -357,6 +402,7 @@ export class CandidateFileService {
     metadata?: Partial<TranscriptMetadata>
   ): Promise<TranscriptMetadata> {
     try {
+      await this.assertFileBelongsToCandidate(candidateId, transcriptId, "transcript");
       // Validate file
       this.validateTranscriptFile(transcriptFile);
 
@@ -427,6 +473,7 @@ export class CandidateFileService {
     transcriptId: string
   ): Promise<void> {
     try {
+      await this.assertFileBelongsToCandidate(candidateId, transcriptId, "transcript");
       const db = await connectDB();
       const bucket = new GridFSBucket(db, {
         bucketName: BUCKET_NAMES.TRANSCRIPTS,
@@ -483,6 +530,7 @@ export class CandidateFileService {
     transcriptId: string
   ): Promise<Buffer> {
     try {
+      await this.assertFileBelongsToCandidate(candidateId, transcriptId, "transcript");
       const db = await connectDB();
       const bucket = new GridFSBucket(db, {
         bucketName: BUCKET_NAMES.TRANSCRIPTS,
@@ -566,12 +614,7 @@ export class CandidateFileService {
       });
 
       const fileId = uploadStream.id;
-      uploadStream.end(videoFile.buffer);
-
-      await new Promise((resolve, reject) => {
-        uploadStream.on("finish", resolve);
-        uploadStream.on("error", reject);
-      });
+      await this.writeUploadToGridFS(videoFile, uploadStream);
 
       const videoMetadata: VideoMetadata = {
         fileId: fileId.toString(),
@@ -697,6 +740,7 @@ export class CandidateFileService {
     metadata?: Partial<VideoMetadata>
   ): Promise<VideoMetadata> {
     try {
+      await this.assertFileBelongsToCandidate(candidateId, videoId, videoType);
       this.validateVideoFile(videoFile);
 
       const db = await connectDB();
@@ -723,12 +767,7 @@ export class CandidateFileService {
       });
 
       const fileId = uploadStream.id;
-      uploadStream.end(videoFile.buffer);
-
-      await new Promise((resolve, reject) => {
-        uploadStream.on("finish", resolve);
-        uploadStream.on("error", reject);
-      });
+      await this.writeUploadToGridFS(videoFile, uploadStream);
 
       const updatedVideoMetadata: VideoMetadata = {
         fileId: fileId.toString(),
@@ -780,6 +819,7 @@ export class CandidateFileService {
     videoType: "interview" | "introduction"
   ): Promise<void> {
     try {
+      await this.assertFileBelongsToCandidate(candidateId, videoId, videoType);
       const db = await connectDB();
       const bucketName =
         videoType === "interview"
@@ -914,6 +954,7 @@ export class CandidateFileService {
     videoType: "interview" | "introduction"
   ): Promise<Buffer> {
     try {
+      await this.assertFileBelongsToCandidate(candidateId, videoId, videoType);
       const db = await connectDB();
       const bucketName =
         videoType === "interview"

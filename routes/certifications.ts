@@ -1,15 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { CertificationService } from '../services/CertificationService';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
-import { candidateExists } from './middleware/candidateExists';
+import { CandidateAccessMiddleware } from './middleware/candidateAccess';
+import { AuthMiddleware } from './middleware/auth';
 import { validation } from './middleware/validation';
 const router = Router();
+
+// Every route requires an authenticated user; candidate routes also check assignment
+router.use(AuthMiddleware.authenticate);
 const certificationService = new CertificationService();
 // ====================
 // CERTIFICATIONS ENDPOINTS
 // ====================
 router.get('/:candidateId/certifications',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId } = req.params;
         const certifications = await certificationService.getCertifications(candidateId);
@@ -20,7 +24,7 @@ router.get('/:candidateId/certifications',
     })
 );
 router.post('/:candidateId/certifications',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     validation.requireFields(['name', 'issuedBy']),
     validation.validateDatesMiddleware(['dateIssued', 'expiryDate']),
     asyncHandler(async (req: Request, res: Response) => {
@@ -34,7 +38,7 @@ router.post('/:candidateId/certifications',
     })
 );
 router.put('/:candidateId/certifications/:certId',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     validation.validateDatesMiddleware(['dateIssued', 'expiryDate']),
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, certId } = req.params;
@@ -47,7 +51,7 @@ router.put('/:candidateId/certifications/:certId',
     })
 );
 router.delete('/:candidateId/certifications/:certId',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, certId } = req.params;
         await certificationService.deleteCertification(candidateId, certId);

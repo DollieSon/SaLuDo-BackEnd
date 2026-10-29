@@ -15,6 +15,12 @@ import { CreateWebhookData, UpdateWebhookData, WebhookEvent } from '../Models/We
 import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND, FORBIDDEN } from '../constants/HttpStatusCodes';
 import { AuditLogger } from '../utils/AuditLogger';
 import { AuditEventType } from '../types/AuditEventTypes';
+import { UserRole } from '../Models/User';
+import {
+  ALLOWED_WEBHOOK_METHODS,
+  validateWebhookHeaders,
+  validateWebhookUrl,
+} from '../utils/safeOutboundRequest';
 
 const router = Router();
 let webhookRepository: WebhookRepository;
@@ -29,6 +35,21 @@ const initializeService = async () => {
 };
 
 initializeService().catch(console.error);
+
+// Webhooks can send candidate data off-platform, so only admins may manage them
+router.use(AuthMiddleware.authenticate, AuthMiddleware.requireRole(UserRole.ADMIN));
+
+// Shared validation for webhook URL, method and custom headers
+const validateWebhookTarget = async (body: any, requireUrl: boolean): Promise<string | null> => {
+  if (body.url !== undefined || requireUrl) {
+    const urlError = await validateWebhookUrl(body.url);
+    if (urlError) return urlError;
+  }
+  if (body.method !== undefined && !(ALLOWED_WEBHOOK_METHODS as readonly string[]).includes(body.method)) {
+    return `Method must be one of: ${ALLOWED_WEBHOOK_METHODS.join(', ')}`;
+  }
+  return validateWebhookHeaders(body.headers);
+};
 
 // ====================
 // WEBHOOK ENDPOINTS
@@ -121,11 +142,10 @@ router.post(
       });
     }
 
-    // Validate URL format
-    try {
-      new URL(url);
-    } catch {
-      return res.status(BAD_REQUEST).json({ error: 'Invalid URL format' });
+    // Validate URL (https, public address only), method and headers
+    const targetError = await validateWebhookTarget(req.body, true);
+    if (targetError) {
+      return res.status(BAD_REQUEST).json({ error: targetError });
     }
 
     // Validate events
@@ -205,13 +225,10 @@ router.put(
 
     const { url, method, headers, secret, events, status, isActive, description, maxRetries, retryBackoff, timeoutMs } = req.body;
 
-    // Validate URL if provided
-    if (url) {
-      try {
-        new URL(url);
-      } catch {
-        return res.status(BAD_REQUEST).json({ error: 'Invalid URL format' });
-      }
+    // Validate URL (https, public address only), method and headers if provided
+    const targetError = await validateWebhookTarget(req.body, false);
+    if (targetError) {
+      return res.status(BAD_REQUEST).json({ error: targetError });
     }
 
     // Validate events if provided

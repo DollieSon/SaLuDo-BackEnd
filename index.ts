@@ -1,28 +1,9 @@
-import express, { Request, Response } from "express";
 import { createServer } from "http";
-import cors from "cors";
-import usersRouter from "./routes/users";
-import jobRouter from "./routes/job";
-import candidatesRouter from "./routes/candidates";
-import skillsRouter from "./routes/skills";
-import experienceRouter from "./routes/experience";
-import educationRouter from "./routes/education";
-import certificationsRouter from "./routes/certifications";
-import strengthsWeaknessesRouter from "./routes/strengths-weaknesses";
-import transcriptsRouter from "./routes/transcripts";
-import videosRouter from "./routes/videos";
-import filesRouter from "./routes/files";
-import auditLogsRouter from "./routes/audit-logs";
-import notificationsRouter from "./routes/notifications";
-import commentsRouter from "./routes/comments";
-import webhooksRouter from "./routes/webhooks";
-import dashboardRouter from "./routes/dashboard";
-import settingsRouter from "./routes/settings";
-import aiMetricsRouter from "./routes/ai-metrics";
 import dotenv from "dotenv";
+import { createApp } from "./app";
 import { connectDB } from "./mongo_db";
-import { TokenBlacklistRepository } from "./repositories/TokenBlacklistRepository";
 import { webSocketService } from "./services/WebSocketService";
+import { getAllowedOrigins, validateJwtConfig } from "./utils/securityConfig";
 
 console.log('='.repeat(60));
 console.log('APPLICATION STARTING...');
@@ -39,16 +20,16 @@ console.log("Checking environment variables...");
 const missingVars = [];
 const warnings = [];
 
-// Critical variables that must be set
-if (
-  !process.env.JWT_SECRET ||
-  process.env.JWT_SECRET === "your-jwt-secret-change-in-production"
-) {
-  missingVars.push("JWT_SECRET");
-  console.error("CRITICAL: JWT_SECRET not set or using default value");
+// JWT secrets are required in EVERY environment: a missing or placeholder
+// secret lets anyone forge tokens, including admin tokens.
+const jwtProblems = validateJwtConfig();
+if (jwtProblems.length > 0) {
+  jwtProblems.forEach((problem) => console.error(`CRITICAL: ${problem}`));
   console.error(
     "   Generate: node -e \"console.log(require('crypto').randomBytes(64).toString('hex'))\""
   );
+  console.error("REFUSING TO START WITHOUT VALID JWT SECRETS");
+  process.exit(1);
 }
 
 if (!process.env.MONGO_URI) {
@@ -64,6 +45,13 @@ if (!process.env.GOOGLE_API_KEY) {
   console.error("CRITICAL: GOOGLE_API_KEY not set - AI services will fail");
   console.error(
     "   Get key from: https://console.cloud.google.com/apis/credentials"
+  );
+}
+
+if (nodeEnv === "production" && getAllowedOrigins().length === 0) {
+  missingVars.push("CORS_ORIGIN");
+  console.error(
+    "CRITICAL: CORS_ORIGIN not set - set it to the frontend origin(s), comma-separated"
   );
 }
 
@@ -102,12 +90,6 @@ if (missingVars.length > 0) {
   }
 } else {
   console.log("✓ All critical environment variables are set.");
-  
-  // Display last 5 characters of JWT_SECRET for verification (without exposing full secret)
-  if (process.env.JWT_SECRET) {
-    const jwtSecretSuffix = process.env.JWT_SECRET.slice(-5);
-    console.log(`✓ JWT_SECRET loaded (ends with: ...${jwtSecretSuffix})`);
-  }
 }
 const mongoUri = process.env.MONGO_URI;
 const isLocal =
@@ -125,48 +107,10 @@ console.log(
 console.log("Port:", process.env.PORT || '3000');
 console.log("─".repeat(60));
 
-const app = express();
+// Middleware and routes live in app.ts
+const app = createApp();
 const httpServer = createServer(app);
 const PORT = parseInt(process.env.PORT || '3000', 10);
-
-// Trust proxy headers only in production (Render uses 1 proxy hop)
-// In development, no proxy is used, so we don't need to trust proxy headers
-if (nodeEnv === 'production') {
-  app.set('trust proxy', 1);
-  console.log('✓ Trust proxy enabled (1 hop) for production');
-}
-
-app.use(cors());
-app.use(express.json());
-
-app.get("/", (req: Request, res: Response) => {
-  res.send("Hello from Render!");
-});
-
-app.get("/api/data", (req: Request, res: Response) => {
-  console.log("something heheh");
-  res.json({ message: "Here is your data." });
-});
-
-app.use("/api/users", usersRouter);
-app.use("/api/jobs", jobRouter); // Changed from /api/job to /api/jobs
-app.use("/api/candidates", candidatesRouter);
-app.use("/api/candidates", skillsRouter); // Candidate-specific skill routes
-app.use("/api/skills", skillsRouter); // Global skill routes (search, master data)
-app.use("/api/candidates", experienceRouter);
-app.use("/api/candidates", educationRouter);
-app.use("/api/candidates", certificationsRouter);
-app.use("/api/candidates", strengthsWeaknessesRouter);
-app.use("/api/candidates/:candidateId/transcripts", transcriptsRouter); // Transcript routes
-app.use("/api/candidates/:candidateId/videos", videosRouter); // Video routes
-app.use("/api/files", filesRouter); // File serving routes
-app.use("/api/audit-logs", auditLogsRouter); // Admin-only audit log access
-app.use("/api/notifications", notificationsRouter); // Notification routes
-app.use("/api/comments", commentsRouter); // Comment routes
-app.use("/api/webhooks", webhooksRouter); // Webhook configuration routes
-app.use("/api/dashboard", dashboardRouter); // Dashboard statistics routes (admin-only)
-app.use("/api/settings", settingsRouter); // Scoring settings and preferences routes
-app.use("/api/ai-metrics", aiMetricsRouter); // AI metrics and performance tracking routes (admin-only)
 
 // Function to start the server with database connection
 async function startServer() {

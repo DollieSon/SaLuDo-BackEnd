@@ -11,6 +11,7 @@ import { AuditEventType } from '../repositories/AuditLogRepository';
 import { PasswordUtils } from '../routes/middleware/passwordUtils';
 import { TokenBlacklistRepository } from '../repositories/TokenBlacklistRepository';
 import { TokenPair, RefreshTokenValidation, SessionInfo, AuditContext } from './types/AuthenticationTypes';
+import { ACCESS_TOKEN_TTL_MS, REFRESH_TOKEN_MAX_AGE_MS } from '../utils/securityConfig';
 
 export class RefreshTokenService {
   private userRepository: UserRepository;
@@ -28,23 +29,36 @@ export class RefreshTokenService {
   }
 
   /**
-   * Generate a new token pair (access + refresh tokens)
+   * Generate a new token pair (access + refresh tokens). With
+   * previousRefreshToken, that session is rotated instead of a new one added.
    */
   async generateTokenPair(userId: string, sessionContext?: {
     ipAddress?: string;
     userAgent?: string;
-  }): Promise<TokenPair> {
+  }, previousRefreshToken?: string): Promise<TokenPair> {
     try {
       // Generate new tokens
       const accessToken = PasswordUtils.generateAccessToken(userId);
       const refreshToken = PasswordUtils.generateRefreshToken(userId);
 
       // Calculate expiry dates (must match JWT expiry in passwordUtils.ts)
-      const accessTokenExpiry = new Date(Date.now() + 8 * 60 * 60 * 1000); // 8 hours
-      const refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const accessTokenExpiry = new Date(Date.now() + ACCESS_TOKEN_TTL_MS);
+      const refreshTokenExpiry = new Date(Date.now() + REFRESH_TOKEN_MAX_AGE_MS);
 
-      // Store refresh token in database
-      await this.userRepository.updateRefreshToken(userId, refreshToken);
+      // Store the session (rotating the presented one on refresh)
+      if (previousRefreshToken) {
+        const rotated = await this.userRepository.rotateRefreshSession(
+          userId,
+          previousRefreshToken,
+          refreshToken,
+          refreshTokenExpiry
+        );
+        if (!rotated) {
+          throw new Error('Refresh token is no longer an active session');
+        }
+      } else {
+        await this.userRepository.addRefreshSession(userId, refreshToken, refreshTokenExpiry);
+      }
 
       // Log token generation
       await this.auditLogService.logSecurityEvent(
@@ -158,7 +172,7 @@ export class RefreshTokenService {
             action: 'Token refresh failed',
             error: validation.reason,
             metadata: {
-              tokenPreview: refreshToken.substring(0, 20) + '...'
+              tokenLength: refreshToken.length
             }
           },
           false // failure
@@ -172,7 +186,7 @@ export class RefreshTokenService {
       await this.tokenBlacklistRepository.blacklistToken(refreshToken, validation.userId, refreshTokenExpiry);
 
       // Generate new token pair
-      const newTokenPair = await this.generateTokenPair(validation.userId, sessionContext);
+      const newTokenPair = await this.generateTokenPair(validation.userId, sessionContext, refreshToken);
 
       // Log successful token refresh
       await this.auditLogService.logSecurityEvent(
@@ -230,7 +244,7 @@ export class RefreshTokenService {
 
       // Clear from user record if valid
       if (validation.isValid && validation.userId) {
-        await this.userRepository.updateRefreshToken(validation.userId, undefined);
+        await this.userRepository.removeRefreshSession(validation.userId, refreshToken);
         
         // Log token revocation
         await this.auditLogService.logAuthenticationEvent(
@@ -271,8 +285,8 @@ export class RefreshTokenService {
         await this.tokenBlacklistRepository.blacklistToken(userData.refreshToken, userId, tokenExpiry);
       }
 
-      // Clear refresh token from user record
-      await this.userRepository.updateRefreshToken(userId, undefined);
+      // Clear every refresh session from the user record
+      await this.userRepository.clearRefreshSessions(userId);
 
       // Log security action
       await this.auditLogService.logSecurityEvent(
@@ -331,9 +345,9 @@ export class RefreshTokenService {
    */
   async cleanupExpiredTokens(): Promise<number> {
     try {
-      let cleanedCount = 0;
+      let cleanedCount = await this.userRepository.pruneExpiredRefreshSessions();
 
-      // Get all users with refresh tokens
+      // Legacy single-token field: check users that still have one
       const users = await this.userRepository.findAll();
       
       for (const user of users) {
@@ -342,7 +356,7 @@ export class RefreshTokenService {
           
           // If token is invalid (expired or corrupted), clean it up
           if (!validation.isValid) {
-            await this.userRepository.updateRefreshToken(user.userId, undefined);
+            await this.userRepository.clearLegacyRefreshToken(user.userId);
             cleanedCount++;
           }
         }
@@ -374,9 +388,9 @@ export class RefreshTokenService {
     refreshTokenDays: number;
   } {
     return {
-      accessTokenDuration: '30 minutes',
+      accessTokenDuration: `${ACCESS_TOKEN_TTL_MS / 60000} minutes`,
       refreshTokenDuration: '7 days',
-      accessTokenMinutes: 30,
+      accessTokenMinutes: ACCESS_TOKEN_TTL_MS / 60000,
       refreshTokenDays: 7
     };
   }

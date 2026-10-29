@@ -1,15 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { ExperienceService } from '../services/ExperienceService';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
-import { candidateExists } from './middleware/candidateExists';
+import { CandidateAccessMiddleware } from './middleware/candidateAccess';
+import { AuthMiddleware } from './middleware/auth';
 import { validation } from './middleware/validation';
 const router = Router();
+
+// Every route requires an authenticated user; candidate routes also check assignment
+router.use(AuthMiddleware.authenticate);
 const experienceService = new ExperienceService();
 // ====================
 // EXPERIENCE ENDPOINTS
 // ====================
 router.get('/:candidateId/experience',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId } = req.params;
         const experience = await experienceService.getExperience(candidateId);
@@ -20,7 +24,7 @@ router.get('/:candidateId/experience',
     })
 );
 router.post('/:candidateId/experience',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId } = req.params;
         const experienceData = req.body;
@@ -32,7 +36,7 @@ router.post('/:candidateId/experience',
     })
 );
 router.put('/:candidateId/experience/:expId',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, expId } = req.params;
         const updateData = req.body;
@@ -44,7 +48,7 @@ router.put('/:candidateId/experience/:expId',
     })
 );
 router.delete('/:candidateId/experience/:expId',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, expId } = req.params;
         await experienceService.deleteExperience(candidateId, expId);
@@ -57,7 +61,7 @@ router.delete('/:candidateId/experience/:expId',
 
 // Restore soft deleted experience
 router.patch('/:candidateId/experience/:expId/restore',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, expId } = req.params;
         await experienceService.restoreExperience(candidateId, expId);
@@ -70,7 +74,7 @@ router.patch('/:candidateId/experience/:expId/restore',
 
 // Hard delete experience (permanent removal)
 router.delete('/:candidateId/experience/:expId/hard',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, expId } = req.params;
         await experienceService.hardDeleteExperience(candidateId, expId);

@@ -14,6 +14,9 @@ import { AuditEventType } from "../types/AuditEventTypes";
 const router = Router();
 const jobService = new JobService();
 
+// Every job route requires an authenticated user
+router.use(AuthMiddleware.authenticate);
+
 // ====================
 // JOB MANAGEMENT ENDPOINTS
 // ====================

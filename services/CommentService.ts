@@ -559,7 +559,7 @@ export class CommentService {
       let idField: string;
 
       if (entityType === CommentEntityType.CANDIDATE) {
-        collection = "personalinfo";
+        collection = "personalInfo";
         // Check both _id and candidateId since they might be different
         // Try to convert to ObjectId for _id field, fallback to string comparison
         const query: any = { candidateId: entityId };
@@ -588,9 +588,10 @@ export class CommentService {
         throw new Error("Invalid entity type");
       }
 
+      const idValue = ObjectId.isValid(entityId) ? new ObjectId(entityId) : entityId;
       const entity = await db
         .collection(collection)
-        .findOne({ [idField]: entityId });
+        .findOne({ [idField]: idValue });
       if (!entity) {
         console.error(
           `Entity not found: ${entityType} with ${idField}=${entityId}`
@@ -612,12 +613,9 @@ export class CommentService {
     entityType: CommentEntityType,
     entityId: string
   ): Promise<void> {
-    // TODO: Implement actual access control logic
-    // For candidates: Check if user is assigned HR or admin
-    // For jobs: Check if user has permission to view/edit jobs
-
-    // For now, allow all authenticated users
-    // This should be enhanced based on your specific requirements
+    // Candidate assignment checks need the user's role, so they are enforced
+    // by the comment routes (routes/comments.ts: ensureEntityAccess and
+    // loadAccessibleComment) before any of these service methods are called.
     return;
   }
 

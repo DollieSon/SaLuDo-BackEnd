@@ -7,79 +7,109 @@
 
 import { Request, Response, NextFunction } from "express";
 import { AuthenticatedRequest } from "./auth";
-import { UserRole } from "../../Models/User";
+import { User, UserRole } from "../../Models/User";
 import { CandidateService } from "../../services/CandidateService";
 
 const candidateService = new CandidateService();
 
+export type CandidateAccessResult = "allowed" | "not_found" | "forbidden";
+
 export class CandidateAccessMiddleware {
   /**
-   * Middleware to check if user has access to a specific candidate
+   * Decide whether a user may access a candidate
    * - HR_USER / RECRUITER / INTERVIEWER: Only assigned candidates
    * - HR_MANAGER: All candidates
    * - ADMIN: All candidates
    */
-  static checkCandidateAccess = async (
-    req: AuthenticatedRequest,
-    res: Response,
-    next: NextFunction
-  ): Promise<void> => {
-    try {
-      const { candidateId } = req.params;
-      const user = req.user!;
+  static getCandidateAccess = async (
+    user: User,
+    candidateId: string
+  ): Promise<CandidateAccessResult> => {
+    const candidate = await candidateService.getCandidate(candidateId);
+    if (!candidate) {
+      return "not_found";
+    }
 
-      if (!candidateId) {
-        res.status(400).json({
-          success: false,
-          message: "Candidate ID is required",
-        });
-        return;
-      }
+    // HR_MANAGER and ADMIN have access to all candidates
+    if (user.role === UserRole.HR_MANAGER || user.role === UserRole.ADMIN) {
+      return "allowed";
+    }
 
-      // Check if candidate exists
-      const candidate = await candidateService.getCandidate(candidateId);
-      if (!candidate) {
-        res.status(404).json({
-          success: false,
-          message: "Candidate not found",
-        });
-        return;
-      }
+    // HR_USER, RECRUITER, and INTERVIEWER can only access assigned candidates
+    const isAssigned = await candidateService.isHRUserAssignedToCandidate(
+      candidateId,
+      user.userId
+    );
+    return isAssigned ? "allowed" : "forbidden";
+  };
 
-      // HR_MANAGER and ADMIN have access to all candidates
-      if (user.role === UserRole.HR_MANAGER || user.role === UserRole.ADMIN) {
-        next();
-        return;
-      }
-
-      // HR_USER, RECRUITER, and INTERVIEWER can only access assigned candidates
-      if (
-        user.role === UserRole.HR_USER ||
-        user.role === UserRole.RECRUITER ||
-        user.role === UserRole.INTERVIEWER
-      ) {
-        const isAssigned = await candidateService.isHRUserAssignedToCandidate(
-          candidateId,
-          user.userId
-        );
-        if (!isAssigned) {
-          res.status(403).json({
+  /**
+   * Build a middleware that checks access to the candidate IDs found in the
+   * given route params (e.g. compare routes take two candidates).
+   */
+  static checkCandidateAccessFor = (...paramNames: string[]) => {
+    return async (
+      req: AuthenticatedRequest,
+      res: Response,
+      next: NextFunction
+    ): Promise<void> => {
+      try {
+        const user = req.user;
+        if (!user) {
+          res.status(401).json({
             success: false,
-            message: "Access denied. You are not assigned to this candidate.",
+            message: "Authentication required.",
           });
           return;
         }
-      }
 
-      next();
-    } catch (error) {
-      console.error("Error in candidate access middleware:", error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error while checking candidate access",
-      });
-    }
+        for (const paramName of paramNames) {
+          const candidateId = req.params[paramName];
+          if (!candidateId) {
+            res.status(400).json({
+              success: false,
+              message: "Candidate ID is required",
+            });
+            return;
+          }
+
+          const access = await CandidateAccessMiddleware.getCandidateAccess(
+            user,
+            candidateId
+          );
+          if (access === "not_found") {
+            res.status(404).json({
+              success: false,
+              message: "Candidate not found",
+            });
+            return;
+          }
+          if (access === "forbidden") {
+            res.status(403).json({
+              success: false,
+              message: "Access denied. You are not assigned to this candidate.",
+            });
+            return;
+          }
+        }
+
+        next();
+      } catch (error) {
+        console.error("Error in candidate access middleware:", error);
+        res.status(500).json({
+          success: false,
+          message: "Internal server error while checking candidate access",
+        });
+      }
+    };
   };
+
+  /**
+   * Middleware to check if user has access to the :candidateId route param
+   */
+  static checkCandidateAccess = CandidateAccessMiddleware.checkCandidateAccessFor(
+    "candidateId"
+  );
 
   /**
    * Middleware to check if user can manage assignments (HR_MANAGER or ADMIN only)

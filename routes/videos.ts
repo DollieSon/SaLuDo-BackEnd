@@ -1,8 +1,16 @@
 import express, { Request, Response } from "express";
-import multer from "multer";
+import {
+  cleanupTempUpload,
+  createDiskUpload,
+  getVideoAnalysisMaxBytes,
+  readStreamWithLimit,
+  UPLOAD_LIMITS,
+  verifyFileSignature,
+} from "./middleware/uploadSecurity";
 import { CandidateService } from "../services";
-import { candidateExists } from "./middleware/candidateExists";
+import { CandidateAccessMiddleware } from "./middleware/candidateAccess";
 import { validation } from "./middleware/validation";
+import { PRIVATE_FILE_HEADERS } from "../utils/gridfsDownload";
 import { asyncHandler } from "./middleware/errorHandler";
 import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
 import {
@@ -16,33 +24,59 @@ import {
   BAD_REQUEST,
   UNAUTHORIZED,
   NOT_FOUND,
+  PAYLOAD_TOO_LARGE,
 } from "../constants/HttpStatusCodes";
 const router = express.Router({ mergeParams: true });
+
+/**
+ * Load a stored video for AI analysis, or send 413 and return null when it is
+ * larger than the analysis limit (checked before reading, and while reading).
+ */
+const readVideoForAnalysis = async (
+  res: Response,
+  stream: AsyncIterable<Buffer> & { destroy?: () => void },
+  declaredSize: number | undefined
+): Promise<Buffer | null> => {
+  const maxBytes = getVideoAnalysisMaxBytes();
+  const buffer =
+    typeof declaredSize === "number" && declaredSize > maxBytes
+      ? null
+      : await readStreamWithLimit(stream, maxBytes);
+
+  if (!buffer) {
+    stream.destroy?.();
+    res.status(PAYLOAD_TOO_LARGE).json({
+      success: false,
+      message: `Video is too large for AI analysis (limit ${Math.round(
+        maxBytes / (1024 * 1024)
+      )} MB). Upload a shorter or compressed version to analyze it.`,
+    });
+  }
+  return buffer;
+};
+
+// Every route requires an authenticated user; candidate routes also check assignment
+router.use(AuthMiddleware.authenticate);
 const candidateService = new CandidateService();
 
-// Configure multer for video file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 500 * 1024 * 1024, // 500MB limit for video files
-  },
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "video/mp4",
-      "video/webm",
-      "video/avi",
-      "video/mov",
-      "video/wmv",
-      "video/flv",
-      "video/mkv",
-      "video/m4v",
-    ];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Invalid file type. Only video files are allowed."));
-    }
-  },
+// Configure multer for video file uploads: streamed to a temp file on disk,
+// never buffered in memory, and removed when the response finishes
+const upload = createDiskUpload(UPLOAD_LIMITS.VIDEO, (req, file, cb) => {
+  const allowedTypes = [
+    "video/mp4",
+    "video/webm",
+    "video/avi",
+    "video/mov",
+    "video/wmv",
+    "video/flv",
+    "video/mkv",
+    "video/m4v",
+  ];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(Object.assign(new Error("Invalid file type. Only video files are allowed."), { status: 400 }));
+  }
 });
 
 // ============================
@@ -52,9 +86,11 @@ const upload = multer({
 // POST /api/candidates/:candidateId/videos/interview/upload
 router.post(
   "/interview/upload",
+  CandidateAccessMiddleware.checkCandidateAccess,
+  cleanupTempUpload,
   upload.single("video"),
-  candidateExists,
   validation.validateVideoFile,
+  verifyFileSignature,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const videoFile = req.file!;
@@ -89,7 +125,7 @@ router.post(
 // GET /api/candidates/:candidateId/videos/interview
 router.get(
   "/interview",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId } = req.params;
     const videos = await candidateService.getAllVideos(
@@ -108,7 +144,7 @@ router.get(
 // GET /api/candidates/:candidateId/videos/interview/:videoId
 router.get(
   "/interview/:videoId",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, videoId } = req.params;
     const { stream, metadata } = await candidateService.getVideoFile(
@@ -117,9 +153,11 @@ router.get(
       "interview"
     );
 
+    // res.attachment() safely encodes the user-supplied filename
+    res.attachment(metadata.filename);
     res.set({
+      ...PRIVATE_FILE_HEADERS,
       "Content-Type": metadata.contentType,
-      "Content-Disposition": `attachment; filename="${metadata.filename}"`,
       "Content-Length": metadata.size.toString(),
     });
 
@@ -130,7 +168,7 @@ router.get(
 // GET /api/candidates/:candidateId/videos/interview/:videoId/download
 router.get(
   "/interview/:videoId/download",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, videoId } = req.params;
     const { stream, metadata } = await candidateService.getVideoFile(
@@ -139,9 +177,11 @@ router.get(
       "interview"
     );
 
+    // res.attachment() safely encodes the user-supplied filename
+    res.attachment(metadata.filename);
     res.set({
+      ...PRIVATE_FILE_HEADERS,
       "Content-Type": metadata.contentType,
-      "Content-Disposition": `attachment; filename="${metadata.filename}"`,
       "Content-Length": metadata.size.toString(),
     });
 
@@ -152,7 +192,7 @@ router.get(
 // GET /api/candidates/:candidateId/videos/interview/:videoId/metadata
 router.get(
   "/interview/:videoId/metadata",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, videoId } = req.params;
     const metadata = await candidateService.getVideoMetadata(
@@ -179,9 +219,11 @@ router.get(
 // PUT /api/candidates/:candidateId/videos/interview/:videoId
 router.put(
   "/interview/:videoId",
+  CandidateAccessMiddleware.checkCandidateAccess,
+  cleanupTempUpload,
   upload.single("video"),
-  candidateExists,
   validation.validateVideoFile,
+  verifyFileSignature,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, videoId } = req.params;
     const videoFile = req.file!;
@@ -215,7 +257,7 @@ router.put(
 router.delete(
   "/interview/:videoId",
   AuthMiddleware.authenticate,
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
 
@@ -235,9 +277,11 @@ router.delete(
 // POST /api/candidates/:candidateId/videos/introduction/upload
 router.post(
   "/introduction/upload",
+  CandidateAccessMiddleware.checkCandidateAccess,
+  cleanupTempUpload,
   upload.single("video"),
-  candidateExists,
   validation.validateVideoFile,
+  verifyFileSignature,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const videoFile = req.file!;
@@ -271,7 +315,7 @@ router.post(
 // GET /api/candidates/:candidateId/videos/introduction
 router.get(
   "/introduction",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId } = req.params;
     const videos = await candidateService.getAllVideos(
@@ -290,7 +334,7 @@ router.get(
 // GET /api/candidates/:candidateId/videos/introduction/:videoId
 router.get(
   "/introduction/:videoId",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, videoId } = req.params;
     const { stream, metadata } = await candidateService.getVideoFile(
@@ -299,9 +343,11 @@ router.get(
       "introduction"
     );
 
+    // res.attachment() safely encodes the user-supplied filename
+    res.attachment(metadata.filename);
     res.set({
+      ...PRIVATE_FILE_HEADERS,
       "Content-Type": metadata.contentType,
-      "Content-Disposition": `attachment; filename="${metadata.filename}"`,
       "Content-Length": metadata.size.toString(),
     });
 
@@ -312,7 +358,7 @@ router.get(
 // GET /api/candidates/:candidateId/videos/introduction/:videoId/download
 router.get(
   "/introduction/:videoId/download",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, videoId } = req.params;
     const { stream, metadata } = await candidateService.getVideoFile(
@@ -321,9 +367,11 @@ router.get(
       "introduction"
     );
 
+    // res.attachment() safely encodes the user-supplied filename
+    res.attachment(metadata.filename);
     res.set({
+      ...PRIVATE_FILE_HEADERS,
       "Content-Type": metadata.contentType,
-      "Content-Disposition": `attachment; filename="${metadata.filename}"`,
       "Content-Length": metadata.size.toString(),
     });
 
@@ -334,7 +382,7 @@ router.get(
 // GET /api/candidates/:candidateId/videos/introduction/:videoId/metadata
 router.get(
   "/introduction/:videoId/metadata",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, videoId } = req.params;
     const metadata = await candidateService.getVideoMetadata(
@@ -361,9 +409,11 @@ router.get(
 // PUT /api/candidates/:candidateId/videos/introduction/:videoId
 router.put(
   "/introduction/:videoId",
+  CandidateAccessMiddleware.checkCandidateAccess,
+  cleanupTempUpload,
   upload.single("video"),
-  candidateExists,
   validation.validateVideoFile,
+  verifyFileSignature,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, videoId } = req.params;
     const videoFile = req.file!;
@@ -396,7 +446,7 @@ router.put(
 router.delete(
   "/introduction/:videoId",
   AuthMiddleware.authenticate,
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
 
@@ -420,7 +470,7 @@ router.delete(
 // GET /api/candidates/:candidateId/videos/all
 router.get(
   "/all",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId } = req.params;
     const videos = await candidateService.getAllVideos(candidateId);
@@ -447,7 +497,7 @@ router.get(
 router.post(
   "/interview/:videoId/process",
   AuthMiddleware.authenticate,
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
     const user = req.user;
@@ -459,12 +509,11 @@ router.post(
       "interview"
     );
 
-    // Convert stream to buffer
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(chunk);
+    // AI analysis holds the whole video in memory, so large files are refused
+    const videoBuffer = await readVideoForAnalysis(res, stream, metadata.size);
+    if (!videoBuffer) {
+      return;
     }
-    const videoBuffer = Buffer.concat(chunks);
 
     // Analyze video with Gemini
     const candidate = await candidateService.getCandidate(candidateId);
@@ -498,7 +547,7 @@ router.post(
 router.post(
   "/introduction/:videoId/process",
   AuthMiddleware.authenticate,
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, videoId } = req.params;
     const user = req.user;
@@ -510,12 +559,11 @@ router.post(
       "introduction"
     );
 
-    // Convert stream to buffer
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(chunk);
+    // AI analysis holds the whole video in memory, so large files are refused
+    const videoBuffer = await readVideoForAnalysis(res, stream, metadata.size);
+    if (!videoBuffer) {
+      return;
     }
-    const videoBuffer = Buffer.concat(chunks);
 
     // Analyze video with Gemini
     const candidate = await candidateService.getCandidate(candidateId);

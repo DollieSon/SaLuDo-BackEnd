@@ -4,6 +4,7 @@
  */
 
 import crypto from 'crypto';
+import { sendSafeWebhookRequest } from '../utils/safeOutboundRequest';
 import { WebhookRepository } from '../repositories/WebhookRepository';
 import { 
   WebhookConfig, 
@@ -75,18 +76,13 @@ export class WebhookService {
         headers['X-Webhook-Signature'] = this.generateSignature(payloadString, webhook.secret);
       }
 
-      // Make HTTP request
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), webhook.timeoutMs);
-
-      const response = await fetch(webhook.url, {
+      // Make HTTP request (https only, public addresses only, no redirects)
+      const response = await sendSafeWebhookRequest(webhook.url, {
         method: webhook.method,
         headers,
         body: payloadString,
-        signal: controller.signal
+        timeoutMs: webhook.timeoutMs
       });
-
-      clearTimeout(timeoutId);
 
       attemptData.statusCode = response.status;
       attemptData.responseTime = Date.now() - startTime;

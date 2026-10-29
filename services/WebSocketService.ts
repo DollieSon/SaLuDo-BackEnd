@@ -1,10 +1,20 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { Notification } from '../Models/Notification';
+import type { User } from '../Models/User';
+import { getAllowedOrigins } from '../utils/securityConfig';
 
 // WebSocket Configuration Constants
 const PING_TIMEOUT_MS = 60000;  // 60 seconds
 const PING_INTERVAL_MS = 25000; // 25 seconds
+const MAX_SOCKET_MESSAGE_BYTES = 100 * 1024; // clients only send small control messages
+const COMMENT_ROOM_PATTERN = /^(candidate|job):([A-Za-z0-9_-]{1,64})$/;
+
+interface SocketUserData {
+  user: User;
+  userId: string;
+  displayName: string;
+}
 
 interface UserSocket {
   userId: string;
@@ -30,16 +40,83 @@ export class WebSocketService {
   initialize(httpServer: HTTPServer): void {
     this.io = new SocketIOServer(httpServer, {
       cors: {
-        origin: process.env.CORS_ORIGIN || '*',
+        origin: getAllowedOrigins(),
         methods: ['GET', 'POST'],
         credentials: true
       },
       pingTimeout: PING_TIMEOUT_MS,
-      pingInterval: PING_INTERVAL_MS
+      pingInterval: PING_INTERVAL_MS,
+      maxHttpBufferSize: MAX_SOCKET_MESSAGE_BYTES
+    });
+
+    // Every connection must present a valid access token during the handshake.
+    // The user identity comes from the verified JWT, never from event payloads.
+    this.io.use(async (socket, next) => {
+      try {
+        const token = this.extractHandshakeToken(socket);
+        if (!token) {
+          next(new Error('Authentication required'));
+          return;
+        }
+
+        const { AuthMiddleware } = await import('../routes/middleware/auth');
+        const user = await AuthMiddleware.resolveUserFromToken(token);
+        if (!user) {
+          next(new Error('Invalid or expired token'));
+          return;
+        }
+
+        const data = socket.data as SocketUserData;
+        data.user = user;
+        data.userId = user.userId;
+        data.displayName = `${user.firstName} ${user.lastName}`.trim();
+        next();
+      } catch (error) {
+        console.error('WebSocket handshake authentication failed:', error);
+        next(new Error('Authentication failed'));
+      }
     });
 
     this.setupEventHandlers();
     console.log('WebSocket service initialized');
+  }
+
+  /**
+   * Read the access token from the Socket.io handshake (auth payload or Authorization header)
+   */
+  private extractHandshakeToken(socket: Socket): string | undefined {
+    const authToken = socket.handshake.auth?.token;
+    if (typeof authToken === 'string' && authToken.trim()) {
+      return authToken.trim().replace(/^Bearer\s+/i, '');
+    }
+
+    const header = socket.handshake.headers.authorization;
+    if (typeof header === 'string' && header.startsWith('Bearer ')) {
+      return header.slice('Bearer '.length).trim() || undefined;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Check that the socket's user may join a comment room ("candidate:<id>" or "job:<id>")
+   */
+  private async canJoinRoom(socket: Socket, roomName: unknown): Promise<boolean> {
+    if (typeof roomName !== 'string') return false;
+
+    const match = COMMENT_ROOM_PATTERN.exec(roomName);
+    if (!match) return false;
+
+    const [, entityType, entityId] = match;
+    if (entityType === 'job') {
+      // Jobs are visible to every authenticated user
+      return true;
+    }
+
+    const { CandidateAccessMiddleware } = await import('../routes/middleware/candidateAccess');
+    const { user } = socket.data as SocketUserData;
+    const access = await CandidateAccessMiddleware.getCandidateAccess(user, entityId);
+    return access === 'allowed';
   }
 
   /**
@@ -49,85 +126,93 @@ export class WebSocketService {
     if (!this.io) return;
 
     this.io.on('connection', (socket: Socket) => {
-      console.log(`Socket connected: ${socket.id}`);
+      const { userId, displayName } = socket.data as SocketUserData;
 
-      // Handle user authentication
-      socket.on('authenticate', (userId: string) => {
-        this.registerUserSocket(userId, socket.id);
-        socket.join(`user:${userId}`);
-        this.socketToUser.set(socket.id, userId);
-        console.log(`User ${userId} authenticated on socket ${socket.id}`);
-        
-        // Send confirmation
+      // Identity was verified in the handshake, so join the user's room immediately
+      this.registerUserSocket(userId, socket.id);
+      socket.join(`user:${userId}`);
+      this.socketToUser.set(socket.id, userId);
+
+      // Kept for older clients: the payload is ignored and the verified identity is confirmed
+      socket.on('authenticate', () => {
         socket.emit('authenticated', { userId, socketId: socket.id });
       });
+      socket.emit('authenticated', { userId, socketId: socket.id });
 
       // Handle comment room join
-      socket.on('comment:room:join', (data: { userId: string; username: string; roomName: string }) => {
-        socket.join(data.roomName);
-        
+      socket.on('comment:room:join', async (data: { roomName?: string }) => {
+        const roomName = data?.roomName;
+        try {
+          if (!(await this.canJoinRoom(socket, roomName))) {
+            socket.emit('comment:room:error', { roomName, message: 'Access denied' });
+            return;
+          }
+        } catch (error) {
+          console.error('Error checking comment room access:', error);
+          socket.emit('comment:room:error', { roomName, message: 'Access check failed' });
+          return;
+        }
+
+        const room = roomName as string;
+        socket.join(room);
+
         // Track room membership
         if (!this.socketRooms.has(socket.id)) {
           this.socketRooms.set(socket.id, new Set());
         }
-        this.socketRooms.get(socket.id)!.add(data.roomName);
-        
+        this.socketRooms.get(socket.id)!.add(room);
+
         // Broadcast presence join to room
-        socket.to(data.roomName).emit('comment:presence:join', {
-          userId: data.userId,
-          username: data.username,
+        socket.to(room).emit('comment:presence:join', {
+          userId,
+          username: displayName,
           timestamp: new Date()
         });
-        
-        console.log(`User ${data.userId} joined room ${data.roomName}`);
       });
 
       // Handle comment room leave
-      socket.on('comment:room:leave', (data: { userId: string; username: string; roomName: string }) => {
-        socket.leave(data.roomName);
-        
-        // Remove from tracking
-        if (this.socketRooms.has(socket.id)) {
-          this.socketRooms.get(socket.id)!.delete(data.roomName);
+      socket.on('comment:room:leave', (data: { roomName?: string }) => {
+        const roomName = data?.roomName;
+        if (typeof roomName !== 'string' || !this.socketRooms.get(socket.id)?.has(roomName)) {
+          return;
         }
-        
+
+        socket.leave(roomName);
+        this.socketRooms.get(socket.id)!.delete(roomName);
+
         // Broadcast presence leave to room
-        socket.to(data.roomName).emit('comment:presence:leave', {
-          userId: data.userId,
-          username: data.username,
+        socket.to(roomName).emit('comment:presence:leave', {
+          userId,
+          username: displayName,
           timestamp: new Date()
         });
-        
-        console.log(`User ${data.userId} left room ${data.roomName}`);
       });
 
       // Handle disconnection
       socket.on('disconnect', () => {
         // Clean up comment rooms (broadcast leave events)
         this.cleanupSocketRooms(socket);
-        
+
         // Clean up user socket tracking
         this.unregisterSocket(socket.id);
-        
-        console.log(`Socket disconnected: ${socket.id}`);
       });
 
-      // Handle notification read acknowledgment
-      socket.on('notification:read', (notificationId: string) => {
-        console.log(`Notification ${notificationId} marked as read via socket ${socket.id}`);
-      });
+      // Notification read acknowledgment (no-op, kept for client compatibility)
+      socket.on('notification:read', () => {});
 
-      // Handle typing indicators for future comment system
-      socket.on('typing:start', (data: { userId: string; targetId: string }) => {
+      // Typing indicators always carry the verified sender identity
+      socket.on('typing:start', (data: { targetId?: string }) => {
+        if (typeof data?.targetId !== 'string') return;
         socket.broadcast.to(`user:${data.targetId}`).emit('typing:indicator', {
-          userId: data.userId,
+          userId,
           isTyping: true
         });
       });
 
-      socket.on('typing:stop', (data: { userId: string; targetId: string }) => {
+      socket.on('typing:stop', (data: { targetId?: string }) => {
+        if (typeof data?.targetId !== 'string') return;
         socket.broadcast.to(`user:${data.targetId}`).emit('typing:indicator', {
-          userId: data.userId,
+          userId,
           isTyping: false
         });
       });
@@ -197,7 +282,6 @@ export class WebSocketService {
     }
 
     this.io.to(`user:${userId}`).emit('notification:new', notification);
-    console.log(`Notification sent to user ${userId}: ${notification.type}`);
   }
 
   /**

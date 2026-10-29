@@ -1,16 +1,20 @@
 import { Router, Request, Response } from 'express';
 import { StrengthWeaknessService } from '../services/StrengthWeaknessService';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
-import { candidateExists } from './middleware/candidateExists';
+import { CandidateAccessMiddleware } from './middleware/candidateAccess';
+import { AuthMiddleware } from './middleware/auth';
 import { validation } from './middleware/validation';
 const router = Router();
+
+// Every route requires an authenticated user; candidate routes also check assignment
+router.use(AuthMiddleware.authenticate);
 import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const strengthWeaknessService = new StrengthWeaknessService();
 // ====================
 // STRENGTHS & WEAKNESSES ENDPOINTS
 // ====================
 router.get('/:candidateId/strengths-weaknesses',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId } = req.params;
         const data = await strengthWeaknessService.getAllStrengthsWeaknesses(candidateId);
@@ -21,7 +25,7 @@ router.get('/:candidateId/strengths-weaknesses',
     })
 );
 router.post('/:candidateId/strengths-weaknesses',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     validation.requireFields(['type', 'description']),
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId } = req.params;
@@ -44,7 +48,7 @@ router.post('/:candidateId/strengths-weaknesses',
     })
 );
 router.put('/:candidateId/strengths-weaknesses/:id',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, id } = req.params;
         const updateData = req.body;
@@ -63,7 +67,7 @@ router.put('/:candidateId/strengths-weaknesses/:id',
     })
 );
 router.delete('/:candidateId/strengths-weaknesses/:id',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, id } = req.params;
         const { type } = req.query;

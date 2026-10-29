@@ -11,6 +11,12 @@ import { ProfilePhotoMetadata, Availability, RoleSpecificData } from './ProfileI
 // DATA INTERFACES
 // =======================
 
+export interface RefreshSession {
+  tokenHash: string; // SHA-256 of the refresh token; raw tokens are never stored
+  createdAt: Date;
+  expiresAt: Date;
+}
+
 export interface UserData {
   userId: string;
   email: string;
@@ -26,7 +32,8 @@ export interface UserData {
   createdAt: Date;
   updatedAt: Date;
   lastLogin?: Date;
-  refreshToken?: string;
+  refreshToken?: string;              // Legacy single session; replaced by refreshSessions
+  refreshSessions?: RefreshSession[]; // One entry per signed-in browser/device
   passwordResetToken?: string;
   passwordResetExpires?: Date;
   // Security fields for admin-created accounts

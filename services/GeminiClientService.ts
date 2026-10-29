@@ -4,7 +4,6 @@
  * Automatically captures metrics: latency, tokens, errors, costs
  */
 
-import fetch, { Response } from "node-fetch";
 import { ObjectId, Db } from "mongodb";
 import { connectDB } from "../mongo_db";
 import { AIMetricsRepository } from "../repositories/AIMetricsRepository";

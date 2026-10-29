@@ -5,7 +5,7 @@
 // Usage: npx ts-node create-admin.ts
 // =======================
 
-import bcrypt from "bcrypt";
+import { PasswordUtils } from "./routes/middleware/passwordUtils";
 import { connectDB } from "./mongo_db";
 import { UserRepository } from "./repositories/UserRepository";
 import { UserRole } from "./Models/User";
@@ -80,7 +80,7 @@ async function createAdminUser() {
 
     // Hash the password
     console.log("\n🔒 Hashing password...");
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await PasswordUtils.hashPassword(password);
 
     // Create admin user
     console.log("👤 Creating admin user...");
