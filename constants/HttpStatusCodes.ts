@@ -15,6 +15,7 @@ export const FORBIDDEN = 403;
 export const LOCKED = 423;
 export const NOT_FOUND = 404;
 export const CONFLICT = 409;
+export const PAYLOAD_TOO_LARGE = 413;
 export const UNPROCESSABLE_ENTITY = 422;
 
 // 5xx Server Errors

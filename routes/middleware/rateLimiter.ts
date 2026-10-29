@@ -31,10 +31,13 @@ const createRateLimitHandler = (limitType: string) => {
   };
 };
 
-// Strict rate limiting for authentication endpoints
+// Strict rate limiting for login: counts failed attempts per IP (successful
+// logins are not counted, so colleagues sharing an office IP don't block each
+// other). Per-account guessing is throttled separately by LoginThrottleService.
 export const authRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === "development" ? 100 : 5, // 100 in dev, 5 in production
+  max: process.env.NODE_ENV === "development" ? 100 : 20, // 20 failures per 15 min in production
+  skipSuccessfulRequests: true,
   message: {
     success: false,
     message: "Too many login attempts. Please try again in 15 minutes.",
@@ -43,6 +46,16 @@ export const authRateLimit = rateLimit({
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   handler: createRateLimitHandler("AUTH"),
+});
+
+// Token refresh and logout. Access tokens last 15 minutes and every open tab
+// or page load refreshes, so this is far looser than the login limit.
+export const sessionRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === "development" ? 1000 : 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: createRateLimitHandler("SESSION"),
 });
 
 // Medium rate limiting for sensitive user operations

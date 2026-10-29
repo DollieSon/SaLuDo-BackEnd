@@ -2,6 +2,8 @@ import express, { Request, Response } from "express";
 import {
   cleanupTempUpload,
   createDiskUpload,
+  getVideoAnalysisMaxBytes,
+  readStreamWithLimit,
   UPLOAD_LIMITS,
   verifyFileSignature,
 } from "./middleware/uploadSecurity";
@@ -22,8 +24,36 @@ import {
   BAD_REQUEST,
   UNAUTHORIZED,
   NOT_FOUND,
+  PAYLOAD_TOO_LARGE,
 } from "../constants/HttpStatusCodes";
 const router = express.Router({ mergeParams: true });
+
+/**
+ * Load a stored video for AI analysis, or send 413 and return null when it is
+ * larger than the analysis limit (checked before reading, and while reading).
+ */
+const readVideoForAnalysis = async (
+  res: Response,
+  stream: AsyncIterable<Buffer> & { destroy?: () => void },
+  declaredSize: number | undefined
+): Promise<Buffer | null> => {
+  const maxBytes = getVideoAnalysisMaxBytes();
+  const buffer =
+    typeof declaredSize === "number" && declaredSize > maxBytes
+      ? null
+      : await readStreamWithLimit(stream, maxBytes);
+
+  if (!buffer) {
+    stream.destroy?.();
+    res.status(PAYLOAD_TOO_LARGE).json({
+      success: false,
+      message: `Video is too large for AI analysis (limit ${Math.round(
+        maxBytes / (1024 * 1024)
+      )} MB). Upload a shorter or compressed version to analyze it.`,
+    });
+  }
+  return buffer;
+};
 
 // Every route requires an authenticated user; candidate routes also check assignment
 router.use(AuthMiddleware.authenticate);
@@ -479,12 +509,11 @@ router.post(
       "interview"
     );
 
-    // Convert stream to buffer
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(chunk);
+    // AI analysis holds the whole video in memory, so large files are refused
+    const videoBuffer = await readVideoForAnalysis(res, stream, metadata.size);
+    if (!videoBuffer) {
+      return;
     }
-    const videoBuffer = Buffer.concat(chunks);
 
     // Analyze video with Gemini
     const candidate = await candidateService.getCandidate(candidateId);
@@ -530,12 +559,11 @@ router.post(
       "introduction"
     );
 
-    // Convert stream to buffer
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(chunk);
+    // AI analysis holds the whole video in memory, so large files are refused
+    const videoBuffer = await readVideoForAnalysis(res, stream, metadata.size);
+    if (!videoBuffer) {
+      return;
     }
-    const videoBuffer = Buffer.concat(chunks);
 
     // Analyze video with Gemini
     const candidate = await candidateService.getCandidate(candidateId);

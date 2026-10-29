@@ -13,6 +13,8 @@ import {
   getJwtRefreshSecret,
   JWT_SIGN_OPTIONS,
   JWT_VERIFY_OPTIONS,
+  ACCESS_TOKEN_TTL_MS,
+  REFRESH_TOKEN_MAX_AGE_MS,
 } from "../../utils/securityConfig";
 
 export class PasswordUtils {
@@ -65,7 +67,7 @@ export class PasswordUtils {
         iat: Math.floor(Date.now() / 1000),
       },
       getJwtSecret(),
-      { ...JWT_SIGN_OPTIONS, expiresIn: "8h" } // 8 hours for access tokens
+      { ...JWT_SIGN_OPTIONS, expiresIn: ACCESS_TOKEN_TTL_MS / 1000 } // 15 minutes
     );
   }
 
@@ -79,7 +81,7 @@ export class PasswordUtils {
         jti: crypto.randomUUID(), // Unique token ID for tracking
       },
       getJwtRefreshSecret(),
-      { ...JWT_SIGN_OPTIONS, expiresIn: "7d" } // 7 days for refresh tokens
+      { ...JWT_SIGN_OPTIONS, expiresIn: REFRESH_TOKEN_MAX_AGE_MS / 1000 } // 7 days
     );
   }
 

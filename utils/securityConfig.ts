@@ -23,6 +23,10 @@ export const JWT_ALGORITHM = "HS256" as const;
 export const JWT_SIGN_OPTIONS: SignOptions = { algorithm: JWT_ALGORITHM };
 export const JWT_VERIFY_OPTIONS: VerifyOptions = { algorithms: [JWT_ALGORITHM] };
 
+// Access tokens are short-lived: the frontend keeps them in memory only and
+// gets a new one from the HttpOnly refresh cookie when they expire
+export const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
+
 const isUsableSecret = (value: string | undefined): value is string =>
   !!value && !PUBLIC_PLACEHOLDER_SECRETS.has(value);
 

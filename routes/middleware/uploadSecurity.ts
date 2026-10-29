@@ -23,6 +23,40 @@ export const UPLOAD_LIMITS = {
   PHOTO: 5 * MB,
 } as const;
 
+// AI video analysis holds the whole file in memory while sending it to Gemini,
+// so it is limited well below the upload limit (Render's free plan has 512 MB
+// of RAM). Override with VIDEO_ANALYSIS_MAX_MB.
+const DEFAULT_VIDEO_ANALYSIS_MAX_MB = 100;
+export const getVideoAnalysisMaxBytes = (): number => {
+  const configured = Number(process.env.VIDEO_ANALYSIS_MAX_MB);
+  const megabytes =
+    Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_VIDEO_ANALYSIS_MAX_MB;
+  return Math.floor(megabytes * MB);
+};
+
+/**
+ * Read a stream into memory, giving up (and returning null) as soon as it
+ * exceeds maxBytes, so a mislabelled size can't exhaust memory.
+ */
+export const readStreamWithLimit = async (
+  stream: AsyncIterable<Buffer | Uint8Array>,
+  maxBytes: number
+): Promise<Buffer | null> => {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  // Leaving the loop early destroys the underlying stream
+  for await (const chunk of stream) {
+    total += chunk.length;
+    if (total > maxBytes) {
+      return null;
+    }
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+};
+
 const UPLOAD_TMP_DIR = path.join(os.tmpdir(), "saludo-uploads");
 
 // In-memory upload for small files (resumes, transcripts, photos)

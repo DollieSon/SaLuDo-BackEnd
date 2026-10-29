@@ -31,6 +31,8 @@ import {
 import { PasswordUtils } from "./middleware/passwordUtils";
 import {
   getRefreshCookieOptions,
+  ACCESS_TOKEN_TTL_MS,
+  REFRESH_TOKEN_MAX_AGE_MS,
   readCookie,
   REFRESH_TOKEN_COOKIE,
 } from "../utils/securityConfig";
@@ -40,6 +42,7 @@ import {
   passwordChangeRateLimit,
   adminPasswordResetRateLimit,
   accountCreationRateLimit,
+  sessionRateLimit,
 } from "./middleware/rateLimiter";
 import { UserRole, User } from "../Models/User";
 import {
@@ -52,6 +55,10 @@ import ProfileService from "../services/ProfileService";
 import { AuditLogger } from "../utils/AuditLogger";
 import { AuditEventType as NewAuditEventType } from "../types/AuditEventTypes";
 import { NotificationService } from "../services/NotificationService";
+import {
+  loginThrottleService,
+  ACCOUNT_BACKSTOP,
+} from "../services/LoginThrottleService";
 import {
   NotificationType,
   NotificationPriority,
@@ -199,12 +206,21 @@ router.post(
       return;
     }
 
+    // Throttle per (email, client IP). Unknown emails are throttled the same
+    // way, so this reveals nothing about which accounts exist.
+    if ((await loginThrottleService.getRemainingDelayMs(email, req.ip)) > 0) {
+      logLoginAttempt(email, "FAILED", "Too many failed attempts from this IP");
+      sendGenericLoginFailure(res);
+      return;
+    }
+
     // Find user by email
     const db = await connectDB();
     const userRepository = new UserRepository(db);
     const userData = await userRepository.getUserByEmail(email);
 
     if (!userData) {
+      await loginThrottleService.recordFailure(email, req.ip);
       await burnPasswordCheck(password);
       logLoginAttempt(email, "FAILED", "Failed To Fetch User / User Not Found");
       sendGenericLoginFailure(res);
@@ -215,6 +231,7 @@ router.post(
 
     // Check if account is locked
     if (user.isAccountLocked()) {
+      await loginThrottleService.recordFailure(email, req.ip);
       await burnPasswordCheck(password);
       logLoginAttempt(
         email,
@@ -234,6 +251,7 @@ router.post(
           ? "Account has been deleted"
           : "Account is inactive"
       );
+      await loginThrottleService.recordFailure(email, req.ip);
       await burnPasswordCheck(password);
       sendGenericLoginFailure(res);
       return;
@@ -246,8 +264,14 @@ router.post(
     );
 
     if (!isValidPassword) {
-      // Increment failed login attempts
-      user.incrementFailedLoginAttempts();
+      await loginThrottleService.recordFailure(email, req.ip);
+
+      // Account-wide counter: only locks the account after guessing from many
+      // IPs, since each (email, IP) pair is throttled well before this
+      user.incrementFailedLoginAttempts(
+        ACCOUNT_BACKSTOP.MAX_ATTEMPTS,
+        ACCOUNT_BACKSTOP.LOCKOUT_MINUTES
+      );
       await userRepository.updateUser(user.userId, {
         failedLoginAttempts: user.failedLoginAttempts,
         accountLockedUntil: user.accountLockedUntil,
@@ -270,8 +294,10 @@ router.post(
         }
       );
 
-      // Notify user of multiple failed login attempts
-      if (user.failedLoginAttempts >= 3 && notificationService) {
+      // Notify user of multiple failed login attempts (at 3, then every 10)
+      const shouldNotify =
+        user.failedLoginAttempts === 3 || user.failedLoginAttempts % 10 === 0;
+      if (shouldNotify && notificationService) {
         try {
           await notificationService.notifySecurityEvent(
             NotificationType.MULTIPLE_FAILED_LOGINS,
@@ -326,6 +352,7 @@ router.post(
     }
 
     // Reset failed login attempts on successful login
+    await loginThrottleService.reset(email, req.ip);
     if (user.failedLoginAttempts > 0) {
       user.resetFailedLoginAttempts();
       await userRepository.updateUser(user.userId, {
@@ -344,14 +371,14 @@ router.post(
     const accessToken = PasswordUtils.generateAccessToken(user.userId);
     const refreshToken = PasswordUtils.generateRefreshToken(user.userId);
 
-    // Store refresh token in database
-    await userRepository.updateRefreshToken(user.userId, refreshToken);
+    // Calculate expiry times (must match JWT expiry in passwordUtils.ts)
+    const accessTokenExpiry = new Date(Date.now() + ACCESS_TOKEN_TTL_MS);
+    const refreshTokenExpiry = new Date(Date.now() + REFRESH_TOKEN_MAX_AGE_MS);
+
+    // Store this browser's refresh session
+    await userRepository.addRefreshSession(user.userId, refreshToken, refreshTokenExpiry);
 
     logLoginAttempt(email, "SUCCESS");
-
-    // Calculate expiry times (must match JWT expiry in passwordUtils.ts)
-    const accessTokenExpiry = new Date(Date.now() + 8 * 60 * 60 * 1000); // 8 hours
-    const refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     // Log successful login
     const auditContext = AuditLogService.createAuditContext(req, user);
@@ -391,7 +418,7 @@ router.post(
 // Token refresh endpoint
 router.post(
   "/auth/refresh",
-  authRateLimit, // Apply rate limiting for security
+  sessionRateLimit,
   asyncHandler(async (req: Request, res: Response) => {
     // Cookie first; the body is still accepted so sessions created before the
     // cookie change can migrate once
@@ -447,10 +474,20 @@ router.post(
 
       setRefreshTokenCookie(req, res, newTokenPair.refreshToken);
 
+      // The profile lets the frontend restore a session after a page reload,
+      // since it keeps the access token in memory only
+      const refreshedUserId = PasswordUtils.verifyRefreshToken(
+        newTokenPair.refreshToken
+      )?.userId;
+      const refreshedUser = refreshedUserId
+        ? await userRepository.getUserById(refreshedUserId)
+        : null;
+
       res.json({
         success: true,
         message: "Token refreshed successfully",
         data: {
+          user: refreshedUser ? User.fromObject(refreshedUser).getProfile() : undefined,
           accessToken: newTokenPair.accessToken,
           accessTokenExpiry: newTokenPair.accessTokenExpiry,
           refreshTokenExpiry: newTokenPair.refreshTokenExpiry,
@@ -1338,7 +1375,7 @@ router.delete(
 // Logout (blacklist current token and revoke refresh tokens)
 router.post(
   "/auth/logout",
-  authRateLimit, // Prevent logout abuse
+  sessionRateLimit, // Prevent logout abuse
   AuthMiddleware.authenticate,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const token = AuthMiddleware.extractBearerToken(req);
