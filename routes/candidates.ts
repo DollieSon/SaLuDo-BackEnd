@@ -18,6 +18,7 @@ import { AuditLogger } from "../utils/AuditLogger";
 import { AuditEventType } from "../types/AuditEventTypes";
 import { connectDB } from "../mongo_db";
 import { streamCandidateFile } from "../utils/gridfsDownload";
+import { createCandidateWithResume } from "../services/CandidateIntakeService";
 import { sanitizeSocialLinks } from "../utils/urlSafety";
 import {
   createMemoryUpload,
@@ -140,126 +141,16 @@ router.post(
     // Only keep links with http(s) URLs (no javascript:/data: hrefs)
     parsedSocialLinks = sanitizeSocialLinks(parsedSocialLinks);
 
-    const candidate = await candidateService.addCandidate(
+    const candidate = await createCandidateWithResume({
       name,
       emailArray,
-      new Date(birthdate),
+      birthdate,
       jobId,
-      req.file,
-      user?.userId,
-      user?.email,
-      parsedSocialLinks
-    );
-
-    // Use Gemini to parse resume
-    const parsedData = await parseResumeWithGemini(
-      req.file.buffer,
-      candidate.candidateId,
-      name,
-      user?.userId,
-      user?.email
-    );
-
-    // Save parsed data
-    if (parsedData.skills.length) {
-      await skillService.addSkillsBulk(
-        candidate.candidateId,
-        parsedData.skills.map((skill) => ({
-          ...skill,
-          addedBy: AddedBy.AI,
-        }))
-      );
-
-      // Log skill analysis completion
-      await AuditLogger.logAIOperation({
-        eventType: AuditEventType.SKILL_ANALYSIS_COMPLETED,
-        candidateId: candidate.candidateId,
-        userId: user?.userId,
-        userEmail: user?.email,
-        action: `AI completed skill analysis for ${name}`,
-        success: true,
-        metadata: {
-          candidateName: name,
-          skillCount: parsedData.skills.length,
-          averageScore:
-            parsedData.skills.reduce((sum, s) => sum + (s.score || 0), 0) /
-            parsedData.skills.length,
-        },
-      });
-    }
-    for (const edu of parsedData.education)
-      await educationService.addEducation(candidate.candidateId, edu);
-    for (const exp of parsedData.experience)
-      await experienceService.addExperience(candidate.candidateId, exp);
-    for (const cert of parsedData.certifications)
-      await certificationService.addCertification(candidate.candidateId, cert);
-    for (const strength of parsedData.strengths)
-      await strengthWeaknessService.addStrength(
-        candidate.candidateId,
-        strength
-      );
-    for (const weakness of parsedData.weaknesses)
-      await strengthWeaknessService.addWeakness(
-        candidate.candidateId,
-        weakness
-      );
-
-    // Notify assigned HR users that AI analysis is complete
-    try {
-      const { NotificationService } = await import(
-        "../services/NotificationService"
-      );
-      const { NotificationRepository } = await import(
-        "../repositories/NotificationRepository"
-      );
-      const { NotificationPreferencesRepository } = await import(
-        "../repositories/NotificationPreferencesRepository"
-      );
-      const { WebhookRepository } = await import(
-        "../repositories/WebhookRepository"
-      );
-      const { getAssignedHRUsers } = await import(
-        "../utils/NotificationHelpers"
-      );
-      const { NotificationType } = await import(
-        "../Models/enums/NotificationTypes"
-      );
-      const db = await connectDB();
-
-      const notificationRepo = new NotificationRepository(
-        db.collection("notifications")
-      );
-      const preferencesRepo = new NotificationPreferencesRepository(
-        db.collection("notificationPreferences")
-      );
-      const webhookRepo = new WebhookRepository(db.collection("webhooks"));
-      const notificationService = new NotificationService(
-        notificationRepo,
-        preferencesRepo,
-        webhookRepo
-      );
-
-      const assignedUsers = await getAssignedHRUsers(candidate.candidateId);
-      for (const hrUser of assignedUsers) {
-        await notificationService.notifyCandidateEvent(
-          NotificationType.CANDIDATE_AI_ANALYSIS_COMPLETE,
-          hrUser.userId,
-          candidate.candidateId,
-          name,
-          {
-            skillsFound: parsedData.skills.length,
-            educationFound: parsedData.education.length,
-            experienceFound: parsedData.experience.length,
-            certificationsFound: parsedData.certifications.length,
-          }
-        );
-      }
-    } catch (notifError) {
-      console.error(
-        "Failed to send CANDIDATE_AI_ANALYSIS_COMPLETE notification:",
-        notifError
-      );
-    }
+      file: req.file,
+      socialLinks: parsedSocialLinks,
+      userId: user?.userId,
+      userEmail: user?.email,
+    });
 
     res.status(CREATED).json({
       success: true,

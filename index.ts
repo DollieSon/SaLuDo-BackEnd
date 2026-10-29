@@ -20,6 +20,7 @@ import webhooksRouter from "./routes/webhooks";
 import dashboardRouter from "./routes/dashboard";
 import settingsRouter from "./routes/settings";
 import aiMetricsRouter from "./routes/ai-metrics";
+import publicRouter from "./routes/public";
 import dotenv from "dotenv";
 import { connectDB } from "./mongo_db";
 import { TokenBlacklistRepository } from "./repositories/TokenBlacklistRepository";
@@ -178,6 +179,8 @@ app.get("/api/data", (req: Request, res: Response) => {
   res.json({ message: "Here is your data." });
 });
 
+// Deliberately unauthenticated: job application form only (rate-limited)
+app.use("/api/public", publicRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/jobs", jobRouter); // Changed from /api/job to /api/jobs
 app.use("/api/candidates", candidatesRouter);
