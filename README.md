@@ -6,7 +6,7 @@ A Node.js/TypeScript backend API for the SaLuDo application with MongoDB databas
 
 ### Prerequisites
 
-- **Node.js** (v16 or higher)
+- **Node.js** 24 (the version used by the Dockerfile and Render)
 - **npm** or **yarn**
 - **Docker** (for local MongoDB)
 - **Git**
@@ -24,7 +24,13 @@ A Node.js/TypeScript backend API for the SaLuDo application with MongoDB databas
    npm install
    ```
 
-3. **Choose your database setup** (see options below)
+3. **Create `.env.local`** with at least a JWT secret (the server refuses to start without one):
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+   ```
+   See [Environment Configuration](#-environment-configuration) for the full list.
+
+4. **Choose your database setup** (see options below)
 
 ## 🗄️ Database Setup Options
 
@@ -32,11 +38,11 @@ A Node.js/TypeScript backend API for the SaLuDo application with MongoDB databas
 
 **Step 1: Start Local MongoDB**
 ```bash
-# Start MongoDB container
-npm run db:up
+# Start MongoDB (and Redis) containers
+docker-compose up -d
 
 # Verify it's running
-npm run db:logs
+docker-compose logs -f mongodb
 ```
 
 **Step 2: Run with Local Database**
@@ -54,7 +60,7 @@ API available at: http://localhost:3000
 
 **Step 3: Stop Database (when done)**
 ```bash
-npm run db:down
+docker-compose down
 ```
 
 ### Option 2: Remote Database (MongoDB Atlas)
@@ -89,13 +95,16 @@ npm run dev:remote
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Run with current .env settings |
-| `npm run dev:local` | Run with local Docker MongoDB |
-| `npm run dev:remote` | Run with remote MongoDB |
+| `npm run dev:local` | Run API + email worker with `.env.local` (local Docker MongoDB) |
+| `npm run dev:remote` | Run with `.env.production` (remote MongoDB) |
+| `npm run worker:local` | Run the email worker alone (needs Redis) |
 | `npm run build` | Build TypeScript to JavaScript |
 | `npm run start` | Build and run production server |
-| `npm run db:up` | Start local MongoDB container |
-| `npm run db:down` | Stop local MongoDB container |
-| `npm run db:logs` | View MongoDB container logs |
+| `npm test` | Run the test suite (Vitest, in-memory MongoDB) |
+| `npm run test:watch` | Run tests in watch mode |
+| `npx tsc --noEmit` | Type-check without building |
+
+MongoDB/Redis containers are managed with `docker-compose` directly (see [Docker Setup](#-docker-setup)).
 
 ## 🔧 Environment Configuration
 
@@ -108,6 +117,9 @@ Currently active environment settings. Gets overwritten by dev scripts.
 ```env
 MONGO_URI=mongodb://admin:password@localhost:27017/SaLuDoTesting?authSource=admin
 PORT=3000
+JWT_SECRET=<random 64-byte hex - required>
+JWT_REFRESH_SECRET=<a different random value - recommended>
+GOOGLE_API_KEY=<Gemini API key>
 ```
 
 ### `.env.production` (Remote Database)
@@ -115,7 +127,27 @@ PORT=3000
 MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/SaLuDoTesting?retryWrites=true&w=majority
 PORT=3000
 NODE_ENV=production
+JWT_SECRET=<required>
+JWT_REFRESH_SECRET=<recommended>
+GOOGLE_API_KEY=<required>
+CORS_ORIGIN=https://your-frontend.example
 ```
+
+### All Variables
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `JWT_SECRET` | Always | Server exits if missing or a placeholder |
+| `JWT_REFRESH_SECRET` | Recommended | Must differ from `JWT_SECRET`; derived from it if unset |
+| `MONGO_URI` | Yes | |
+| `GOOGLE_API_KEY` | Yes | Gemini API key |
+| `CORS_ORIGIN` | Production | Frontend origin(s), comma-separated; dev defaults to `http://localhost:5173` |
+| `PORT`, `NODE_ENV` | No | Defaults 3000 / development |
+| `REFRESH_COOKIE_SAMESITE` | No | `strict` / `lax` / `none`; detected automatically |
+| `VIDEO_ANALYSIS_MAX_MB` | No | AI video analysis size cap (default 100) |
+| `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | For email | BullMQ email queue |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | For email | Note: the code reads `SMTP_PASSWORD` |
+| `APP_URL`, `APP_NAME`, `DAILY_DIGEST_TIME`, `WEEKLY_DIGEST_TIME` | No | Email links and digest schedule |
+| `ALLOW_SEED_USERS` | No | Set `true` only to run `seed-users.ts` in production |
 
 ## 🐳 Docker Setup
 
@@ -126,15 +158,18 @@ The project includes a `docker-compose.yml` for local MongoDB:
 ```yaml
 services:
   mongodb:
-    image: mongo:latest
+    image: mongo:8.0
     container_name: saludo-mongodb
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"   # only reachable from this machine
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-password}
       MONGO_INITDB_DATABASE: SaLuDoTesting
+  # redis: redis:7.4-alpine on 127.0.0.1:6379 (requires REDIS_PASSWORD if you set one)
 ```
+
+If your existing local volume was created by a newer MongoDB version, raise the image tag accordingly.
 
 ### Docker Commands
 
@@ -151,6 +186,22 @@ docker-compose logs -f mongodb
 # Remove containers and volumes
 docker-compose down -v
 ```
+
+## 🧪 Tests
+
+```bash
+npm test
+```
+
+The suite (Vitest + Supertest) starts its own in-memory MongoDB, so no Docker, Redis or Gemini key is needed. The first run downloads a `mongod` binary, which is cached afterwards. It covers authentication and sessions, login throttling, candidate/comment access control, the public applicant endpoints, HTTP hardening, the video analysis cap and the security utilities. Tests live in `tests/`; the Express app they use is built by `app.ts`.
+
+## 🔒 Security Notes
+
+- Every API route requires `Authorization: Bearer <token>` except `/api/public/*` (applicant form) and `/api/users/auth/login|refresh`.
+- Access tokens last 15 minutes. The refresh token is an HttpOnly cookie (`saludo_refresh`), never part of a response body; the frontend calls `POST /api/users/auth/refresh` with `credentials: "include"`.
+- Non-manager roles only see candidates assigned to them (including files and comments).
+- Failed logins are throttled per email + IP; all failures return the same message.
+- Security headers (helmet, strict CSP) and a CORS allow-list are applied in `app.ts`.
 
 ## 🔍 Database Connection Verification
 
@@ -226,12 +277,15 @@ show collections
 
 ```
 SaLuDo-BackEnd/
-├── Models/              # Database models
-├── routes/              # API route handlers
+├── index.ts             # Env checks + server startup
+├── app.ts               # Express app (middleware + routers)
+├── Models/              # Types, classes and constants
+├── routes/              # API route handlers + middleware/
 ├── services/            # Business logic
 ├── repositories/        # Database access layer
-├── tests/               # Test files
-├── docker-compose.yml   # Local MongoDB setup
+├── utils/               # Shared helpers (security config, SSRF guard, ...)
+├── tests/               # Vitest suite
+├── docker-compose.yml   # Local MongoDB + Redis setup
 ├── .env.local          # Local development config
 ├── .env.production     # Remote database config
 └── README.md           # This file
@@ -247,7 +301,13 @@ Set these in your deployment platform:
 MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/SaLuDoTesting?retryWrites=true&w=majority
 PORT=3000
 NODE_ENV=production
+JWT_SECRET=<required>
+JWT_REFRESH_SECRET=<recommended>
+GOOGLE_API_KEY=<required>
+CORS_ORIGIN=https://your-frontend.example
 ```
+
+On Render, `render.yaml` builds with `npm ci && npm run build` and starts `node dist/index.js` on Node 24; set the secrets above in the dashboard. The Docker image (`Dockerfile`) uses `node:24-slim` and runs as a non-root user.
 
 ### Build for Production
 
@@ -262,7 +322,7 @@ npm start
 2. Create a feature branch
 3. Use local development setup
 4. Make your changes
-5. Test with both local and remote databases
+5. Run `npx tsc --noEmit` and `npm test`
 6. Submit a pull request
 
 ## 📞 Support
