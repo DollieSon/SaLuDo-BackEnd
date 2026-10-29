@@ -1,4 +1,5 @@
 import { Db } from 'mongodb';
+import { escapeRegex } from '../utils/escapeRegex';
 import { BaseRepository } from './BaseRepository';
 import { PersonalInfoData, ResumeData, InterviewData, CandidateStatus } from '../Models/Candidate';
 export class PersonalInfoRepository extends BaseRepository<PersonalInfoData, Omit<PersonalInfoData, 'candidateId' | 'dateCreated' | 'dateUpdated'>, PersonalInfoData> {
@@ -84,7 +85,7 @@ export class ResumeRepository extends BaseRepository<ResumeData, Omit<ResumeData
     }
     async findBySkill(skillName: string): Promise<ResumeData[]> {
         const results = await this.getCollection()
-            .find({ 'skills.skillName': { $regex: skillName, $options: 'i' } })
+            .find({ 'skills.skillName': { $regex: escapeRegex(skillName), $options: 'i' } })
             .toArray();
         return results as unknown as ResumeData[];
     }

@@ -158,7 +158,7 @@ export class RefreshTokenService {
             action: 'Token refresh failed',
             error: validation.reason,
             metadata: {
-              tokenPreview: refreshToken.substring(0, 20) + '...'
+              tokenLength: refreshToken.length
             }
           },
           false // failure

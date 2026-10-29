@@ -1,6 +1,6 @@
 // geminiTranscriptService.ts
-import fetch from 'node-fetch';
 import { PersonalityData, Trait } from '../Models/PersonalityTypes';
+import { UNTRUSTED_CONTENT_NOTICE, wrapUntrustedContent } from '../utils/promptSafety';
 import { AuditLogger } from '../utils/AuditLogger';
 import { AuditEventType } from '../types/AuditEventTypes';
 import { GeminiClientService } from './GeminiClientService';
@@ -280,10 +280,10 @@ Respond ONLY with valid JSON that exactly matches this structure:
 
 Analyze the transcript and fill in appropriate scores (0.0-10.0) and evidence for each trait. Use current timestamp for createdAt and updatedAt.
 
-Transcript:
-"""
-${transcriptText}
-"""`;
+${UNTRUSTED_CONTENT_NOTICE}
+
+The transcript is between the UNTRUSTED_TRANSCRIPT tags:
+${wrapUntrustedContent('transcript', transcriptText)}`;
 
   // Call Gemini API using centralized client with metrics tracking
   const geminiClient = GeminiClientService.getInstance();

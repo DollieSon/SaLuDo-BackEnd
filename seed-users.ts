@@ -5,7 +5,7 @@
 // Usage: docker compose exec backend node dist/seed-users.js
 // =======================
 
-const bcrypt = require("bcrypt");
+import { PasswordUtils } from "./routes/middleware/passwordUtils";
 import { connectDB } from "./mongo_db";
 import { UserRepository } from "./repositories/UserRepository";
 import { UserRole } from "./Models/User";
@@ -13,7 +13,7 @@ import { UserRole } from "./Models/User";
 const sampleUsers = [
   {
     email: "admin@saludo.com",
-    password: "Admin123!",
+    password: PasswordUtils.generateTemporaryPassword(16),
     firstName: "John",
     lastName: "Admin",
     title: "System Administrator",
@@ -21,7 +21,7 @@ const sampleUsers = [
   },
   {
     email: "hr.manager@saludo.com",
-    password: "Manager123!",
+    password: PasswordUtils.generateTemporaryPassword(16),
     firstName: "Sarah",
     lastName: "Johnson",
     title: "HR Manager",
@@ -29,7 +29,7 @@ const sampleUsers = [
   },
   {
     email: "hr.user@saludo.com",
-    password: "HRUser123!",
+    password: PasswordUtils.generateTemporaryPassword(16),
     firstName: "Mike",
     lastName: "Davis",
     title: "HR Assistant",
@@ -37,7 +37,7 @@ const sampleUsers = [
   },
   {
     email: "recruiter@saludo.com",
-    password: "Recruit123!",
+    password: PasswordUtils.generateTemporaryPassword(16),
     firstName: "Emma",
     lastName: "Wilson",
     title: "Senior Recruiter",
@@ -45,7 +45,7 @@ const sampleUsers = [
   },
   {
     email: "interviewer@saludo.com",
-    password: "Interview123!",
+    password: PasswordUtils.generateTemporaryPassword(16),
     firstName: "David",
     lastName: "Martinez",
     title: "Technical Interviewer",
@@ -56,6 +56,12 @@ const sampleUsers = [
 async function seedUsers() {
   try {
     console.log("\n=== SaLuDo User Seeding ===\n");
+
+    // Demo accounts must never be created on a production database
+    if (process.env.NODE_ENV === "production" && process.env.ALLOW_SEED_USERS !== "true") {
+      console.error("Refusing to seed demo users with NODE_ENV=production.");
+      process.exit(1);
+    }
 
     // Connect to database
     const db = await connectDB();
@@ -77,7 +83,7 @@ async function seedUsers() {
       }
 
       // Hash the password
-      const passwordHash = await bcrypt.hash(userData.password, 10);
+      const passwordHash = await PasswordUtils.hashPassword(userData.password);
 
       // Create user
       const newUser = await userRepository.createUser({
@@ -110,7 +116,7 @@ async function seedUsers() {
 
     if (created > 0) {
       console.log("🎉 Sample users created successfully!\n");
-      console.log("Login credentials:\n");
+      console.log("Login credentials (randomly generated, shown only once):\n");
       sampleUsers.forEach((user) => {
         console.log(`${user.role.toUpperCase()}:`);
         console.log(`  Email: ${user.email}`);

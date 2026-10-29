@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { escapeRegex } from "../utils/escapeRegex";
 import rateLimit from "express-rate-limit";
 import { CommentService } from "../services/CommentService";
 import {
@@ -173,6 +174,7 @@ router.get(
     }
 
     const searchQuery = query.trim();
+    const safeSearchQuery = escapeRegex(searchQuery);
     if (searchQuery.length < MIN_AUTOCOMPLETE_QUERY_LENGTH) {
       res.status(BAD_REQUEST).json({
         success: false,
@@ -192,9 +194,9 @@ router.get(
           { isActive: true, isDeleted: false },
           {
             $or: [
-              { firstName: { $regex: searchQuery, $options: "i" } },
-              { lastName: { $regex: searchQuery, $options: "i" } },
-              { email: { $regex: searchQuery, $options: "i" } },
+              { firstName: { $regex: safeSearchQuery, $options: "i" } },
+              { lastName: { $regex: safeSearchQuery, $options: "i" } },
+              { email: { $regex: safeSearchQuery, $options: "i" } },
             ],
           },
         ],

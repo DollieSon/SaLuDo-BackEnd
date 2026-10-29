@@ -1,5 +1,4 @@
 import { Buffer } from "buffer";
-import fetch from "node-fetch";
 import { InferredJobSkill, GeminiResponse } from './types/GeminiTypes';
 import { GeminiClientService } from './GeminiClientService';
 import { AIServiceType } from '../Models/AIMetrics';

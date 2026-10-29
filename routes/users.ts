@@ -30,6 +30,11 @@ import {
 } from "../constants/HttpStatusCodes";
 import { PasswordUtils } from "./middleware/passwordUtils";
 import {
+  getRefreshCookieOptions,
+  readCookie,
+  REFRESH_TOKEN_COOKIE,
+} from "../utils/securityConfig";
+import {
   authRateLimit,
   userOperationRateLimit,
   passwordChangeRateLimit,
@@ -37,7 +42,11 @@ import {
   accountCreationRateLimit,
 } from "./middleware/rateLimiter";
 import { UserRole, User } from "../Models/User";
-import multer from "multer";
+import {
+  createMemoryUpload,
+  UPLOAD_LIMITS,
+  verifyFileSignature,
+} from "./middleware/uploadSecurity";
 import { validation } from "./middleware/validation";
 import ProfileService from "../services/ProfileService";
 import { AuditLogger } from "../utils/AuditLogger";
@@ -60,6 +69,37 @@ const LOGIN_ERROR_CODES = {
   ACCOUNT_INACTIVE: "ACCOUNT_INACTIVE",
   ACCOUNT_DELETED: "ACCOUNT_DELETED",
 } as const;
+
+// One response for every login failure (unknown email, wrong password, locked,
+// inactive or deleted account) so the endpoint can't be used to discover accounts.
+const GENERIC_LOGIN_FAILURE_MESSAGE =
+  "Invalid email or password. After several failed attempts the account is temporarily locked.";
+
+// Compared against when the email is unknown (or the account can't log in), so
+// response timing doesn't reveal which accounts exist
+const dummyPasswordHash = PasswordUtils.hashPassword(
+  PasswordUtils.generateTemporaryPassword(32)
+);
+const burnPasswordCheck = async (password: string) => {
+  await PasswordUtils.verifyPassword(password, await dummyPasswordHash);
+};
+
+const sendGenericLoginFailure = (res: Response) =>
+  sendLoginError(
+    res,
+    UNAUTHORIZED,
+    GENERIC_LOGIN_FAILURE_MESSAGE,
+    LOGIN_ERROR_CODES.INVALID_CREDENTIALS
+  );
+
+const setRefreshTokenCookie = (res: Response, refreshToken: string) => {
+  res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, getRefreshCookieOptions());
+};
+
+const clearRefreshTokenCookie = (res: Response) => {
+  const { maxAge, ...options } = getRefreshCookieOptions();
+  res.clearCookie(REFRESH_TOKEN_COOKIE, options);
+};
 
 const LOGIN_STATUS = {
   SUCCESS: "Success",
@@ -96,10 +136,7 @@ const logLoginAttempt = (
 };
 
 // Multer configuration for profile photo uploads
-const photoUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-});
+const photoUpload = createMemoryUpload(UPLOAD_LIMITS.PHOTO);
 
 // Initialize services
 const initializeService = async () => {
@@ -148,10 +185,11 @@ router.post(
   "/auth/login",
   authRateLimit, // Apply strict rate limiting to login attempts
   asyncHandler(async (req: Request, res: Response) => {
-    const { email: rawEmail, password } = req.body;
-    const email = rawEmail?.trim().toLowerCase(); // Normalize email: trim and lowercase
+    const { email: rawEmail, password } = req.body ?? {};
+    const email =
+      typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : ""; // Normalize email: trim and lowercase
 
-    if (!email || !password) {
+    if (!email || typeof password !== "string" || !password || password.length > 256) {
       logLoginAttempt(rawEmail, "FAILED", "Email and password are required");
       res.status(BAD_REQUEST).json({
         success: false,
@@ -166,13 +204,9 @@ router.post(
     const userData = await userRepository.getUserByEmail(email);
 
     if (!userData) {
+      await burnPasswordCheck(password);
       logLoginAttempt(email, "FAILED", "Failed To Fetch User / User Not Found");
-      sendLoginError(
-        res,
-        UNAUTHORIZED,
-        "Invalid email or password",
-        LOGIN_ERROR_CODES.INVALID_CREDENTIALS
-      );
+      sendGenericLoginFailure(res);
       return;
     }
 
@@ -180,21 +214,13 @@ router.post(
 
     // Check if account is locked
     if (user.isAccountLocked()) {
+      await burnPasswordCheck(password);
       logLoginAttempt(
         email,
         "FAILED",
         "Account is temporarily locked due to too many failed login attempts"
       );
-      sendLoginError(
-        res,
-        LOCKED,
-        "Your account is temporarily locked because of too many failed login attempts. Try again after the lock expires or reset your password if you do not recognize the attempts.",
-        LOGIN_ERROR_CODES.ACCOUNT_LOCKED,
-        {
-          lockedUntil: user.accountLockedUntil?.toISOString(),
-          failedLoginAttempts: user.failedLoginAttempts,
-        }
-      );
+      sendGenericLoginFailure(res);
       return;
     }
 
@@ -207,16 +233,8 @@ router.post(
           ? "Account has been deleted"
           : "Account is inactive"
       );
-      sendLoginError(
-        res,
-        UNAUTHORIZED,
-        user.isDeleted
-          ? "This account has been deleted and can no longer sign in. Contact support if you believe this is a mistake."
-          : "This account is inactive. Contact an administrator to restore access.",
-        user.isDeleted
-          ? LOGIN_ERROR_CODES.ACCOUNT_DELETED
-          : LOGIN_ERROR_CODES.ACCOUNT_INACTIVE
-      );
+      await burnPasswordCheck(password);
+      sendGenericLoginFailure(res);
       return;
     }
 
@@ -225,13 +243,6 @@ router.post(
       password,
       user.passwordHash
     );
-
-    // DEBUG: Log password verification result
-    if (!isValidPassword) {
-      console.warn(
-        `[DEBUG] Password verification failed for user ${email}. Stored hash exists: ${!!user.passwordHash}`
-      );
-    }
 
     if (!isValidPassword) {
       // Increment failed login attempts
@@ -307,25 +318,9 @@ router.post(
           "FAILED",
           "Account locked after too many failed login attempts"
         );
-        sendLoginError(
-          res,
-          LOCKED,
-          "Your account is temporarily locked because of too many failed login attempts. Try again after the lock expires or reset your password if you do not recognize the attempts.",
-          LOGIN_ERROR_CODES.ACCOUNT_LOCKED,
-          {
-            lockedUntil: user.accountLockedUntil?.toISOString(),
-            failedLoginAttempts: user.failedLoginAttempts,
-          }
-        );
-        return;
       }
 
-      sendLoginError(
-        res,
-        UNAUTHORIZED,
-        "Invalid email or password",
-        LOGIN_ERROR_CODES.INVALID_CREDENTIALS
-      );
+      sendGenericLoginFailure(res);
       return;
     }
 
@@ -373,13 +368,16 @@ router.post(
       }
     );
 
+    // The refresh token is only ever sent as an HttpOnly cookie, so page scripts
+    // (and any XSS) can't read it
+    setRefreshTokenCookie(res, refreshToken);
+
     res.json({
       success: true,
       message: "Login successful",
       data: {
         user: user.getProfile(),
         accessToken,
-        refreshToken,
         accessTokenExpiry,
         refreshTokenExpiry,
         // Legacy field for backward compatibility
@@ -394,10 +392,15 @@ router.post(
   "/auth/refresh",
   authRateLimit, // Apply rate limiting for security
   asyncHandler(async (req: Request, res: Response) => {
-    const { refreshToken } = req.body;
+    // Cookie first; the body is still accepted so sessions created before the
+    // cookie change can migrate once
+    const bodyToken = req.body?.refreshToken;
+    const refreshToken =
+      readCookie(req.headers.cookie, REFRESH_TOKEN_COOKIE) ||
+      (typeof bodyToken === "string" ? bodyToken : undefined);
 
     if (!refreshToken) {
-      res.status(BAD_REQUEST).json({
+      res.status(UNAUTHORIZED).json({
         success: false,
         message: "Refresh token is required",
       });
@@ -433,6 +436,7 @@ router.post(
       );
 
       if (!newTokenPair) {
+        clearRefreshTokenCookie(res);
         res.status(UNAUTHORIZED).json({
           success: false,
           message: "Invalid or expired refresh token",
@@ -440,12 +444,13 @@ router.post(
         return;
       }
 
+      setRefreshTokenCookie(res, newTokenPair.refreshToken);
+
       res.json({
         success: true,
         message: "Token refreshed successfully",
         data: {
           accessToken: newTokenPair.accessToken,
-          refreshToken: newTokenPair.refreshToken,
           accessTokenExpiry: newTokenPair.accessTokenExpiry,
           refreshTokenExpiry: newTokenPair.refreshTokenExpiry,
         },
@@ -1043,6 +1048,7 @@ router.post(
   UserValidation.validateUserId,
   AuthMiddleware.requireOwnershipOrAdmin,
   photoUpload.single("photo"),
+  verifyFileSignature,
   validation.validateProfilePhoto,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { userId } = req.params;
@@ -1112,7 +1118,8 @@ router.post(
 // Get profile photo
 router.get(
   "/:userId/profile/photo",
-  asyncHandler(async (req: Request, res: Response) => {
+  AuthMiddleware.authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { userId } = req.params;
     const { thumbnail } = req.query;
 
@@ -1139,7 +1146,8 @@ router.get(
 
     // Set content type header
     res.set("Content-Type", metadata.contentType || "image/jpeg");
-    res.set("Cache-Control", "public, max-age=86400"); // Cache for 1 day
+    res.set("Cache-Control", "private, max-age=86400"); // Browser-only cache for 1 day
+    res.set("X-Content-Type-Options", "nosniff");
 
     // Pipe the stream to response
     stream.pipe(res);
@@ -1332,8 +1340,12 @@ router.post(
   authRateLimit, // Prevent logout abuse
   AuthMiddleware.authenticate,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const token = req.header("Authorization")?.replace("Bearer ", "");
-    const { refreshToken, revokeAllSessions = false } = req.body;
+    const token = AuthMiddleware.extractBearerToken(req);
+    const { revokeAllSessions = false } = req.body ?? {};
+    const bodyRefreshToken = req.body?.refreshToken;
+    const refreshToken =
+      readCookie(req.headers.cookie, REFRESH_TOKEN_COOKIE) ||
+      (typeof bodyRefreshToken === "string" ? bodyRefreshToken : undefined);
     const userId = req.userId!;
 
     if (!token) {
@@ -1424,6 +1436,7 @@ router.post(
         }
       );
 
+      clearRefreshTokenCookie(res);
       res.json({
         success: true,
         message: revokeAllSessions

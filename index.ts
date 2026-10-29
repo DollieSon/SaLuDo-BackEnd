@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import { createServer } from "http";
 import cors from "cors";
+import helmet from "helmet";
 import usersRouter from "./routes/users";
 import jobRouter from "./routes/job";
 import candidatesRouter from "./routes/candidates";
@@ -23,6 +24,8 @@ import dotenv from "dotenv";
 import { connectDB } from "./mongo_db";
 import { TokenBlacklistRepository } from "./repositories/TokenBlacklistRepository";
 import { webSocketService } from "./services/WebSocketService";
+import { errorHandler } from "./routes/middleware/errorHandler";
+import { getAllowedOrigins, validateJwtConfig } from "./utils/securityConfig";
 
 console.log('='.repeat(60));
 console.log('APPLICATION STARTING...');
@@ -39,16 +42,16 @@ console.log("Checking environment variables...");
 const missingVars = [];
 const warnings = [];
 
-// Critical variables that must be set
-if (
-  !process.env.JWT_SECRET ||
-  process.env.JWT_SECRET === "your-jwt-secret-change-in-production"
-) {
-  missingVars.push("JWT_SECRET");
-  console.error("CRITICAL: JWT_SECRET not set or using default value");
+// JWT secrets are required in EVERY environment: a missing or placeholder
+// secret lets anyone forge tokens, including admin tokens.
+const jwtProblems = validateJwtConfig();
+if (jwtProblems.length > 0) {
+  jwtProblems.forEach((problem) => console.error(`CRITICAL: ${problem}`));
   console.error(
     "   Generate: node -e \"console.log(require('crypto').randomBytes(64).toString('hex'))\""
   );
+  console.error("REFUSING TO START WITHOUT VALID JWT SECRETS");
+  process.exit(1);
 }
 
 if (!process.env.MONGO_URI) {
@@ -64,6 +67,13 @@ if (!process.env.GOOGLE_API_KEY) {
   console.error("CRITICAL: GOOGLE_API_KEY not set - AI services will fail");
   console.error(
     "   Get key from: https://console.cloud.google.com/apis/credentials"
+  );
+}
+
+if (nodeEnv === "production" && getAllowedOrigins().length === 0) {
+  missingVars.push("CORS_ORIGIN");
+  console.error(
+    "CRITICAL: CORS_ORIGIN not set - set it to the frontend origin(s), comma-separated"
   );
 }
 
@@ -102,12 +112,6 @@ if (missingVars.length > 0) {
   }
 } else {
   console.log("✓ All critical environment variables are set.");
-  
-  // Display last 5 characters of JWT_SECRET for verification (without exposing full secret)
-  if (process.env.JWT_SECRET) {
-    const jwtSecretSuffix = process.env.JWT_SECRET.slice(-5);
-    console.log(`✓ JWT_SECRET loaded (ends with: ...${jwtSecretSuffix})`);
-  }
 }
 const mongoUri = process.env.MONGO_URI;
 const isLocal =
@@ -136,15 +140,41 @@ if (nodeEnv === 'production') {
   console.log('✓ Trust proxy enabled (1 hop) for production');
 }
 
-app.use(cors());
-app.use(express.json());
+// Security headers. The API only serves JSON and files, so the CSP can be strict.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    crossOriginResourcePolicy: { policy: "same-site" },
+  })
+);
+
+// Only the configured frontend origin(s) may call the API from a browser
+const allowedOrigins = getAllowedOrigins();
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Non-browser clients (curl, server-to-server) send no Origin header
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
+    credentials: true, // needed for the HttpOnly refresh-token cookie
+  })
+);
+app.use(express.json({ limit: "1mb" }));
 
 app.get("/", (req: Request, res: Response) => {
   res.send("Hello from Render!");
 });
 
 app.get("/api/data", (req: Request, res: Response) => {
-  console.log("something heheh");
   res.json({ message: "Here is your data." });
 });
 
@@ -167,6 +197,9 @@ app.use("/api/webhooks", webhooksRouter); // Webhook configuration routes
 app.use("/api/dashboard", dashboardRouter); // Dashboard statistics routes (admin-only)
 app.use("/api/settings", settingsRouter); // Scoring settings and preferences routes
 app.use("/api/ai-metrics", aiMetricsRouter); // AI metrics and performance tracking routes (admin-only)
+
+// Fallback error handler for routers without their own (keeps stack traces out of responses)
+app.use(errorHandler);
 
 // Function to start the server with database connection
 async function startServer() {

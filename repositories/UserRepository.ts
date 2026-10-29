@@ -1,4 +1,5 @@
 import { Db } from 'mongodb';
+import { escapeRegex } from '../utils/escapeRegex';
 import { BaseRepository } from './BaseRepository';
 import { UserData, CreateUserData, UpdateUserData, UserRole, User } from '../Models/User';
 
@@ -134,11 +135,12 @@ export class UserRepository extends BaseRepository<UserData, CreateUserData, Upd
     }
     
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { title: { $regex: search, $options: 'i' } }
+        { firstName: { $regex: safeSearch, $options: 'i' } },
+        { lastName: { $regex: safeSearch, $options: 'i' } },
+        { email: { $regex: safeSearch, $options: 'i' } },
+        { title: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 

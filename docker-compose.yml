@@ -1,27 +1,34 @@
 services:
   mongodb:
-    image: mongo:latest
+    image: mongo:8.0
     container_name: saludo-mongodb
     restart: always
+    # Bound to localhost only: the database must not be reachable from the network
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-password}
       MONGO_INITDB_DATABASE: SaLuDoTesting
     volumes:
       - mongodb_data:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d
 
   redis:
-    image: redis:alpine
+    image: redis:7.4-alpine
     container_name: saludo-redis
     restart: always
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    environment:
+      # Set REDIS_PASSWORD (and the same value in .env.local) to require auth
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes $${REDIS_PASSWORD:+--requirepass "$$REDIS_PASSWORD"}
 
 volumes:
   mongodb_data:

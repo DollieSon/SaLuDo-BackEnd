@@ -2,20 +2,26 @@ import { Router, Request, Response } from "express";
 import { SkillService } from "../services/SkillService";
 import { AddedBy } from "../Models/Skill";
 import { asyncHandler, errorHandler } from "./middleware/errorHandler";
-import { candidateExists } from "./middleware/candidateExists";
+import { CandidateAccessMiddleware } from "./middleware/candidateAccess";
 import { validation } from "./middleware/validation";
 import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
 import { AuditLogger } from "../utils/AuditLogger";
 import { AuditEventType } from "../types/AuditEventTypes";
+import { UserRole } from "../Models/User";
+import { CandidateService } from "../services/CandidateService";
 const router = Router();
+
+// Every route requires an authenticated user; candidate routes also check assignment
+router.use(AuthMiddleware.authenticate);
 import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const skillService = new SkillService();
+const candidateService = new CandidateService();
 // ====================
 // SKILLS ENDPOINTS
 // ====================
 router.get(
   "/:candidateId/skills",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId } = req.params;
     const includeUnaccepted = req.query.includeUnaccepted !== "false"; // Default to true
@@ -29,7 +35,7 @@ router.get(
 router.post(
   "/:candidateId/skills",
   AuthMiddleware.authenticate,
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   validation.requireFields(["skillName", "score"]),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
@@ -76,7 +82,7 @@ router.post(
 router.post(
   "/:candidateId/skills/bulk",
   AuthMiddleware.authenticate,
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   validation.requireFields(["skills"]),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
@@ -132,7 +138,7 @@ router.post(
 router.put(
   "/:candidateId/skills/:candidateSkillId",
   AuthMiddleware.authenticate,
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, candidateSkillId } = req.params;
     const updateData = req.body;
@@ -173,7 +179,7 @@ router.put(
 router.delete(
   "/:candidateId/skills/:candidateSkillId",
   AuthMiddleware.authenticate,
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, candidateSkillId } = req.params;
     const user = req.user;
@@ -206,7 +212,7 @@ router.delete(
 router.patch(
   "/:candidateId/skills/:candidateSkillId/restore",
   AuthMiddleware.authenticate,
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, candidateSkillId } = req.params;
     const user = req.user;
@@ -238,7 +244,7 @@ router.patch(
 router.delete(
   "/:candidateId/skills/:candidateSkillId/hard",
   AuthMiddleware.authenticate,
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, candidateSkillId } = req.params;
     const user = req.user;
@@ -268,7 +274,7 @@ router.delete(
 );
 router.get(
   "/:candidateId/skills/threshold/:threshold",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, threshold } = req.params;
     const includeUnaccepted = req.query.includeUnaccepted !== "false";
@@ -306,9 +312,20 @@ router.get(
 );
 router.get(
   "/candidates/:skillName",
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { skillName } = req.params;
-    const results = await skillService.getCandidatesWithSkill(skillName);
+    const user = req.user!;
+    let results = await skillService.getCandidatesWithSkill(skillName);
+
+    // Roles limited to assigned candidates only see their own candidates here too
+    if (user.role !== UserRole.HR_MANAGER && user.role !== UserRole.ADMIN) {
+      const assigned = await candidateService.getCandidatesAssignedToHRUser(
+        user.userId
+      );
+      const assignedIds = new Set(assigned.map((c) => c.candidateId));
+      results = results.filter((r) => assignedIds.has(r.candidateId));
+    }
+
     res.json({
       success: true,
       data: results,
@@ -348,6 +365,7 @@ router.get(
 );
 router.put(
   "/master/:skillId",
+  AuthMiddleware.requireAnyRole(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.HR_USER),
   asyncHandler(async (req: Request, res: Response) => {
     const { skillId } = req.params;
     const updateData = req.body;
@@ -427,6 +445,7 @@ router.post(
 // POST /api/skills/master/merge - Merge multiple skills into one
 router.post(
   "/master/merge",
+  AuthMiddleware.requireRole(UserRole.HR_MANAGER), // Irreversible, affects every candidate
   validation.requireFields(["targetSkillId", "sourceSkillIds"]),
   asyncHandler(async (req: Request, res: Response) => {
     const { targetSkillId, sourceSkillIds } = req.body;

@@ -1,15 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { EducationService } from '../services/EducationService';
 import { asyncHandler, errorHandler } from './middleware/errorHandler';
-import { candidateExists } from './middleware/candidateExists';
+import { CandidateAccessMiddleware } from './middleware/candidateAccess';
+import { AuthMiddleware } from './middleware/auth';
 import { validation } from './middleware/validation';
 const router = Router();
+
+// Every route requires an authenticated user; candidate routes also check assignment
+router.use(AuthMiddleware.authenticate);
 const educationService = new EducationService();
 // ====================
 // EDUCATION ENDPOINTS
 // ====================
 router.get('/:candidateId/education',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId } = req.params;
         const education = await educationService.getEducation(candidateId);
@@ -20,7 +24,7 @@ router.get('/:candidateId/education',
     })
 );
 router.post('/:candidateId/education',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     validation.requireFields(['institution', 'startDate']),
     validation.validateDatesMiddleware(['startDate', 'endDate']),
     asyncHandler(async (req: Request, res: Response) => {
@@ -34,7 +38,7 @@ router.post('/:candidateId/education',
     })
 );
 router.put('/:candidateId/education/:eduId',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     validation.validateDatesMiddleware(['startDate', 'endDate']),
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, eduId } = req.params;
@@ -47,7 +51,7 @@ router.put('/:candidateId/education/:eduId',
     })
 );
 router.delete('/:candidateId/education/:eduId',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, eduId } = req.params;
         await educationService.deleteEducation(candidateId, eduId);
@@ -59,7 +63,7 @@ router.delete('/:candidateId/education/:eduId',
 );
 // Restore soft deleted education
 router.patch('/:candidateId/education/:eduId/restore',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, eduId } = req.params;
         await educationService.restoreEducation(candidateId, eduId);
@@ -71,7 +75,7 @@ router.patch('/:candidateId/education/:eduId/restore',
 );
 // Hard delete education (permanent removal)
 router.delete('/:candidateId/education/:eduId/hard',
-    candidateExists,
+    CandidateAccessMiddleware.checkCandidateAccess,
     asyncHandler(async (req: Request, res: Response) => {
         const { candidateId, eduId } = req.params;
         await educationService.hardDeleteEducation(candidateId, eduId);

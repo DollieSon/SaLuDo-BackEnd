@@ -1,20 +1,28 @@
 import { Router, Request, Response } from "express";
 import { CandidateService } from "../services/CandidateService";
+import { PRIVATE_FILE_HEADERS } from "../utils/gridfsDownload";
 import { asyncHandler, errorHandler } from "./middleware/errorHandler";
-import { candidateExists } from "./middleware/candidateExists";
+import { CandidateAccessMiddleware } from "./middleware/candidateAccess";
 import { validation } from "./middleware/validation";
 import { AuthMiddleware, AuthenticatedRequest } from "./middleware/auth";
 import { AuditLogger } from "../utils/AuditLogger";
 import { AuditEventType } from "../types/AuditEventTypes";
-import multer from "multer";
+import {
+  createMemoryUpload,
+  UPLOAD_LIMITS,
+  verifyFileSignature,
+} from "./middleware/uploadSecurity";
 import { analyzeTranscriptWithGemini } from "../services/GeminiTranscriptService";
 import { connectDB } from "../mongo_db";
 import { GridFSBucket, ObjectId } from "mongodb";
-import pdfParse from 'pdf-parse';
+import { extractPdfText } from '../utils/pdfText';
 
 import { OK, CREATED, BAD_REQUEST, UNAUTHORIZED, NOT_FOUND } from "../constants/HttpStatusCodes";
 const router = Router({ mergeParams: true });
-const upload = multer();
+
+// Every route requires an authenticated user; candidate routes also check assignment
+router.use(AuthMiddleware.authenticate);
+const upload = createMemoryUpload(UPLOAD_LIMITS.TRANSCRIPT);
 const candidateService = new CandidateService();
 
 // ====================
@@ -23,9 +31,10 @@ const candidateService = new CandidateService();
 
 router.post(
   "/",
+  CandidateAccessMiddleware.checkCandidateAccess,
   upload.single("transcript"),
-  candidateExists,
   validation.validateTranscriptFile,
+  verifyFileSignature,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId } = req.params;
     const transcriptFile = req.file!;
@@ -45,16 +54,10 @@ router.post(
       text = transcriptFile.buffer.toString("utf-8");
     }else if (transcriptFile.mimetype == "application/pdf") {
       // If the file is a PDF, convert it to a string
-      const pdfBuffer = transcriptFile.buffer;
-      const data = await pdfParse(pdfBuffer);
-      text = data.text;
+      text = await extractPdfText(transcriptFile.buffer);
     }
     var currentPersonality = await candidateService.getCandidatePersonality(candidateId);
     const candidate = await candidateService.getCandidate(candidateId);
-    console.log(`Current personality for candidate ${candidateId}:`, currentPersonality);
-    console.log(`Transcript text for candidate ${candidateId}: ${text.substring(0, 200)}...`);
-
-    console.log('=== DEBUG: Calling analyzeTranscriptWithGemini ===');
     const personality = await analyzeTranscriptWithGemini(
       text,
       candidateId,
@@ -62,13 +65,7 @@ router.post(
       user?.userId,
       user?.email
     );
-    console.log(`=== DEBUG: Gemini response type:`, typeof personality);
-    console.log(`=== DEBUG: Gemini response keys:`, Object.keys(personality || {}));
-    console.log(`=== DEBUG: Full Gemini response:`, JSON.stringify(personality, null, 2));
-    
-    console.log('=== DEBUG: Calling updateCandidatePersonality ===');
     await candidateService.updateCandidatePersonality(candidateId, personality);
-    console.log(`=== DEBUG: Personality update completed successfully ===`);
     
     // Log transcript generation
     await AuditLogger.logAIOperation({
@@ -97,7 +94,7 @@ router.post(
 
 router.get(
   "/",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId } = req.params;
     const transcripts = await candidateService.getAllTranscripts(candidateId);
@@ -111,16 +108,18 @@ router.get(
 
 router.get(
   "/:transcriptId",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, transcriptId } = req.params;
     const { stream, metadata } = await candidateService.getTranscriptFile(
       candidateId,
       transcriptId
     );
+    // res.attachment() safely encodes the user-supplied filename
+    res.attachment(metadata.filename);
     res.set({
+      ...PRIVATE_FILE_HEADERS,
       "Content-Type": metadata.contentType,
-      "Content-Disposition": `attachment; filename="${metadata.filename}"`,
       "Content-Length": metadata.size.toString(),
     });
     stream.pipe(res);
@@ -129,9 +128,10 @@ router.get(
 
 router.put(
   "/:transcriptId",
+  CandidateAccessMiddleware.checkCandidateAccess,
   upload.single("transcript"),
-  candidateExists,
   validation.validateTranscriptFile,
+  verifyFileSignature,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, transcriptId } = req.params;
     const transcriptFile = req.file!;
@@ -155,7 +155,7 @@ router.put(
 
 router.delete(
   "/:transcriptId",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, transcriptId } = req.params;
     await candidateService.deleteTranscriptFile(candidateId, transcriptId);
@@ -168,7 +168,7 @@ router.delete(
 
 router.get(
   "/:transcriptId/metadata",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { candidateId, transcriptId } = req.params;
     const metadata = await candidateService.getTranscriptMetadata(
@@ -190,7 +190,7 @@ router.get(
 
 router.post(
   "/:transcriptId/transcribe",
-  candidateExists,
+  CandidateAccessMiddleware.checkCandidateAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { candidateId, transcriptId } = req.params;
     const user = req.user;

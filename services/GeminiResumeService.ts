@@ -1,4 +1,5 @@
-import pdfParse from 'pdf-parse';
+import { extractPdfText } from '../utils/pdfText';
+import { UNTRUSTED_CONTENT_NOTICE, wrapUntrustedContent, clampScore, asArray } from '../utils/promptSafety';
 import { Buffer } from 'buffer';
 import { ParsedResumeData, GeminiResponse } from './types/GeminiTypes';
 import { AuditLogger } from '../utils/AuditLogger';
@@ -23,7 +24,7 @@ export async function parseResumeWithGemini(
   userEmail?: string
 ): Promise<ParsedResumeData> {
   // 1. Convert resume file to plain text
-  const textContent = await pdfParse(buffer).then(data => data.text);
+  const textContent = await extractPdfText(buffer);
 
   // 2. Build prompt
   const prompt = `You are a ai resume parser. Extract from this resume text the following structured fields as JSON:
@@ -37,8 +38,10 @@ export async function parseResumeWithGemini(
   generalAssessment: string // a 3-5 sentence professional summary based on the resume
 }
 
-Resume:
-${textContent}`;
+${UNTRUSTED_CONTENT_NOTICE}
+
+The resume text is between the UNTRUSTED_RESUME tags:
+${wrapUntrustedContent('resume', textContent)}`;
 
   // 3. Call Gemini API using centralized client with metrics tracking
   const geminiClient = GeminiClientService.getInstance();
@@ -56,7 +59,17 @@ ${textContent}`;
 
   try {
     const cleanedText = cleanGeminiJson(contentText);
-    const parsed = JSON.parse(cleanedText);
+    const raw = JSON.parse(cleanedText);
+    // Normalise the model output: expected arrays only, skill scores clamped to 0-10
+    const parsed: ParsedResumeData = {
+      ...raw,
+      skills: asArray<any>(raw.skills).map((skill) => ({ ...skill, score: clampScore(skill?.score) })),
+      education: asArray(raw.education),
+      experience: asArray(raw.experience),
+      certifications: asArray(raw.certifications),
+      strengths: asArray(raw.strengths),
+      weaknesses: asArray(raw.weaknesses),
+    };
     
     // Log successful resume parsing
     if (candidateId) {
@@ -93,6 +106,6 @@ ${textContent}`;
         metadata: { candidateName, operation: 'resume_parsing' }
       });
     }
-    throw new Error('Invalid JSON returned by Gemini: ' + contentText);
+    throw new Error('Invalid JSON returned by Gemini for resume parsing');
   }
 }
