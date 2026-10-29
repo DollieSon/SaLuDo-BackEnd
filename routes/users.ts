@@ -122,11 +122,12 @@ const sendLoginError = (
 };
 
 const logLoginAttempt = (
-  email: string | undefined,
+  email: unknown,
   status: keyof typeof LOGIN_STATUS,
   reason?: string
 ) => {
-  const normalizedEmail = email?.trim() || "Unknown user";
+  const normalizedEmail =
+    (typeof email === "string" && email.trim()) || "Unknown user";
   const statusLabel = LOGIN_STATUS[status];
   const reasonSuffix = reason ? ` (${reason})` : "";
 
