@@ -7,7 +7,7 @@
 // =======================
 
 import crypto from "crypto";
-import type { CookieOptions } from "express";
+import type { CookieOptions, Request } from "express";
 import type { SignOptions, VerifyOptions } from "jsonwebtoken";
 
 // Placeholder values that shipped in older versions of this codebase. Tokens
@@ -121,15 +121,34 @@ export const REFRESH_TOKEN_COOKIE_PATH = "/api/users/auth";
 export const REFRESH_TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * HttpOnly cookie options for the refresh token.
- * Set REFRESH_COOKIE_SAMESITE=none when the frontend and API are on different
- * sites (e.g. two *.onrender.com hosts); that also forces Secure.
+ * True when the browser calling us is on a different host than the API
+ * (e.g. frontend and API on two *.onrender.com hosts). Browsers only send a
+ * SameSite=Strict cookie to the same site, so such requests need SameSite=None.
  */
-export const getRefreshCookieOptions = (): CookieOptions => {
+const isCrossSiteRequest = (req?: Request): boolean => {
+  const origin = req?.get("origin");
+  if (!origin) return false;
+  try {
+    return new URL(origin).hostname !== req!.hostname;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * HttpOnly cookie options for the refresh token.
+ * SameSite is chosen automatically: Strict when the frontend is on the API's
+ * host, None (always with Secure) when it calls cross-site. The CORS allow-list
+ * still decides which sites can read responses. REFRESH_COOKIE_SAMESITE
+ * (strict | lax | none) overrides the automatic choice.
+ */
+export const getRefreshCookieOptions = (req?: Request): CookieOptions => {
   const configured = (process.env.REFRESH_COOKIE_SAMESITE || "").toLowerCase();
   const sameSite: CookieOptions["sameSite"] =
     configured === "none" || configured === "lax" || configured === "strict"
       ? configured
+      : isCrossSiteRequest(req)
+      ? "none"
       : "strict";
 
   return {

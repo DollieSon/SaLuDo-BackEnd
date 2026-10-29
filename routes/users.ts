@@ -92,12 +92,12 @@ const sendGenericLoginFailure = (res: Response) =>
     LOGIN_ERROR_CODES.INVALID_CREDENTIALS
   );
 
-const setRefreshTokenCookie = (res: Response, refreshToken: string) => {
-  res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, getRefreshCookieOptions());
+const setRefreshTokenCookie = (req: Request, res: Response, refreshToken: string) => {
+  res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, getRefreshCookieOptions(req));
 };
 
-const clearRefreshTokenCookie = (res: Response) => {
-  const { maxAge, ...options } = getRefreshCookieOptions();
+const clearRefreshTokenCookie = (req: Request, res: Response) => {
+  const { maxAge, ...options } = getRefreshCookieOptions(req);
   res.clearCookie(REFRESH_TOKEN_COOKIE, options);
 };
 
@@ -371,7 +371,7 @@ router.post(
 
     // The refresh token is only ever sent as an HttpOnly cookie, so page scripts
     // (and any XSS) can't read it
-    setRefreshTokenCookie(res, refreshToken);
+    setRefreshTokenCookie(req, res, refreshToken);
 
     res.json({
       success: true,
@@ -437,7 +437,7 @@ router.post(
       );
 
       if (!newTokenPair) {
-        clearRefreshTokenCookie(res);
+        clearRefreshTokenCookie(req, res);
         res.status(UNAUTHORIZED).json({
           success: false,
           message: "Invalid or expired refresh token",
@@ -445,7 +445,7 @@ router.post(
         return;
       }
 
-      setRefreshTokenCookie(res, newTokenPair.refreshToken);
+      setRefreshTokenCookie(req, res, newTokenPair.refreshToken);
 
       res.json({
         success: true,
@@ -1437,7 +1437,7 @@ router.post(
         }
       );
 
-      clearRefreshTokenCookie(res);
+      clearRefreshTokenCookie(req, res);
       res.json({
         success: true,
         message: revokeAllSessions
